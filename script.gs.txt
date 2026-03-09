@@ -1,0 +1,268 @@
+// Google Apps Script para Refrigeración Tolosa POS
+// Fuente de verdad: Google Sheets
+
+const SPREADSHEET_ID = '1L2wt60AlSlD32IrURe5wSSGWhCunVwRPIx5PslkSsY8';
+
+const SHEETS = {
+  PRODUCTOS: 'Productos',
+  CLIENTES: 'Clientes',
+  VENTAS: 'Ventas',
+  CUENTA_CORRIENTE: 'CuentaCorriente',
+  TURNOS: 'Turnos',
+  GASTOS: 'Gastos',
+  USUARIOS: 'Usuarios',
+  PROVEEDORES: 'Proveedores'
+};
+
+function getSheet(name) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sheet = ss.getSheetByName(name);
+  if (!sheet) throw new Error("Hoja '" + name + "' no encontrada.");
+  return sheet;
+}
+
+function getColumnHeaders(sheet) {
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const map = {};
+  headers.forEach((h, i) => { map[h] = i + 1; });
+  return map;
+}
+
+function findRowByValue(sheet, value, column) {
+  const data = sheet.getRange(1, column, sheet.getLastRow(), 1).getValues();
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0]) === String(value)) return i + 1;
+  }
+  return -1;
+}
+
+function getFirstEmptyRow(sheet) {
+  const column = sheet.getRange('A:A').getValues();
+  for (var i = 0; i < column.length; i++) {
+    if (column[i][0] === "") return i + 1;
+  }
+  return column.length + 1;
+}
+
+function parseSheetNumber(val) {
+  if (typeof val === 'number') return val;
+  if (!val || typeof val !== 'string') return 0;
+  const sanitized = val.replace(/[$\s.]/g, '').replace(',', '.');
+  return parseFloat(sanitized) || 0;
+}
+
+function formatDateForSheet(date) {
+  return Utilities.formatDate(date, "GMT-3", "yyyy-MM-dd HH-mm-ss");
+}
+
+function generateUniqueId() {
+  return Utilities.getUuid();
+}
+
+function doPost(e) {
+  try {
+    const request = JSON.parse(e.postData.contents);
+    const action = request.action;
+    const payload = request.payload;
+    let result;
+
+    switch (action) {
+      case 'getProductsAndSyncStatus': result = getProductsAndSyncStatus(); break;
+      case 'login': result = login(payload); break;
+      case 'openShift': result = openShift(payload); break;
+      case 'closeShift': result = closeShift(payload); break;
+      case 'addSale': result = addSale(payload); break;
+      case 'massUpdatePrices': result = massUpdatePrices(payload); break;
+      case 'recordStockEntry': result = recordStockEntry(payload); break;
+      case 'addCustomer': result = addCustomer(payload); break;
+      case 'updateProduct': result = updateProduct(payload); break;
+      case 'deleteProduct': result = deleteProduct(payload); break;
+      case 'addProduct': result = addProduct(payload); break;
+      case 'annulSale': result = annulSale(payload); break;
+      case 'recordPayment': result = recordPayment(payload); break;
+      case 'addExpense': result = addExpense(payload); break;
+      case 'updateExpense': result = updateExpense(payload); break;
+      case 'deleteExpense': result = deleteExpense(payload); break;
+      case 'addSupplier': result = addSupplier(payload); break;
+      case 'updateSupplier': result = updateSupplier(payload); break;
+      case 'getAllUsersForAdmin': result = getAllUsersForAdmin(); break;
+      case 'getCategoriesData': result = getCategoriesData(); break;
+      case 'markSaleAsBilled': result = markSaleAsBilled(payload); break;
+      case 'createElectronicInvoice': result = { status: 'success', data: { cae: 'PROCESO_EXTERNO', nro: 'PENDIENTE' } }; break; 
+      default: throw new Error("Acción no reconocida: " + action);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({ status: 'success', data: result }))
+      .setMimeType(ContentService.MimeType.TEXT);
+
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: error.message }))
+      .setMimeType(ContentService.MimeType.TEXT);
+  }
+}
+
+function getProductsAndSyncStatus() {
+  const sheet = getSheet(SHEETS.PRODUCTOS);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const result = [];
+  for (let i = 1; i < data.length; i++) {
+    const item = {};
+    headers.forEach((h, j) => { item[h] = data[i][j]; });
+    result.push(item);
+  }
+  return result;
+}
+
+function login(payload) {
+  const usersSheet = getSheet(SHEETS.USUARIOS);
+  const shiftsSheet = getSheet(SHEETS.TURNOS);
+  const users = usersSheet.getDataRange().getValues();
+  const headers = users[0];
+  let user = null;
+  for(let i=1; i<users.length; i++) {
+    if (String(users[i][0]) === String(payload.userId) && String(users[i][2]) === String(payload.pin)) {
+      user = {};
+      headers.forEach((h, j) => { user[h] = users[i][j]; });
+      break;
+    }
+  }
+  if (!user) throw new Error("ID de usuario o PIN incorrecto.");
+  if (user.Activo !== 'SI') throw new Error("Usuario inactivo.");
+  const shifts = shiftsSheet.getDataRange().getValues();
+  const shiftHeaders = shifts[0];
+  let activeShift = null;
+  for(let i=shifts.length-1; i>=1; i--) {
+    if (String(shifts[i][1]) === String(payload.userId) && shifts[i][10] === 'Abierto') {
+      activeShift = {};
+      shiftHeaders.forEach((h, j) => { activeShift[h] = shifts[i][j]; });
+      break;
+    }
+  }
+  return { user, activeShift };
+}
+
+/**
+ * CAMBIO QUIRÚRGICO — NO ROMPER FÓRMULAS
+ * Actualiza solo el precio objetivo y la fecha de actualización, preservando fórmulas en otras columnas.
+ */
+function massUpdatePrices(payload) {
+  const { filterBy, filterValue, targetPrice, updateType, updateValue } = payload;
+  const sheet = getSheet(SHEETS.PRODUCTOS);
+  const data = sheet.getDataRange().getValues();
+  const headers = getColumnHeaders(sheet);
+  
+  const targetColIndex = headers[targetPrice];
+  const lastUpdateColIndex = headers['Ultima.Actualizacion'];
+  const filterColIndex = headers[filterBy];
+  
+  if (!targetColIndex) throw new Error(`Columna de precio '${targetPrice}' no encontrada.`);
+  
+  let updatedCount = 0;
+  const nowStr = formatDateForSheet(new Date());
+
+  for (let i = 1; i < data.length; i++) {
+    const row = data[i];
+    let matches = false;
+    
+    if (filterBy === 'All') {
+      matches = true;
+    } else if (filterColIndex && String(row[filterColIndex - 1]) === String(filterValue)) {
+      matches = true;
+    }
+    
+    if (matches) {
+      const currentPrice = parseSheetNumber(row[targetColIndex - 1]);
+      let newPrice = currentPrice;
+      
+      if (updateType === 'percentage') {
+        newPrice = currentPrice * (1 + updateValue / 100);
+      } else {
+        newPrice = currentPrice + updateValue;
+      }
+      
+      const rowIndex = i + 1;
+      // ACTUALIZACIÓN CELDA A CELDA PARA PRESERVAR FÓRMULAS EN OTRAS COLUMNAS (EJ: "Auto?")
+      sheet.getRange(rowIndex, targetColIndex).setValue(newPrice);
+      if (lastUpdateColIndex) {
+        sheet.getRange(rowIndex, lastUpdateColIndex).setValue(nowStr);
+      }
+      updatedCount++;
+    }
+  }
+  return { status: 'success', message: `Se actualizaron ${updatedCount} productos.` };
+}
+
+function addSale(saleData) {
+    const ventasSheet = getSheet(SHEETS.VENTAS);
+    const productosSheet = getSheet(SHEETS.PRODUCTOS);
+    const ccSheet = getSheet(SHEETS.CUENTA_CORRIENTE);
+    const ventasHeaders = getColumnHeaders(ventasSheet);
+    const productosHeaders = getColumnHeaders(productosSheet);
+
+    const existingSaleRow = findRowByValue(ventasSheet, saleData.id, ventasHeaders['ID_Venta'] || 1);
+    if (existingSaleRow !== -1) return { status: 'success', message: 'La venta ya existe.' };
+    
+    const totalEcheq = (saleData.payment.echeqs || []).reduce((sum, e) => sum + e.amount, 0);
+    const newRowIndex = getFirstEmptyRow(ventasSheet);
+    const rowValues = new Array(ventasSheet.getLastColumn()).fill('');
+    
+    const mapping = {
+      'ID_Venta': saleData.id, 'Fecha': saleData.date, 'ID_Cliente': saleData.customer.Id_Cliente,
+      'Nombre_Cliente': saleData.customer['Nombre y Apellido'], 'Cant_Productos': saleData.itemCount,
+      'Subtotal': saleData.subtotal, 'Descripcion_Ajuste': saleData.adjustmentDescription,
+      'Monto_Ajuste': saleData.adjustmentAmount, 'Total': saleData.total,
+      'Pago_Efectivo': saleData.payment.cash, 'Pago_Digital': saleData.payment.digital,
+      'Productos (JSON)': JSON.stringify(saleData.items), 'Estado': 'Completada',
+      'ID_Turno': saleData.shiftId, 'Facturacion': saleData.facturacion,
+      'Pago_Cuenta_Corriente': saleData.payment.credit, 'Pago_Echeq': totalEcheq,
+      'Echeqs (JSON)': JSON.stringify(saleData.payment.echeqs || [])
+    };
+
+    Object.keys(mapping).forEach(header => {
+      const colIndex = ventasHeaders[header];
+      if (colIndex) rowValues[colIndex - 1] = mapping[header];
+    });
+
+    ventasSheet.getRange(newRowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+    
+    const vendidosCol = productosHeaders['Vendidos'];
+    const pvCol = productosHeaders['Venta.PV'];
+    
+    saleData.items.forEach(item => {
+        if (item.product.cod.startsWith('COMMON_')) return;
+        const row = findRowByValue(productosSheet, item.product.cod, 1);
+        if (row > -1) {
+            if (vendidosCol) {
+                const cell = productosSheet.getRange(row, vendidosCol);
+                cell.setValue(parseSheetNumber(cell.getValue()) + item.quantity);
+            }
+            if (pvCol) {
+                const cell = productosSheet.getRange(row, pvCol);
+                cell.setValue(parseSheetNumber(cell.getValue()) + item.quantity);
+            }
+        }
+    });
+
+    if (saleData.payment.credit > 0 && saleData.customer.Id_Cliente !== '0') {
+        ccSheet.appendRow([generateUniqueId(), saleData.date, saleData.customer.Id_Cliente, 'Venta', `Venta ID: ${saleData.id.slice(0, 8)}`, saleData.payment.credit, 0, 0, saleData.id, '', 'Cta. Cte.', saleData.shiftId]);
+    }
+    return { status: 'success' };
+}
+
+function updateProduct(payload) {
+  const sheet = getSheet(SHEETS.PRODUCTOS);
+  const headers = getColumnHeaders(sheet);
+  const row = findRowByValue(sheet, payload.cod, 1);
+  if (row === -1) throw new Error("Producto no encontrado.");
+  
+  Object.keys(payload).forEach(key => {
+    const col = headers[key];
+    if (col && key !== 'cod') {
+      sheet.getRange(row, col).setValue(payload[key]);
+    }
+  });
+  const updateCol = headers['Ultima.Actualizacion'];
+  if (updateCol) sheet.getRange(row, updateCol).setValue(formatDateForSheet(new Date()));
+  return { status: 'success' };
+}

@@ -1,0 +1,256 @@
+
+// FIX: Replaced the entire file content which contained API logic and a circular import.
+// This file now correctly defines and exports all shared types for the application.
+
+export interface Product {
+  cod: string;
+  Producto: string;
+  Categoria?: string;
+  'Sub Categoria'?: string;
+  Descripcion?: string;
+  'cod.barras'?: string;
+  Proveedor?: string;
+  'P.Costo'?: number;
+  Precio?: number; // Precio de lista
+  'Precio de Oferta'?: number; // Precio promocional opcional
+  'Stock-Inicial'?: number;
+  Vendidos?: number;
+  Ingresos?: number;
+  stockk?: number; // Stock actual
+  'Precio Final'?: number; // Precio de venta final
+  Minimo?: number;
+  'Venta.PV'?: number;
+  Online?: boolean;
+  Activo?: boolean;
+  FOTOGRAFIA?: string;
+  Imagen?: string;
+  'Ultima.Actualizacion'?: string;
+  Eliminado?: boolean;
+  Eliminado_At?: string;
+  // Nuevos campos opcionales
+  Marca?: string;
+  Modelo_Compatible?: string;
+  Tipo_Tecnico?: string;
+  Especificaciones?: string;
+  Clase_Envio?: string;
+  Titulo_Web?: string;
+  Slug_URL?: string;
+  Descripcion_Corta?: string;
+  Descripcion_Larga?: string;
+  Imagenes_Extra_URLs?: string;
+  Video_URL?: string;
+  Ficha_Tecnica_URL?: string;
+  Peso_kg?: number;
+  Alto_cm?: number;
+  Ancho_cm?: number;
+  Profundidad_cm?: number;
+  Fragil?: boolean;
+  Embalaje_Especial?: boolean;
+  Stock_Online?: number;
+  Permitir_Venta_Sin_Stock?: boolean;
+  Plazo_Reposicion_Dias?: number;
+  Estado_Publicacion?: string;
+  Destacado?: boolean;
+  Orden_Catalogo?: number;
+  Garantia_Meses?: number;
+  Notas_Internas?: string;
+  'Auto?'?: any;
+}
+
+export interface Customer {
+  Id_Cliente: string;
+  'Nombre y Apellido': string;
+  Whatsapp: string;
+  'Tipo.Documento': string;
+  Documento: string;
+  Condicion_IVA: 'Responsable Inscripto' | 'Consumidor Final' | 'Responsable Monotributo' | 'Sujeto Exento' | 'Sujeto no Categorizado' | 'IVA No Alcanzado';
+  Deuda: number;
+  Pagos: number;
+  'Fecha Creacion'?: string;
+}
+
+export interface CartItem {
+  product: Product;
+  quantity: number;
+  price: number;
+}
+
+export interface AccountTransaction {
+  id: string;
+  date: Date;
+  type: 'Venta' | 'Pago' | 'Nota de Crédito' | 'Ajuste';
+  description: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  originalSaleId?: string;
+  items?: CartItem[];
+  shiftId?: string;
+  facturaInfo?: {
+    cae: string;
+    fecha: string;
+    nro: string;
+    vtoCae: string;
+    qrData: string;
+    url?: string;
+    ticketUrl?: string;
+  };
+}
+
+export interface ECheq {
+  amount: number;
+  days: number;
+}
+
+export interface Sale {
+  id: string;
+  date: Date;
+  customer: Customer | null;
+  items: CartItem[];
+  itemCount: number;
+  subtotal: number;
+  adjustmentAmount?: number;
+  adjustmentDescription?: string;
+  total: number;
+  payment: {
+    cash: number;
+    digital: number;
+    credit: number;
+    echeqs: ECheq[];
+  };
+  shiftId?: string;
+  facturacion: 'A' | 'B' | 'N';
+  status?: 'active' | 'annulled';
+  returnedTotal?: number;
+  creditNotes?: AccountTransaction[];
+  facturaInfo?: {
+    cae: string;
+    fecha: string;
+    nro: string;
+    vtoCae: string;
+    qrData: string;
+    url?: string;
+    ticketUrl?: string;
+  };
+  paymentCondition?: string;
+  isPendingSync?: boolean;
+}
+
+export interface Expense {
+  id_gastos: string;
+  Fecha: Date;
+  FechaRaw?: string;
+  Monto: number;
+  Detalle: string;
+  Efectivo: number;
+  Digital: number;
+  shiftId?: string;
+}
+
+export interface User {
+  ID_Usuario: string;
+  Nombre: string;
+  PIN: string;
+  Rol: 'Admin' | 'Vendedor';
+  Activo: 'SI' | 'NO';
+}
+
+export interface Shift {
+  ID_Turno: string;
+  ID_Usuario: string;
+  Fecha_Apertura: Date;
+  Fecha_Cierre: Date | null;
+  Monto_Apertura: number;
+  Monto_Cierre_Declarado: number;
+  Total_Ventas_Efectivo: number;
+  Total_Gastos_Efectivo: number;
+  Efectivo_Esperado: number;
+  Diferencia: number;
+  Estado: 'Abierto' | 'Cerrado';
+}
+
+export interface Budget {
+    id: string;
+    date: Date;
+    customer: Customer;
+    items: CartItem[];
+    total: number;
+    status: 'pending' | 'approved' | 'rejected';
+}
+
+export interface StockEntryItem {
+  product: Product;
+  quantity: number;
+  costPrice: number;
+  salePrice: number;
+  reactivate?: boolean;
+}
+
+export interface BillingSettings {
+  apiUrl: string;
+  apiKey: string;
+  apiToken: string;
+  userToken: string;
+}
+
+export interface CreditNote {
+  id: string;
+  date: Date;
+  customer: Customer;
+  items: CartItem[];
+  total: number;
+  description: string;
+  originalSaleId: string;
+  facturaInfo?: {
+    cae: string;
+    fecha: string;
+    nro: string;
+    vtoCae: string;
+    qrData: string;
+    url?: string;
+    ticketUrl?: string;
+  };
+}
+
+export interface PrintStyles {
+  fontFamily: string;
+  baseFontSize: number;
+  baseFontWeight: number;
+  headerFontSize: number;
+  totalFontSize: number;
+  unitPriceFontSize: number;
+  unitPriceFontWeight: number;
+  ticketWidth: number;
+  padding: number;
+  lineHeight: number;
+  boldHeader: boolean;
+  boldTotal: boolean;
+  boldAll: boolean; // Nuevo campo para negrita global
+  separatorStyle: 'dashed' | 'solid' | 'dotted';
+  paperSize: '58mm' | '80mm';
+  leftMargin: number;
+  rightMargin: number;
+}
+
+export interface SyncRequest {
+  id: string;
+  action: string;
+  payload: any;
+  timestamp: number;
+  status?: 'queued' | 'syncing' | 'error';
+  retryCount?: number;
+  lastError?: string;
+}
+
+export interface Supplier {
+  ID_Proveedor: string;
+  Nombre: string;
+  CUIT?: string;
+  Condicion_IVA?: 'Responsable Inscripto' | 'Consumidor Final' | 'Responsable Monotributo' | 'Sujeto Exento' | 'Sujeto no Categorizado' | 'IVA No Alcanzado';
+  Email?: string;
+  Telefono?: string;
+  Contacto?: string;
+  Direccion?: string;
+  Activo: 'SI' | 'NO';
+  Fecha_Creacion?: string;
+}
