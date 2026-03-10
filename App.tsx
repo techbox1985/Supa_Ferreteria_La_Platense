@@ -152,29 +152,9 @@ setRawTransactions(fetchedTransactions);
                 }
             }
 
-            try {
-                await offlineService.updateRequest({ ...req, status: 'syncing' });
-                const response = await api._forcePostToScript(req.action, req.payload);
-                
-                // VALIDACIÓN DE ACK (CONFIRMACIÓN FUERTE)
-                if (response.status === 'success') {
-                    await offlineService.removeFromQueue(req.id);
-                    console.debug(`[SYNC_OK] ${req.action} (${req.id}) sincronizado.`);
-                } else {
-                    throw new Error(response.message || 'Error en respuesta del servidor');
-                }
-            } catch (error: any) {
-                console.error(`[SYNC_FAIL] Error en ${req.id}:`, error);
-                await offlineService.updateRequest({ 
-                    ...req, 
-                    status: 'error', 
-                    retryCount: (req.retryCount || 0) + 1,
-                    lastError: error.message,
-                    timestamp: Date.now() // Actualizar para el backoff
-                });
-                // No detenemos toda la cola, pero sí damos un respiro
+                // _forcePostToScript ya no existe; aislar para evitar crash
+                addToast('Sincronización offline no soportada: función _forcePostToScript no implementada.', 'error');
                 break; 
-            }
         }
         
         await updatePendingSyncCount();
@@ -205,8 +185,8 @@ setRawTransactions(fetchedTransactions);
             const customerId = String(t.customer_id || t.Id_Cliente || t.customerId || t['ID_Cliente'] || t['ID Cliente'] || t['IDCliente'] || '').trim();
             if (!customerId || customerId === '') return;
             const summary = transactionSummary.get(customerId) || { totalDebit: 0, totalCredit: 0 };
-            summary.totalDebit += safeNumber(t.debit ?? t.Debe);
-            summary.totalCredit += safeNumber(t.credit ?? t.Haber);
+            summary.totalDebit += parseSheetNumber(t.debit ?? t.Debe);
+            summary.totalCredit += parseSheetNumber(t.credit ?? t.Haber);
             transactionSummary.set(customerId, summary);
         });
         return safeCustomers.map(customer => {
@@ -247,39 +227,6 @@ setRawTransactions(fetchedTransactions);
                 acc.push(t);
             }
             return acc;
-        }, []);
-
-        const hydratedTransactions: AccountTransaction[] = (uniqueTransactions ?? []).map((t: any, index: number): AccountTransaction => {
-            let items: CartItem[] = [];
-            const itemsJsonString = t.Items_JSON || t['Items JSON'] || t['Items_JSON'];
-
-            if (t.Tipo === 'Nota de Crédito' && itemsJsonString && typeof itemsJsonString === 'string') {
-                try {
-                    const parsedJson = JSON.parse(itemsJsonString);
-                    if (Array.isArray(parsedJson)) {
-                        items = parsedJson.map((itemData: any): CartItem | null => {
-                            if (!itemData || !itemData.product) return null;
-                             const productDetail: Product = productsMap.get(itemData.product.cod) || createPlaceholderProduct(itemData.product.cod, itemData.product.Producto, itemData.product.Precio);
-                            return { product: productDetail, quantity: itemData.quantity, price: itemData.product.Precio || 0 };
-                        }).filter((i): i is CartItem => i !== null);
-                    }
-                } catch (e) {
-                    console.error('Error parsing credit note items JSON:', e);
-                }
-            }
-            
-            return {
-                id: t.ID_Transaccion || t['ID Transaccion'] || t['ID_Transaccion'] || t.id || `temp-tx-${index}`,
-                date: api.robustParseDate(t.Fecha || t['Fecha']), 
-                type: t.Tipo as AccountTransaction['type'], 
-                description: t.Descripcion || t['Descripcion'],
-                debit: parseSheetNumber(t.Debe || t['Debe']), 
-                credit: parseSheetNumber(t.Haber || t['Haber']), 
-                balance: parseSheetNumber(t.Saldo || t['Saldo']),
-                originalSaleId: t.Venta_Original_ID || t['Venta Original ID'] || t['Venta_OriginalID'], 
-                items,
-                shiftId: t.ID_Turno || t['ID Turno'] || t['ID_Turno'] || undefined,
-            };
         });
 
         const creditNotesBySaleId = new Map<string, AccountTransaction[]>();
@@ -302,18 +249,18 @@ setRawTransactions(fetchedTransactions);
                 let items: CartItem[] = [];
                 const itemsJsonString = saleRow['Productos (JSON)'] || saleRow['Productos JSON'] || saleRow['Productos(JSON)'];
                 if (itemsJsonString && typeof itemsJsonString === 'string') {
-                    try {
-                        const parsedJson = JSON.parse(itemsJsonString);
-                        if (Array.isArray(parsedJson)) {
-                            items = parsedJson.map((itemData: any): CartItem | null => {
-                                if (!itemData || !itemData.product) return null;
-                                const product: Product = productsMap.get(itemData.product.cod) || createPlaceholderProduct(itemData.product.cod, itemData.product.Producto, itemData.product.Precio);
-                                return { product, quantity: itemData.quantity, price: itemData.product.Precio || 0 };
-                            }).filter((i): i is CartItem => i !== null);
-                        }
-                    } catch (e) {
-                        console.error('Error parsing sale items JSON:', e);
-                    }
+                    return {
+                        id: t.ID_Transaccion || t['ID Transaccion'] || t['ID_Transaccion'] || t.id || `temp-tx-${index}`,
+                        date: new Date(t.Fecha || t['Fecha']),
+                        type: t.Tipo as AccountTransaction['type'],
+                        description: t.Descripcion || t['Descripcion'],
+                        debit: parseSheetNumber(t.Debe || t['Debe']),
+                        credit: parseSheetNumber(t.Haber || t['Haber']),
+                        balance: parseSheetNumber(t.Saldo || t['Saldo']),
+                        originalSaleId: t.Venta_Original_ID || t['Venta Original ID'] || t['Venta_OriginalID'],
+                        items,
+                        shiftId: t.ID_Turno || t['ID Turno'] || t['ID_Turno'] || undefined,
+                    };
                 }
 
                 let echeqs: ECheq[] = [];
@@ -349,7 +296,7 @@ setRawTransactions(fetchedTransactions);
                 const facturaCae = saleRow.Factura_CAE || saleRow['Factura CAE'] || saleRow.FacturaCAE;
                 const facturaInfo = facturaCae ? {
                     cae: String(facturaCae),
-                    fecha: api.robustParseDate(saleRow.Factura_Fecha || saleRow['Factura Fecha'] || saleRow.FacturaFecha).toLocaleString('es-AR'),
+                    fecha: new Date(saleRow.Factura_Fecha || saleRow['Factura Fecha'] || saleRow.FacturaFecha).toLocaleString('es-AR'),
                     nro: String(saleRow.Factura_Nro || saleRow['Factura Nro'] || saleRow.FacturaNro || ''),
                     vtoCae: saleRow.Factura_Vto_CAE || saleRow['Factura Vto CAE'] || saleRow.FacturaVtoCAE || '',
                     qrData: saleRow.Factura_QR_Data || saleRow['Factura QR Data'] || saleRow.FacturaQRData || '',
@@ -358,7 +305,7 @@ setRawTransactions(fetchedTransactions);
                 } : undefined;
 
                 const sale: Sale = {
-                    id: saleId, date: api.robustParseDate(saleRow.Fecha || saleRow['Fecha']), customer: saleCustomer, subtotal, total,
+                    id: saleId, date: new Date(saleRow.Fecha || saleRow['Fecha']), customer: saleCustomer, subtotal, total,
                     adjustmentAmount: parseSheetNumber(saleRow.Monto_Ajuste || saleRow['Monto Ajuste'] || saleRow.MontoAjuste), 
                     adjustmentDescription: saleRow.Descripcion_Ajuste || saleRow['Descripcion Ajuste'] || saleRow.DescripcionAjuste || '',
                     payment: { 
@@ -388,7 +335,7 @@ const processedTransactions = useMemo(() => {
     const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
     return (safeRawTransactions).map((t: any, index: number): AccountTransaction => ({
         id: t.ID_Transaccion || t.id || `temp-${index}`,
-        date: api.robustParseDate(t.Fecha || t['Fecha']),
+        date: new Date(t.Fecha || t['Fecha']),
         type: t.Tipo as any,
         description: t.Descripcion || t['Descripcion'],
         debit: parseSheetNumber(t.Debe || t['Debe']),
