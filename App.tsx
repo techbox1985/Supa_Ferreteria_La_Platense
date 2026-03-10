@@ -47,6 +47,7 @@ const AppContent: React.FC = () => {
 const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 const [categories, setCategories] = useState<string[]>([]);
 const [rawTransactions, setRawTransactions] = useState<any[]>([]);
+const [accountTransactions, setAccountTransactions] = useState<any[]>([]);
     
     // Estados de UI
     const [isLoading, setIsLoading] = useState(true);
@@ -89,8 +90,8 @@ setSuppliers(fetchedSuppliers);
 const fetchedCategoriesData = await api.getCategoriesSupabase();
 setCategories((fetchedCategoriesData || []).map((c: any) => c.name).filter(Boolean));
 
-const fetchedTransactions = await api.getAccountTransactions();
-setRawTransactions(fetchedTransactions);
+const fetchedAccountTransactions = await api.getAccountTransactions();
+setAccountTransactions(fetchedAccountTransactions);
 
     } catch (error) {
         console.error("Error fetching data:", error);
@@ -177,12 +178,12 @@ setRawTransactions(fetchedTransactions);
 
     const customersWithCalculatedDebt = useMemo(() => {
         const safeCustomers = Array.isArray(customers) ? customers : [];
-        const safeTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
-        if (safeCustomers.length === 0 && safeTransactions.length === 0) return [];
+        const safeAccountTransactions = Array.isArray(accountTransactions) ? accountTransactions : [];
+        if (safeCustomers.length === 0 && safeAccountTransactions.length === 0) return [];
 
         // Agrupar transacciones estrictamente por customer_id y calcular deuda
         const transactionsByCustomer = new Map();
-        for (const t of safeTransactions) {
+        for (const t of safeAccountTransactions) {
             const customerId = t.customer_id ? String(t.customer_id).trim() : '';
             if (!customerId) continue;
             if (!transactionsByCustomer.has(customerId)) transactionsByCustomer.set(customerId, []);
@@ -196,7 +197,7 @@ setRawTransactions(fetchedTransactions);
             const pagos = customerTransactions.reduce((acc, t) => acc + (Number(t.credit) || 0), 0);
             return { ...customer, Deuda: deuda, Pagos: pagos };
         });
-    }, [customers, rawTransactions]);
+    }, [customers, accountTransactions]);
 
     // Mover processedTransactions ANTES de processedSales para evitar undefined
     const processedTransactions = useMemo(() => {
