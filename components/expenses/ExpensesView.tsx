@@ -77,11 +77,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, shifts, al
 
     const safeExpensesSource = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
 
+    // Mostrar todos los gastos por defecto para todos los roles
     const visibleExpenses = useMemo(() => {
         if (!currentUser) return [];
-        if (currentUser.Rol === 'Admin') return safeExpensesSource;
-        return safeExpensesSource.filter(e => e.shiftId === activeShift?.ID_Turno);
-    }, [safeExpensesSource, currentUser, activeShift]);
+        return safeExpensesSource;
+        // Si se quiere filtrar por turno, implementar un filtro adicional aquí
+    }, [safeExpensesSource, currentUser]);
 
     const filteredExpenses = useMemo(() => {
         if (!startDate || !endDate) return [];
