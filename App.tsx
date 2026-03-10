@@ -202,12 +202,27 @@ setRawTransactions(fetchedTransactions);
         });
     }, [customers, rawTransactions]);
 
+    // Mover processedTransactions ANTES de processedSales para evitar undefined
+    const processedTransactions = useMemo(() => {
+        const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
+        return (safeRawTransactions).map((t: any, index: number): AccountTransaction => ({
+            id: t.ID_Transaccion || t.id || `temp-${index}`,
+            date: new Date(t.Fecha || t['Fecha']),
+            type: t.Tipo as any,
+            description: t.Descripcion || t['Descripcion'],
+            debit: parseSheetNumber(t.Debe || t['Debe']),
+            credit: parseSheetNumber(t.Haber || t['Haber']),
+            balance: parseSheetNumber(t.Saldo || t['Saldo']),
+            originalSaleId: t.Venta_Original_ID || t['Venta Original ID'],
+            shiftId: t.ID_Turno || t['ID Turno']
+        }));
+    }, [rawTransactions]);
+
     const processedSales = useMemo(() => {
         const safeProducts = Array.isArray(products) ? products : [];
         const safeRawSales = Array.isArray(rawSales) ? rawSales : [];
         const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
         if (isLoading && safeRawSales.length === 0) return [];
-
 
         const customersMap: Map<string, Customer> = new Map(customersWithCalculatedDebt.map((c: Customer) => [String(c.Id_Cliente), c]));
 
@@ -304,23 +319,8 @@ setRawTransactions(fetchedTransactions);
             }, [])
             .sort((a, b) => b.date.getTime() - a.date.getTime());
 
-    return finalSales;
-}, [products, rawSales, rawTransactions, isLoading, customersWithCalculatedDebt]);
-
-const processedTransactions = useMemo(() => {
-    const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
-    return (safeRawTransactions).map((t: any, index: number): AccountTransaction => ({
-        id: t.ID_Transaccion || t.id || `temp-${index}`,
-        date: new Date(t.Fecha || t['Fecha']),
-        type: t.Tipo as any,
-        description: t.Descripcion || t['Descripcion'],
-        debit: parseSheetNumber(t.Debe || t['Debe']),
-        credit: parseSheetNumber(t.Haber || t['Haber']),
-        balance: parseSheetNumber(t.Saldo || t['Saldo']),
-        originalSaleId: t.Venta_Original_ID || t['Venta Original ID'],
-        shiftId: t.ID_Turno || t['ID Turno']
-    }));
-}, [rawTransactions]);
+        return finalSales;
+    }, [products, rawSales, rawTransactions, isLoading, customersWithCalculatedDebt, processedTransactions]);
 
     // --- POS Handlers ---
 
