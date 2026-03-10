@@ -180,27 +180,21 @@ setRawTransactions(fetchedTransactions);
         const safeTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
         if (safeCustomers.length === 0 && safeTransactions.length === 0) return [];
 
-        // Agrupar transacciones solo por customer_id y usar solo debit/credit
-        const transactionSummary = new Map<string, { totalDebit: number, totalCredit: number }>();
-        safeTransactions.forEach(t => {
+        // Agrupar transacciones estrictamente por customer_id y calcular deuda
+        const transactionsByCustomer = new Map();
+        for (const t of safeTransactions) {
             const customerId = t.customer_id ? String(t.customer_id).trim() : '';
-            if (!customerId) return;
-            const summary = transactionSummary.get(customerId) || { totalDebit: 0, totalCredit: 0 };
-            summary.totalDebit += typeof t.debit === 'number' ? t.debit : parseSheetNumber(t.debit);
-            summary.totalCredit += typeof t.credit === 'number' ? t.credit : parseSheetNumber(t.credit);
-            transactionSummary.set(customerId, summary);
-        });
+            if (!customerId) continue;
+            if (!transactionsByCustomer.has(customerId)) transactionsByCustomer.set(customerId, []);
+            transactionsByCustomer.get(customerId).push(t);
+        }
+
         return safeCustomers.map(customer => {
-            // customer.Id_Cliente es el id de Supabase (string)
-            const summary = transactionSummary.get(String(customer.Id_Cliente));
-            if (summary) {
-                return {
-                    ...customer,
-                    Deuda: summary.totalDebit - summary.totalCredit,
-                    Pagos: summary.totalCredit
-                };
-            }
-            return { ...customer, Deuda: 0, Pagos: 0 };
+            const customerId = customer.Id_Cliente ? String(customer.Id_Cliente).trim() : '';
+            const customerTransactions = transactionsByCustomer.get(customerId) || [];
+            const deuda = customerTransactions.reduce((acc, t) => acc + (Number(t.debit) || 0) - (Number(t.credit) || 0), 0);
+            const pagos = customerTransactions.reduce((acc, t) => acc + (Number(t.credit) || 0), 0);
+            return { ...customer, Deuda: deuda, Pagos: pagos };
         });
     }, [customers, rawTransactions]);
 
