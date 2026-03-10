@@ -92,7 +92,21 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
     }, []);
 
     const handleViewStatement = useCallback((customer: Customer) => {
-      setStatementCustomer(customer);
+      // Normalizar y proteger el objeto customer antes de abrir el modal
+      if (!customer || typeof customer !== 'object') return;
+      // Asegurar que los campos mínimos existen
+      const safeCustomer: Customer = {
+        Id_Cliente: customer.Id_Cliente || customer.id || '',
+        'Nombre y Apellido': customer['Nombre y Apellido'] || customer.name || '',
+        Whatsapp: customer.Whatsapp || customer.whatsapp || '',
+        'Tipo.Documento': customer['Tipo.Documento'] || customer.document_type || '',
+        Documento: customer.Documento || customer.document_number || '',
+        Condicion_IVA: customer.Condicion_IVA || customer.iva_condition || 'Consumidor Final',
+        Deuda: Number(customer.Deuda ?? 0),
+        Pagos: Number(customer.Pagos ?? 0),
+        'Fecha Creacion': customer['Fecha Creacion'] || customer.created_at || undefined
+      };
+      setStatementCustomer(safeCustomer);
     }, []);
 
     // El guardado de clientes sigue usando la API, pero refresca usando refreshData de props

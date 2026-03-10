@@ -40,19 +40,30 @@ const getTypeStyle = (type: AccountTransaction['type']) => {
 }
 
 export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ isOpen, onClose, customer, allSales, isAdmin, refreshData }) => {
+    // Guardar y normalizar el customer recibido
+    const safeCustomer: Customer = {
+        Id_Cliente: customer?.Id_Cliente || customer?.id || '',
+        'Nombre y Apellido': customer?.['Nombre y Apellido'] || customer?.name || '',
+        Whatsapp: customer?.Whatsapp || customer?.whatsapp || '',
+        'Tipo.Documento': customer?.['Tipo.Documento'] || customer?.document_type || '',
+        Documento: customer?.Documento || customer?.document_number || '',
+        Condicion_IVA: customer?.Condicion_IVA || customer?.iva_condition || 'Consumidor Final',
+        Deuda: Number(customer?.Deuda ?? 0),
+        Pagos: Number(customer?.Pagos ?? 0),
+        'Fecha Creacion': customer?.['Fecha Creacion'] || customer?.created_at || undefined
+    };
     const [transactions, setTransactions] = useState<AccountTransaction[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const { addToast } = useToast();
-  const [saleToAnnul, setSaleToAnnul] = useState<AccountTransaction | null>(null);
-  const [isAnnuling, setIsAnnuling] = useState(false);
-
+    const [isLoading, setIsLoading] = useState(false);
+    const { addToast } = useToast();
+    const [saleToAnnul, setSaleToAnnul] = useState<AccountTransaction | null>(null);
+    const [isAnnuling, setIsAnnuling] = useState(false);
 
     useEffect(() => {
-        if (isOpen && customer && customer.Id_Cliente) {
+        if (isOpen && safeCustomer && safeCustomer.Id_Cliente) {
             const fetchStatement = async () => {
                 setIsLoading(true);
                 try {
-                    const statement = await api.getCustomerStatement(customer.Id_Cliente);
+                    const statement = await api.getCustomerStatement(safeCustomer.Id_Cliente);
                     if (!Array.isArray(statement)) {
                         setTransactions([]);
                     } else {
@@ -70,7 +81,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         } else {
             setTransactions([]);
         }
-    }, [isOpen, customer && customer.Id_Cliente]);
+    }, [isOpen, safeCustomer && safeCustomer.Id_Cliente]);
   
     const summary = useMemo(() => {
         if (!Array.isArray(transactions) || transactions.length === 0) {
@@ -144,7 +155,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
 
   return (
     <>
-        <Modal isOpen={isOpen} onClose={onClose} title={`Estado de Cuenta - ${customer['Nombre y Apellido']}`} size="xl">
+        <Modal isOpen={isOpen} onClose={onClose} title={`Estado de Cuenta - ${safeCustomer['Nombre y Apellido']}`} size="xl">
         <div className="space-y-4">
             <div className="flex justify-between items-start gap-4 flex-wrap">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-grow">

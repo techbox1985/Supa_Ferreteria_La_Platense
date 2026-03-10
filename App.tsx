@@ -533,11 +533,21 @@ setAccountTransactions(fetchedAccountTransactions);
                 {renderView()}
             </main>
             
-            {customerStatementConfig.isOpen && customerStatementConfig.customer && (
+            {customerStatementConfig.isOpen && customerStatementConfig.customer && typeof customerStatementConfig.customer === 'object' && (
                 <CustomerStatementModal
-                    isOpen={customerStatementConfig.isOpen}
+                    isOpen={!!customerStatementConfig.isOpen}
                     onClose={() => setCustomerStatementConfig({ isOpen: false, customer: null })}
-                    customer={customerStatementConfig.customer}
+                    customer={{
+                        Id_Cliente: customerStatementConfig.customer.Id_Cliente || customerStatementConfig.customer.id || '',
+                        'Nombre y Apellido': customerStatementConfig.customer['Nombre y Apellido'] || customerStatementConfig.customer.name || '',
+                        Whatsapp: customerStatementConfig.customer.Whatsapp || customerStatementConfig.customer.whatsapp || '',
+                        'Tipo.Documento': customerStatementConfig.customer['Tipo.Documento'] || customerStatementConfig.customer.document_type || '',
+                        Documento: customerStatementConfig.customer.Documento || customerStatementConfig.customer.document_number || '',
+                        Condicion_IVA: customerStatementConfig.customer.Condicion_IVA || customerStatementConfig.customer.iva_condition || 'Consumidor Final',
+                        Deuda: Number(customerStatementConfig.customer.Deuda ?? 0),
+                        Pagos: Number(customerStatementConfig.customer.Pagos ?? 0),
+                        'Fecha Creacion': customerStatementConfig.customer['Fecha Creacion'] || customerStatementConfig.customer.created_at || undefined
+                    }}
                     allSales={processedSales}
                     isAdmin={currentUser?.Rol === 'Admin'}
                     refreshData={fetchData}
