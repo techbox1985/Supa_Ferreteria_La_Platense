@@ -45,47 +45,31 @@ const CustomerRow: React.FC<{
 CustomerRow.displayName = 'CustomerRow';
 
 
+
 interface CustomersViewProps {
   products: Product[];
-  customers: Customer[]; // Mantenido por compatibilidad de firma, pero ignorado internamente
+  customers: Customer[];
   refreshData: () => void;
   isLoading: boolean;
   onViewStatement: (customer: Customer) => void;
 }
 
-export const CustomersView: React.FC<CustomersViewProps> = () => {
+
+export const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refreshData, isLoading, onViewStatement }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isFormOpen, setFormOpen] = useState(false);
     const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
-    const [localCustomers, setLocalCustomers] = useState<Customer[]>([]);
-    const [isLocalLoading, setIsLocalLoading] = useState(true);
     const [statementCustomer, setStatementCustomer] = useState<Customer | null>(null);
     const { addToast } = useToast();
 
-    const fetchCustomers = useCallback(async () => {
-      setIsLocalLoading(true);
-      try {
-        const data = await api.getCustomersSupabase();
-        setLocalCustomers(data);
-      } catch (error) {
-        console.error('Error fetching customers from Supabase:', error);
-        addToast('Error al cargar clientes desde Supabase', 'error');
-      } finally {
-        setIsLocalLoading(false);
-      }
-    }, [addToast]);
-
-    useEffect(() => {
-      fetchCustomers();
-    }, [fetchCustomers]);
-
+    // Usar los customers enriquecidos que vienen por props
     const realCustomers = useMemo(() => {
-      return localCustomers.filter(c => c['Nombre y Apellido']?.toLowerCase() !== 'consumidor final');
-    }, [localCustomers]);
+      return (customers || []).filter(c => c['Nombre y Apellido']?.toLowerCase() !== 'consumidor final');
+    }, [customers]);
 
     const stats = useMemo(() => {
-      const totalDebt = realCustomers.reduce((sum, c) => sum + c.Deuda, 0);
-      const customersWithDebt = realCustomers.filter(c => c.Deuda > 0).length;
+      const totalDebt = realCustomers.reduce((sum, c) => sum + (c.Deuda || 0), 0);
+      const customersWithDebt = realCustomers.filter(c => (c.Deuda || 0) > 0).length;
       return { totalDebt, customersWithDebt, totalCustomers: realCustomers.length };
     }, [realCustomers]);
 
@@ -111,6 +95,7 @@ export const CustomersView: React.FC<CustomersViewProps> = () => {
       setStatementCustomer(customer);
     }, []);
 
+    // El guardado de clientes sigue usando la API, pero refresca usando refreshData de props
     const handleSaveCustomer = useCallback(async (customerData: Omit<Customer, 'Id_Cliente'> | Customer) => {
         try {
             if ('Id_Cliente' in customerData && customerData.Id_Cliente) {
@@ -118,7 +103,7 @@ export const CustomersView: React.FC<CustomersViewProps> = () => {
             } else {
                 await api.addCustomerSupabase(customerData);
             }
-            await fetchCustomers();
+            await refreshData();
             setFormOpen(false);
             addToast('Cliente guardado con éxito en Supabase.', 'success');
         } catch (error) {
@@ -126,7 +111,7 @@ export const CustomersView: React.FC<CustomersViewProps> = () => {
             addToast(`Error al guardar el cliente: ${error instanceof Error ? error.message : 'Error desconocido'}`, 'error');
             throw error; 
         }
-    }, [fetchCustomers, addToast]);
+    }, [refreshData, addToast]);
     return (
       <div className="p-6 space-y-6">
         <div className="flex justify-between items-center">
@@ -169,7 +154,7 @@ export const CustomersView: React.FC<CustomersViewProps> = () => {
             />
           </div>
           <div className="overflow-x-auto max-h-[60vh]">
-            {isLocalLoading ? (
+            {isLoading ? (
               <div className="p-10 text-center text-gray-500">Cargando clientes de Supabase...</div>
             ) : (
               <table className="min-w-full divide-y divide-gray-200">
