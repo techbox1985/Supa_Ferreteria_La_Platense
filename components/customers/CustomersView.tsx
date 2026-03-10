@@ -215,7 +215,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
             customer={statementCustomer}
             allSales={[]}
             isAdmin={true}
-            refreshData={fetchCustomers}
+            refreshData={refreshData}
           />
         )}
       </div>
