@@ -43,15 +43,15 @@ const getTypeStyle = (type: AccountTransaction['type']) => {
 export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ isOpen, onClose, customer, allSales, isAdmin, refreshData }) => {
     // Guardar y normalizar el customer recibido
     const safeCustomer: Customer = {
-        Id_Cliente: customer?.Id_Cliente || customer?.id || '',
-        'Nombre y Apellido': customer?.['Nombre y Apellido'] || customer?.name || '',
-        Whatsapp: customer?.Whatsapp || customer?.whatsapp || '',
-        'Tipo.Documento': customer?.['Tipo.Documento'] || customer?.document_type || '',
-        Documento: customer?.Documento || customer?.document_number || '',
-        Condicion_IVA: customer?.Condicion_IVA || customer?.iva_condition || 'Consumidor Final',
+        Id_Cliente: customer?.Id_Cliente || '',
+        'Nombre y Apellido': customer?.['Nombre y Apellido'] || '',
+        Whatsapp: customer?.Whatsapp || '',
+        'Tipo.Documento': customer?.['Tipo.Documento'] || 'N/A',
+        Documento: customer?.Documento || '',
+        Condicion_IVA: customer?.Condicion_IVA || 'Consumidor Final',
         Deuda: Number(customer?.Deuda ?? 0),
         Pagos: Number(customer?.Pagos ?? 0),
-        'Fecha Creacion': customer?.['Fecha Creacion'] || customer?.created_at || undefined
+        'Fecha Creacion': customer?.['Fecha Creacion'] || undefined
     };
     const [transactions, setTransactions] = useState<AccountTransaction[]>([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -89,7 +89,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         if (!Array.isArray(transactions) || transactions.length === 0) {
             return { totalDebit: 0, totalCredit: 0, finalBalance: 0 };
         }
-        const { debt, payments } = calculateCustomerBalance(transactions);
+            const { debt } = calculateCustomerBalance(transactions);
         const totalDebit = transactions.reduce((s, t) => s + Number(t.debit || 0), 0);
         const totalCredit = transactions.reduce((s, t) => s + Number(t.credit || 0), 0);
         return { totalDebit, totalCredit, finalBalance: debt };
@@ -222,7 +222,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                                     <div className="flex items-center justify-center space-x-2">
                                                         {tx.type === 'Venta' && tx.originalSaleId && (
                                                             <button
-                                                                onClick={() => handleViewTicket(tx.originalSaleId)}
+                                                                onClick={() => handleViewTicket(String(tx.originalSaleId || ''))}
                                                                 className="text-indigo-600 hover:text-indigo-800"
                                                                 title="Ver ticket de venta original"
                                                             >
