@@ -227,7 +227,7 @@ setRawTransactions(fetchedTransactions);
                 acc.push(t);
             }
             return acc;
-        });
+        }, []);
 
         const creditNotesBySaleId = new Map<string, AccountTransaction[]>();
         hydratedTransactions.forEach(t => {
@@ -249,18 +249,11 @@ setRawTransactions(fetchedTransactions);
                 let items: CartItem[] = [];
                 const itemsJsonString = saleRow['Productos (JSON)'] || saleRow['Productos JSON'] || saleRow['Productos(JSON)'];
                 if (itemsJsonString && typeof itemsJsonString === 'string') {
-                    return {
-                        id: t.ID_Transaccion || t['ID Transaccion'] || t['ID_Transaccion'] || t.id || `temp-tx-${index}`,
-                        date: new Date(t.Fecha || t['Fecha']),
-                        type: t.Tipo as AccountTransaction['type'],
-                        description: t.Descripcion || t['Descripcion'],
-                        debit: parseSheetNumber(t.Debe || t['Debe']),
-                        credit: parseSheetNumber(t.Haber || t['Haber']),
-                        balance: parseSheetNumber(t.Saldo || t['Saldo']),
-                        originalSaleId: t.Venta_Original_ID || t['Venta Original ID'] || t['Venta_OriginalID'],
-                        items,
-                        shiftId: t.ID_Turno || t['ID Turno'] || t['ID_Turno'] || undefined,
-                    };
+                    try {
+                        items = JSON.parse(itemsJsonString);
+                    } catch (e) {
+                        console.error('Error parsing items JSON:', e);
+                    }
                 }
 
                 let echeqs: ECheq[] = [];
