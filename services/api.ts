@@ -1158,6 +1158,30 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
         }
     }
 
+    // --- FIX: Insertar movimiento de débito en cuenta corriente si corresponde ---
+    if (customerId && Number(sale.payment?.credit ?? 0) > 0) {
+        const debitMovement = {
+            customer_id: customerId,
+            type: 'Venta',
+            description: 'Venta a cuenta corriente',
+            debit: Number(sale.payment.credit),
+            credit: 0,
+            original_sale_id: insertedSale.id,
+            shift_id: shiftId || null,
+            items: sale.items ? JSON.stringify(sale.items) : null,
+            factura_info: null,
+            date: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+        };
+        const { error: debitError } = await supabase
+            .from('st_account_transactions')
+            .insert([debitMovement]);
+        if (debitError) {
+            // Si falla, no revertimos la venta, pero logueamos el error
+            console.error('[Cuenta Corriente] Error al insertar movimiento de débito:', debitError);
+        }
+    }
+
     return {
         status: 'success',
         sale_id: insertedSale.id,
