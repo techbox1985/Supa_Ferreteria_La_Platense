@@ -180,17 +180,19 @@ setRawTransactions(fetchedTransactions);
         const safeTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
         if (safeCustomers.length === 0 && safeTransactions.length === 0) return [];
 
+        // Agrupar transacciones solo por customer_id y usar solo debit/credit
         const transactionSummary = new Map<string, { totalDebit: number, totalCredit: number }>();
-        (safeTransactions).forEach(t => {
-            const customerId = String(t.customer_id || t.Id_Cliente || t.customerId || t['ID_Cliente'] || t['ID Cliente'] || t['IDCliente'] || '').trim();
-            if (!customerId || customerId === '') return;
+        safeTransactions.forEach(t => {
+            const customerId = t.customer_id ? String(t.customer_id).trim() : '';
+            if (!customerId) return;
             const summary = transactionSummary.get(customerId) || { totalDebit: 0, totalCredit: 0 };
-            summary.totalDebit += parseSheetNumber(t.debit ?? t.Debe);
-            summary.totalCredit += parseSheetNumber(t.credit ?? t.Haber);
+            summary.totalDebit += typeof t.debit === 'number' ? t.debit : parseSheetNumber(t.debit);
+            summary.totalCredit += typeof t.credit === 'number' ? t.credit : parseSheetNumber(t.credit);
             transactionSummary.set(customerId, summary);
         });
         return safeCustomers.map(customer => {
-            const summary = transactionSummary.get(customer.Id_Cliente);
+            // customer.Id_Cliente es el id de Supabase (string)
+            const summary = transactionSummary.get(String(customer.Id_Cliente));
             if (summary) {
                 return {
                     ...customer,
