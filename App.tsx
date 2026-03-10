@@ -45,8 +45,9 @@ const AppContent: React.FC = () => {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [shifts, setShifts] = useState<Shift[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
-    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
-    const [rawTransactions, setRawTransactions] = useState<any[]>([]);
+const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+const [categories, setCategories] = useState<string[]>([]);
+const [rawTransactions, setRawTransactions] = useState<any[]>([]);
     
     // Estados de UI
     const [isLoading, setIsLoading] = useState(true);
@@ -62,46 +63,44 @@ const AppContent: React.FC = () => {
     // Estado de Modales Globales
     const [customerStatementConfig, setCustomerStatementConfig] = useState<{ isOpen: boolean; customer: Customer | null }>({ isOpen: false, customer: null });
 
-    const fetchData = useCallback(async () => {
-        setIsRefreshing(true);
-        try {
-            const [
-                fetchedProducts,
-                fetchedCustomers,
-                fetchedSales,
-                fetchedExpenses,
-                fetchedShifts,
-                fetchedUsers,
-                fetchedSuppliers,
-                fetchedTransactions
-            ] = await Promise.all([
-                api.getProducts(),
-                api.getCustomers(),
-                api.getSales(),
-                api.getExpenses(),
-                api.getShifts(),
-                api.getUsers(),
-                api.getSuppliers(),
-                api.getAccountTransactions()
-            ]);
+const fetchData = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+        const fetchedProducts = await api.getProducts();
+        setProducts(fetchedProducts.filter(p => !isDeleted(p.Eliminado)));
 
-            setProducts(fetchedProducts.filter(p => !isDeleted(p.Eliminado)));
-            setCustomers(fetchedCustomers);
-            setRawSales(fetchedSales);
-            setExpenses(fetchedExpenses);
-            setShifts(fetchedShifts);
-            setAllUsers(fetchedUsers);
-            setSuppliers(fetchedSuppliers);
-            setRawTransactions(fetchedTransactions);
+        const fetchedCustomers = await api.getCustomers();
+        setCustomers(fetchedCustomers);
 
-        } catch (error) {
-            console.error("Error fetching data:", error);
-            addToast("Error al cargar los datos. Verifique su conexión.", 'error');
-        } finally {
-            setIsLoading(false);
-            setIsRefreshing(false);
-        }
-    }, [addToast]);
+        const fetchedSales = await api.getSales();
+        setRawSales(fetchedSales);
+
+        const fetchedExpenses = await api.getExpenses();
+        setExpenses(fetchedExpenses);
+
+        const fetchedShifts = await api.getShifts();
+        setShifts(fetchedShifts);
+
+        const fetchedUsers = await api.getUsers();
+        setAllUsers(fetchedUsers);
+
+const fetchedSuppliers = await api.getSuppliers();
+setSuppliers(fetchedSuppliers);
+
+const fetchedCategoriesData = await api.getCategoriesSupabase();
+setCategories((fetchedCategoriesData || []).map((c: any) => c.name).filter(Boolean));
+
+const fetchedTransactions = await api.getAccountTransactions();
+setRawTransactions(fetchedTransactions);
+
+    } catch (error) {
+        console.error("Error fetching data:", error);
+        addToast("Error al cargar los datos. Verifique su conexión.", 'error');
+    } finally {
+        setIsLoading(false);
+        setIsRefreshing(false);
+    }
+}, [addToast]);
 
     useEffect(() => {
         if (currentUser) {
@@ -523,6 +522,7 @@ const AppContent: React.FC = () => {
             case 'pos':
                 return <POSView 
                     products={products} 
+                    categories={categories}
                     customers={customersWithCalculatedDebt} 
                     refreshData={fetchData} 
                     isLoading={isLoading}

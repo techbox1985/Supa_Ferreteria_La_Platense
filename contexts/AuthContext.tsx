@@ -27,19 +27,36 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
     const login = useCallback(async (userId: string, pin: string) => {
         setIsLoggingIn(true);
         try {
-            const loginResult = await api.login(userId, pin);
-            const { user, activeShift: fetchedShift } = loginResult;
+            const users = await api.getUsersSupabase();
+            const user = users.find(u => u.ID_Usuario === userId);
 
-            setCurrentUser(user);
-            if (fetchedShift) {
-                setActiveShift({
-                    ...fetchedShift,
-                    Fecha_Apertura: new Date(fetchedShift.Fecha_Apertura),
-                });
-            } else {
-                setActiveShift(null);
-                openOpenShiftModal();
+            if (!user) {
+                throw new Error("Usuario no encontrado");
             }
+
+            if (String(user.PIN) !== String(pin)) {
+                throw new Error("PIN incorrecto");
+            }
+            
+            // Buscar turno activo en Supabase (Ignoramos el de legacy)
+            const fetchedShift = await api.getActiveShiftSupabase(user.ID_Usuario);
+
+            if (fetchedShift) {
+                setActiveShift(fetchedShift);
+            } else {
+                // Si no hay turno y es Admin, abrir automáticamente con 0
+                if (user.Rol === 'Admin') {
+                    const newShift = await api.openShiftSupabase(user.ID_Usuario, 0);
+                    setActiveShift(newShift);
+                } else {
+                    // Si es Vendedor, pedir monto de apertura
+                    setActiveShift(null);
+                    openOpenShiftModal();
+                }
+            }
+
+            // Seteamos el usuario al final para evitar parpadeos y asegurar que el estado del turno esté listo
+            setCurrentUser(user);
         } catch (error) {
             console.error('Login failed:', error);
             throw error; // Re-throw to be caught by the login form
@@ -59,16 +76,16 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
 
     const handleOpenShift = async (openingAmount: number) => {
         if (!currentUser) throw new Error("No hay usuario para abrir el turno.");
-        const newShift = await api.openShift(currentUser.ID_Usuario, openingAmount);
+        const newShift = await api.openShiftSupabase(currentUser.ID_Usuario, openingAmount);
         setActiveShift(newShift);
         closeShiftModal();
     };
 
     const handleCloseShiftAndLogout = async (closingAmount: number) => {
         if (!activeShift) throw new Error("No hay turno activo para cerrar.");
-        const closedShift = await api.closeShift(activeShift.ID_Turno, closingAmount);
+        const closedShift = await api.closeShiftSupabase(activeShift.ID_Turno, closingAmount);
         // You can use the `closedShift` data to show a final summary if you want
-        console.log("Turno cerrado:", closedShift);
+        console.log("Turno cerrado en Supabase:", closedShift);
         logout();
         closeShiftModal();
     };

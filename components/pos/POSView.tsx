@@ -15,6 +15,7 @@ import { getPrintStyles } from '../../utils/printStyles';
 
 interface POSViewProps {
   products: Product[];
+  categories: string[];
   customers: Customer[];
   refreshData: () => void;
   isLoading: boolean;
@@ -32,6 +33,7 @@ interface POSViewProps {
 
 export const POSView: React.FC<POSViewProps> = ({
   products,
+  categories,
   customers,
   refreshData,
   isLoading,
@@ -60,7 +62,16 @@ export const POSView: React.FC<POSViewProps> = ({
   const { activeShift } = useContext(AuthContext);
   const { addToast } = useToast();
 
-  const categories = useMemo(() => ['All', ...new Set(products.map(p => p.Categoria))], [products]);
+const categoryOptions = useMemo(() => {
+  const unique = Array.from(
+    new Set(
+      (categories || [])
+        .map(c => String(c || '').trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, 'es'));
+  return ['All', ...unique];
+}, [categories]);
 
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
@@ -70,10 +81,11 @@ export const POSView: React.FC<POSViewProps> = ({
         String(p.Producto || '').toLowerCase().includes(lowerSearchTerm) ||
         String(p.cod || '').toLowerCase().includes(lowerSearchTerm) ||
         String(p['cod.barras'] || '').toLowerCase().includes(lowerSearchTerm);
-      const hasPrice = p['Precio Final'] > 0;
-      return matchesCategory && matchesSearch && hasPrice;
+      return matchesCategory && matchesSearch;
     });
   }, [products, searchTerm, selectedCategory]);
+
+  const visibleProductsCount = filteredProducts.length;
 
   const closePrintModal = useCallback(() => {
     setIsPrintModalOpen(false);
@@ -142,12 +154,10 @@ export const POSView: React.FC<POSViewProps> = ({
             finalSaleObject.Factura_Vto_CAE = invoiceData.vtoCae || '';
             finalSaleObject.Factura_QR_Data = invoiceData.qrData || '';
             finalSaleObject.Factura_Fecha = new Date().toLocaleString('es-AR');
-            // A4 en Factura_URL (como venías)
             finalSaleObject.Factura_URL =
               invoiceData.comprobante_pdf_url ||
               invoiceData.url ||
               '';
-            // (IMPORTANTE) Ticket 80mm en columna propia si la tenés en el Sale (si no existe en types, igual viaja al webhook)
             // @ts-expect-error: Factura_Ticket_URL might not be in Sale type but is sent to webhook
             finalSaleObject.Factura_Ticket_URL =
               invoiceData.comprobante_ticket_url ||
@@ -160,7 +170,7 @@ export const POSView: React.FC<POSViewProps> = ({
             setSaleForPrintModal(prev => (prev ? { ...prev, ...finalSaleObject } : finalSaleObject));
           }
 
-          // 4) Guardar venta SIEMPRE (fiscal o no)  ✅ FIX CRÍTICO
+          // 4) Guardar venta SIEMPRE (fiscal o no)
           if (saleBeingEdited) {
             await api.updateSale(saleBeingEdited, finalSaleObject);
           } else {
@@ -184,7 +194,6 @@ export const POSView: React.FC<POSViewProps> = ({
         }
       };
 
-      // Disparar el proceso en segundo plano (no bloquear UI)
       queueMicrotask(() => {
         processSaleInBackground().catch(() => {
           // ya se toastea/loguea adentro
@@ -230,8 +239,14 @@ export const POSView: React.FC<POSViewProps> = ({
       {/* Products Section */}
       <div className="lg:col-span-2 bg-gray-50 rounded-xl p-6 flex flex-col">
         <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Productos</h2>
-          <div className="flex flex-col sm:flex-row gap-4">
+          <div className="flex items-center justify-between gap-4 mb-4">
+            <h2 className="text-2xl font-bold text-gray-800">Productos</h2>
+            <span className="text-sm font-medium text-gray-500">
+              Mostrando {visibleProductsCount} producto{visibleProductsCount === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative flex-grow">
               <span className="absolute inset-y-0 left-0 flex items-center pl-3">
                 <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" className="w-5 h-5 text-gray-400" />
@@ -244,22 +259,26 @@ export const POSView: React.FC<POSViewProps> = ({
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
+
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+              className="w-full sm:w-56 px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
             >
-              {categories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
+              {categoryOptions.map(cat => (
+                <option key={cat} value={cat}>
+                  {cat === 'All' ? 'Todas las categorías' : cat}
+                </option>
               ))}
             </select>
+
             <button
               onClick={onAddCommonProduct}
-              className="flex-shrink-0 bg-yellow-500 text-white px-4 py-2 border border-transparent rounded-lg hover:bg-yellow-600 focus:ring-yellow-500 focus:border-yellow-500 flex items-center space-x-2 transition-colors"
+              className="w-full sm:w-auto flex-shrink-0 bg-yellow-500 text-white px-3 py-2 border border-transparent rounded-lg hover:bg-yellow-600 focus:ring-yellow-500 focus:border-yellow-500 flex items-center justify-center space-x-2 transition-colors"
               title="Agregar un producto o servicio no catalogado a la venta"
             >
               <Icon path="M9 13.5l3 3m0 0l3-3m-3 3v-6m1.06-4.19l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" className="w-5 h-5" />
-              <span>Productos Varios</span>
+              <span>Varios</span>
             </button>
           </div>
         </div>
@@ -349,7 +368,6 @@ export const POSView: React.FC<POSViewProps> = ({
               {/* 2) Opciones fiscales solo si corresponde */}
               {printModalIsFiscal && (
                 <Fragment>
-                  {/* Fiscal 80mm primero (tu prioridad) */}
                   <button
                     disabled={!isInvoiceReady || !fiscalTicketUrl}
                     onClick={() => {
@@ -366,7 +384,6 @@ export const POSView: React.FC<POSViewProps> = ({
                     {(!isInvoiceReady || !fiscalTicketUrl) ? 'Fiscal 80mm (generando...)' : 'Fiscal 80mm'}
                   </button>
 
-                  {/* Fiscal A4 */}
                   <button
                     disabled={!isInvoiceReady || !fiscalA4Url}
                     onClick={() => {

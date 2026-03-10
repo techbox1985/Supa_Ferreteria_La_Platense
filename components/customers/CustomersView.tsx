@@ -1,29 +1,20 @@
 
-import React, { useState, useMemo, ReactNode, useCallback, useContext } from 'react';
-import { Customer, Product, CartItem, AccountTransaction } from '../../types';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { Customer, Product } from '../../types';
 import { Icon } from '../ui/Icon';
 import { CustomerFormModal } from './CustomerFormModal';
-import { PaymentModal } from './PaymentModal';
-import { CreditNoteModal } from './CreditNoteModal'; 
 import * as api from '../../services/api';
 import { StatCard } from '../dashboard/StatCard';
 import { useToast } from '../../contexts/ToastContext';
-import { AuthContext } from '../../contexts/AuthContext';
-import { ConfirmationModal } from '../ui/ConfirmationModal';
 
 const formatCurrency = (value: number) => `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
 const CustomerRow: React.FC<{ 
     customer: Customer; 
     onEdit: (customer: Customer) => void;
-    onAddPayment: (customer: Customer) => void;
-    onViewStatement: (customer: Customer) => void;
-    onAddCreditNote: (customer: Customer) => void;
-    onClearBalance: (customer: Customer) => void;
-}> = React.memo(({ customer, onEdit, onAddPayment, onViewStatement, onAddCreditNote, onClearBalance }) => {
+}> = React.memo(({ customer, onEdit }) => {
     const debtColor = customer.Deuda > 0 ? 'text-red-600' : 'text-green-600';
-    const isConsumidorFinal = customer.Id_Cliente === '0';
-    const hasCreditBalance = customer.Deuda < 0;
+    const isConsumidorFinal = customer['Nombre y Apellido']?.toLowerCase() === 'consumidor final' || customer.Id_Cliente === '0';
 
     return (
         <tr className="hover:bg-gray-50 transition-colors">
@@ -36,25 +27,9 @@ const CustomerRow: React.FC<{
             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${customer.Pagos.toLocaleString('es-AR')}</td>
             <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                 {!isConsumidorFinal && (
-                    <>
-                        <button onClick={() => onViewStatement(customer)} className="text-indigo-600 hover:text-indigo-800" title="Ver Estado de Cuenta">
-                            <Icon path="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6.75A2.25 2.25 0 014.5 4.5h15A2.25 2.25 0 0121.75 6.75v3.026"/>
-                        </button>
-                        {hasCreditBalance && (
-                            <button onClick={() => onClearBalance(customer)} className="text-purple-600 hover:text-purple-800" title="Limpiar Saldo a Favor">
-                                <Icon path="M12 9.75L16.25 15m-4.25-5.25L7.75 15m4.25-5.25V21m-6-10.5h12m1.5 0H21m-16.5 0H3" />
-                            </button>
-                        )}
-                        <button onClick={() => onAddPayment(customer)} className="text-green-600 hover:text-green-800" title="Registrar Pago">
-                            <Icon path="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.826-2.997.11-2.003 1.189z"/>
-                        </button>
-                         <button onClick={() => onAddCreditNote(customer)} className="text-orange-600 hover:text-orange-800" title="Generar Nota de Crédito">
-                            <Icon path="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
-                         </button>
-                        <button onClick={() => onEdit(customer)} className="text-blue-600 hover:text-blue-800" title="Editar Cliente">
-                            <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                        </button>
-                    </>
+                    <button onClick={() => onEdit(customer)} className="text-blue-600 hover:text-blue-800" title="Editar Cliente">
+                        <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                    </button>
                 )}
             </td>
         </tr>
@@ -65,31 +40,40 @@ CustomerRow.displayName = 'CustomerRow';
 
 interface CustomersViewProps {
   products: Product[];
-  customers: Customer[];
+  customers: Customer[]; // Mantenido por compatibilidad de firma, pero ignorado internamente
   refreshData: () => void;
   isLoading: boolean;
   onViewStatement: (customer: Customer) => void;
 }
 
-const manualCreditNoteInitialItems: CartItem[] = [];
-const manualCreditNoteSales: AccountTransaction[] = [];
-
-export const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refreshData, isLoading, onViewStatement }) => {
+export const CustomersView: React.FC<CustomersViewProps> = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setFormOpen] = useState(false);
-  const [isPaymentOpen, setPaymentOpen] = useState(false);
-  const [isCreditNoteOpen, setCreditNoteOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
-  const [customerForPayment, setCustomerForPayment] = useState<Customer | null>(null);
-  const [customerForCreditNote, setCustomerForCreditNote] = useState<Customer | null>(null);
-  const [customerToClear, setCustomerToClear] = useState<Customer | null>(null);
-  const [isClearing, setIsClearing] = useState(false);
+  const [localCustomers, setLocalCustomers] = useState<Customer[]>([]);
+  const [isLocalLoading, setIsLocalLoading] = useState(true);
   const { addToast } = useToast();
-  const { activeShift } = useContext(AuthContext);
+
+  const fetchCustomers = useCallback(async () => {
+    setIsLocalLoading(true);
+    try {
+      const data = await api.getCustomersSupabase();
+      setLocalCustomers(data);
+    } catch (error) {
+      console.error('Error fetching customers from Supabase:', error);
+      addToast('Error al cargar clientes desde Supabase', 'error');
+    } finally {
+      setIsLocalLoading(false);
+    }
+  }, [addToast]);
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [fetchCustomers]);
 
   const realCustomers = useMemo(() => {
-    return customers.filter(c => c['Nombre y Apellido']?.toLowerCase() !== 'consumidor final');
-  }, [customers]);
+    return localCustomers.filter(c => c['Nombre y Apellido']?.toLowerCase() !== 'consumidor final');
+  }, [localCustomers]);
 
   const stats = useMemo(() => {
     const totalDebt = realCustomers.reduce((sum, c) => sum + c.Deuda, 0);
@@ -114,105 +98,28 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
     setCustomerToEdit(customer);
     setFormOpen(true);
   }, []);
-  
-  const handleAddPayment = useCallback((customer: Customer) => {
-    setCustomerForPayment(customer);
-    setPaymentOpen(true);
-  }, []);
-  
-  const handleAddCreditNote = useCallback((customer: Customer) => {
-      setCustomerForCreditNote(customer);
-      setCreditNoteOpen(true);
-  }, []);
-
-  const handleClearBalanceRequest = useCallback((customer: Customer) => {
-    setCustomerToClear(customer);
-  }, []);
-
-  const handleConfirmClearBalance = useCallback(async () => {
-    if (!customerToClear || !activeShift) return;
-    setIsClearing(true);
-    try {
-        const amountToAdjust = customerToClear.Deuda; 
-        await api.recordPayment(
-            customerToClear.Id_Cliente, 
-            amountToAdjust, 
-            "Ajuste automático para limpiar saldo a favor", 
-            "Digital", 
-            activeShift.ID_Turno
-        );
-        addToast(`Saldo de ${customerToClear['Nombre y Apellido']} limpiado con éxito.`, 'success');
-        refreshData();
-    } catch (error) {
-        console.error("Error clearing balance:", error);
-        addToast("No se pudo limpiar el saldo.", 'error');
-    } finally {
-        setIsClearing(false);
-        setCustomerToClear(null);
-    }
-  }, [customerToClear, activeShift, refreshData, addToast]);
 
   const handleSaveCustomer = useCallback(async (customerData: Omit<Customer, 'Id_Cliente'> | Customer) => {
       try {
-          if ('Id_Cliente' in customerData) {
-              await api.updateCustomer(customerData);
+          if ('Id_Cliente' in customerData && customerData.Id_Cliente) {
+              await api.updateCustomerSupabase(customerData);
           } else {
-              await api.addCustomer(customerData);
+              await api.addCustomerSupabase(customerData);
           }
-          refreshData();
+          await fetchCustomers();
           setFormOpen(false);
-          addToast('Cliente guardado con éxito.', 'success');
+          addToast('Cliente guardado con éxito en Supabase.', 'success');
       } catch (error) {
-          console.error('Failed to save customer:', error);
+          console.error('Failed to save customer to Supabase:', error);
           addToast(`Error al guardar el cliente: ${error instanceof Error ? error.message : 'Error desconocido'}`, 'error');
           throw error; 
       }
-  }, [refreshData, addToast]);
+  }, [fetchCustomers, addToast]);
   
-  const handleSavePayment = useCallback(async (paymentData: {amount: number; description: string; paymentMethod: 'Efectivo' | 'Digital'; shiftId: string}) => {
-    if(!customerForPayment) return;
-    if(!activeShift) {
-        addToast("Error: No hay un turno activo para registrar el pago.", 'error');
-        throw new Error("No active shift");
-    }
-    try {
-        await api.recordPayment(customerForPayment.Id_Cliente, paymentData.amount, paymentData.description, paymentData.paymentMethod, activeShift.ID_Turno);
-        refreshData();
-        setPaymentOpen(false);
-        addToast("Pago registrado con éxito.", 'success');
-    } catch(error) {
-        console.error("Failed to record payment:", error);
-        addToast(`Error al registrar el pago: ${error instanceof Error ? error.message : 'Error desconocido'}`, 'error');
-        throw error; 
-    }
-  }, [customerForPayment, refreshData, addToast, activeShift]);
-  
-  const handleSaveCreditNote = useCallback(async (data: { items: CartItem[], description: string, total: number }) => {
-    if (!customerForCreditNote) throw new Error("Cliente no seleccionado para la nota de crédito.");
-    if(!activeShift) {
-        addToast("Error: No hay un turno activo para crear la nota de crédito.", 'error');
-        throw new Error("No active shift");
-    }
-
-    try {
-        await api.createCreditNote({
-            customerId: customerForCreditNote.Id_Cliente,
-            originalSaleId: `manual-credit-${crypto.randomUUID().slice(0, 8)}`, 
-            shiftId: activeShift.ID_Turno,
-            ...data
-        });
-        addToast('Nota de crédito manual creada con éxito.', 'success');
-        refreshData(); 
-        setCreditNoteOpen(false);
-    } catch(error) {
-        throw new Error(`No se pudo procesar la nota de crédito. ${error instanceof Error ? error.message : ''}`, { cause: error });
-    }
-  }, [customerForCreditNote, refreshData, addToast, activeShift]);
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-800">Gestión de Clientes</h1>
+        <h1 className="text-3xl font-bold text-gray-800">Gestión de Clientes (Supabase)</h1>
         <button onClick={handleAddNew} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2">
             <Icon path="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" className="w-5 h-5"/>
             <span>Nuevo Cliente</span>
@@ -251,8 +158,8 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
           />
         </div>
         <div className="overflow-x-auto max-h-[60vh]">
-          {isLoading ? (
-            <div className="p-10 text-center text-gray-500">Cargando clientes...</div>
+          {isLocalLoading ? (
+            <div className="p-10 text-center text-gray-500">Cargando clientes de Supabase...</div>
           ) : (
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50 sticky top-0">
@@ -273,10 +180,6 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
                         key={customer.Id_Cliente}
                         customer={customer}
                         onEdit={handleEdit}
-                        onAddPayment={handleAddPayment}
-                        onViewStatement={onViewStatement}
-                        onAddCreditNote={handleAddCreditNote}
-                        onClearBalance={handleClearBalanceRequest}
                     />
                 ))}
               </tbody>
@@ -290,44 +193,10 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
             isOpen={isFormOpen}
             onClose={() => setFormOpen(false)}
             onSave={handleSaveCustomer}
-            customers={customers}
+            customers={localCustomers}
             customerToEdit={customerToEdit}
         />
       )}
-      
-      {isPaymentOpen && customerForPayment && (
-        <PaymentModal
-            isOpen={isPaymentOpen}
-            onClose={() => setPaymentOpen(false)}
-            customer={customerForPayment}
-            onSave={handleSavePayment}
-        />
-      )}
-
-      {isCreditNoteOpen && customerForCreditNote && (
-          <CreditNoteModal
-            isOpen={isCreditNoteOpen}
-            onClose={() => setCreditNoteOpen(false)}
-            customer={customerForCreditNote}
-            products={products}
-            onSave={handleSaveCreditNote}
-            initialItems={manualCreditNoteInitialItems}
-            allCreditNotesForSale={manualCreditNoteSales}
-          />
-      )}
-
-      {customerToClear && (
-          <ConfirmationModal
-            isOpen={!!customerToClear}
-            onClose={() => setCustomerToClear(null)}
-            onConfirm={handleConfirmClearBalance}
-            title="Limpiar Saldo a Favor"
-            message={`¿Está seguro que desea limpiar el saldo a favor de ${customerToClear['Nombre y Apellido']}? Se registrará un movimiento de $${Math.abs(customerToClear.Deuda).toLocaleString('es-AR')} para dejar la cuenta en $0.`}
-            confirmText="Sí, Limpiar"
-            isProcessing={isClearing}
-          />
-      )}
-
     </div>
   );
 };

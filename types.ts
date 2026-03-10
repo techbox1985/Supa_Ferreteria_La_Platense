@@ -167,6 +167,7 @@ export interface Shift {
   Efectivo_Esperado: number;
   Diferencia: number;
   Estado: 'Abierto' | 'Cerrado';
+  Notas?: string;
 }
 
 export interface Budget {

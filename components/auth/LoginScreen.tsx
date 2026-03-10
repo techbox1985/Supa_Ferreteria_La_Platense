@@ -32,18 +32,31 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
     useEffect(() => {
         const fetchUsers = async () => {
             try {
+                setError('');
                 const fetchedUsers = await api.getUsers();
-                setUsers(fetchedUsers);
-                if (fetchedUsers.length > 0) {
-                    // Correctly find 'vendedor1' without a space
-                    const vendedor1 = fetchedUsers.find(user => user.Nombre.toLowerCase() === 'vendedor1');
-                    if (vendedor1) {
+                const safeUsers = Array.isArray(fetchedUsers) ? fetchedUsers : [];
+                setUsers(safeUsers);
+
+                if (safeUsers.length > 0) {
+                    const vendedor1 = safeUsers.find(
+                        user => (user.Nombre || '').toLowerCase() === 'vendedor1'
+                    );
+
+                    if (vendedor1?.ID_Usuario) {
                         setSelectedUserId(vendedor1.ID_Usuario);
+                    } else if (safeUsers[0]?.ID_Usuario) {
+                        setSelectedUserId(safeUsers[0].ID_Usuario);
                     } else {
-                        setSelectedUserId(fetchedUsers[0].ID_Usuario);
+                        setSelectedUserId('');
+                        setError('Los usuarios cargados no tienen identificador válido.');
                     }
+                } else {
+                    setSelectedUserId('');
+                    setError('No hay usuarios activos para iniciar sesión.');
                 }
             } catch (err) {
+                setUsers([]);
+                setSelectedUserId('');
                 setError('No se pudieron cargar los usuarios.');
                 console.error(err);
             } finally {
@@ -65,16 +78,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
         }
         try {
             await login(selectedUserId, pin);
-            setPin(''); // Clear pin on successful login attempt
+            setPin('');
         } catch (err) {
-            // The error message from the API layer is now user-friendly.
             const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error inesperado.';
             setError(errorMessage);
-            setPin(''); // Clear pin on failed attempt too
+            setPin('');
         }
     };
     
-    // If user is logged in and has an active shift, render the main app
     if (currentUser && activeShift) {
         return (
             <>
@@ -84,26 +95,24 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
                     onClose={closeShiftModal}
                     onConfirmClose={handleCloseShiftAndLogout}
                     activeShift={activeShift}
-                    allSales={[]} // This should be fetched within the component if needed
-                    allExpenses={[]} // This should be fetched within the component if needed
+                    allSales={[]}
+                    allExpenses={[]}
                 />
             </>
         );
     }
 
-    // If user is logged in but has no active shift, show the OpenShiftModal
     if (currentUser && !activeShift) {
         return (
             <OpenShiftModal
                 isOpen={true}
-                onClose={() => {}} // Can't close this modal
+                onClose={() => {}}
                 onConfirmOpen={handleOpenShift}
                 userName={currentUser.Nombre}
             />
         );
     }
 
-    // Otherwise, show the login form
     return (
         <div className="flex items-center justify-center min-h-screen bg-slate-50">
             <div className="p-10 bg-white rounded-2xl shadow-premium border border-slate-200/60 w-full max-w-md m-4 transform transition-all duration-500 hover:scale-[1.01]">
@@ -132,11 +141,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
                                 value={selectedUserId}
                                 onChange={(e) => setSelectedUserId(e.target.value)}
                                 className="mt-1 block w-full pl-4 pr-10 py-3 text-base border-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 sm:text-sm rounded-xl bg-slate-50/50 transition-all"
-                                disabled={isLoggingIn}
+                                disabled={isLoggingIn || users.length === 0}
                             >
-                                {users.map(user => (
-                                    <option key={user.ID_Usuario} value={user.ID_Usuario}>{user.Nombre}</option>
-                                ))}
+                                {users.length === 0 ? (
+                                    <option value="">Sin usuarios disponibles</option>
+                                ) : (
+                                    users.map(user => (
+                                        <option key={user.ID_Usuario} value={user.ID_Usuario}>
+                                            {user.Nombre || '(Sin nombre)'}
+                                        </option>
+                                    ))
+                                )}
                             </select>
                         </div>
                         <div>
@@ -151,7 +166,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
                                 maxLength={4}
                                 pattern="\d{4}"
                                 required
-                                disabled={isLoggingIn}
+                                disabled={isLoggingIn || users.length === 0}
                                 autoFocus
                             />
                         </div>
@@ -160,7 +175,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
                         
                         <button
                             type="submit"
-                            disabled={isLoggingIn}
+                            disabled={isLoggingIn || users.length === 0 || !selectedUserId}
                             className="w-full flex justify-center py-4 px-4 border border-transparent rounded-xl shadow-soft text-sm font-bold text-white bg-primary-900 hover:bg-primary-950 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:bg-slate-300 transition-all duration-300 active:scale-95"
                         >
                             {isLoggingIn ? (

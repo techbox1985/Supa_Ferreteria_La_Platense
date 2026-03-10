@@ -35,7 +35,7 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
         setIsLoadingView(true);
         try {
             const [fetchedShifts, fetchedUsers] = await Promise.all([
-                api.getShifts(),
+                api.getShiftsSupabase(),
                 api.getUsers()
             ]);
             setShifts(fetchedShifts);
@@ -65,13 +65,8 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
                     return true;
                 }
 
-                // For closed shifts, only show them if there was financial activity.
-                // Activity is defined as having sales, expenses, or a cash difference.
-                const hadSales = (shift.Total_Ventas_Efectivo || 0) !== 0;
-                const hadExpenses = (shift.Total_Gastos_Efectivo || 0) !== 0;
-                const hasDifference = (shift.Diferencia || 0) !== 0;
-                
-                return hadSales || hadExpenses || hasDifference;
+                // For now, show all shifts from Supabase
+                return true;
             });
     }, [shifts, users]);
 
@@ -85,7 +80,7 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
     return (
         <div className="p-6 space-y-6">
             <div className="flex justify-between items-center">
-                <h1 className="text-3xl font-bold text-gray-800">Historial de Turnos de Caja</h1>
+                <h1 className="text-3xl font-bold text-gray-800">Historial de Turnos de Caja (Supabase)</h1>
                 <button onClick={handleRefresh} disabled={totalLoading} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2 disabled:bg-gray-400">
                     <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className={`w-5 h-5 ${totalLoading ? 'animate-spin' : ''}`}/>
                     <span>Actualizar</span>
@@ -105,11 +100,8 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Apertura</th>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cierre</th>
                                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Monto Apertura</th>
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ventas Efectivo</th>
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gastos Efectivo</th>
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Efectivo Esperado</th>
                                     <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Monto Declarado</th>
-                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Diferencia</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notas</th>
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
@@ -124,18 +116,13 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
                                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{formatDate(shift.Fecha_Apertura)}</td>
                                         <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{formatDate(shift.Fecha_Cierre)}</td>
                                         <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-700">{formatCurrency(shift.Monto_Apertura)}</td>
-                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-green-600">{formatCurrency(shift.Total_Ventas_Efectivo)}</td>
-                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-red-600">{formatCurrency(shift.Total_Gastos_Efectivo)}</td>
-                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-bold text-blue-800">{formatCurrency(shift.Efectivo_Esperado)}</td>
                                         <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-gray-800">{formatCurrency(shift.Monto_Cierre_Declarado)}</td>
-                                        <td className={`px-4 py-2 whitespace-nowrap text-sm text-right font-bold ${!shift.Diferencia || shift.Diferencia === 0 ? 'text-gray-700' : shift.Diferencia > 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                            {formatCurrency(shift.Diferencia)}
-                                        </td>
+                                        <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{shift.Notas}</td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
-                    )}
+                    ) }
                      { !totalLoading && shiftsWithUsers.length === 0 && (
                         <p className="p-10 text-center text-gray-500">No se encontraron turnos con actividad en el historial.</p>
                     )}
