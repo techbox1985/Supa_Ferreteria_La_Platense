@@ -18,6 +18,7 @@ import * as api from './services/api';
 import { offlineService } from './services/offlineService';
 import { Product, Customer, Sale, Expense, Shift, User, CartItem, Supplier, AccountTransaction, ECheq } from './types';
 import { isDeleted } from './utils/productFilters';
+import { calculateCustomerBalance } from './services/api';
 
 // Helper local para parsear números, duplicado de api.ts ya que no se exporta
 const parseSheetNumber = (value: any): number => {
@@ -176,12 +177,13 @@ setAccountTransactions(fetchedAccountTransactions);
 
     // --- Lógica de Procesamiento de Datos ---
 
+    // Enriquecer los clientes SOLO con el balance del ledger
     const customersWithCalculatedDebt = useMemo(() => {
         const safeCustomers = Array.isArray(customers) ? customers : [];
         const safeAccountTransactions = Array.isArray(accountTransactions) ? accountTransactions : [];
         if (safeCustomers.length === 0 && safeAccountTransactions.length === 0) return [];
 
-        // Agrupar transacciones estrictamente por customer_id y calcular deuda
+        // Agrupar transacciones estrictamente por customer_id
         const transactionsByCustomer = new Map();
         for (const t of safeAccountTransactions) {
             const customerId = t.customer_id ? String(t.customer_id).trim() : '';
@@ -193,9 +195,8 @@ setAccountTransactions(fetchedAccountTransactions);
         return safeCustomers.map(customer => {
             const customerId = customer.Id_Cliente ? String(customer.Id_Cliente).trim() : '';
             const customerTransactions = transactionsByCustomer.get(customerId) || [];
-            const deuda = customerTransactions.reduce((acc, t) => acc + (Number(t.debit) || 0) - (Number(t.credit) || 0), 0);
-            const pagos = customerTransactions.reduce((acc, t) => acc + (Number(t.credit) || 0), 0);
-            return { ...customer, Deuda: deuda, Pagos: pagos };
+            const { debt, payments } = calculateCustomerBalance(customerTransactions);
+            return { ...customer, Deuda: debt, Pagos: payments };
         });
     }, [customers, accountTransactions]);
 
@@ -466,7 +467,7 @@ setAccountTransactions(fetchedAccountTransactions);
                     customers={customersWithCalculatedDebt} 
                     refreshData={fetchData} 
                     isLoading={isLoading} 
-                    onViewStatement={(customer) => setCustomerStatementConfig({ isOpen: true, customer })}
+                    onViewStatement={handleOpenCustomerStatement}
                 />;
             case 'budgets':
                 return <BudgetsView 

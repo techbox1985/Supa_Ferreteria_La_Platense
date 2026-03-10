@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Customer, Product } from '../../types';
 import { Icon } from '../ui/Icon';
@@ -54,7 +53,6 @@ interface CustomersViewProps {
   onViewStatement: (customer: Customer) => void;
 }
 
-
 export const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refreshData, isLoading, onViewStatement }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isFormOpen, setFormOpen] = useState(false);
@@ -67,6 +65,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
       return (customers || []).filter(c => c['Nombre y Apellido']?.toLowerCase() !== 'consumidor final');
     }, [customers]);
 
+    // Stats SOLO desde los props enriquecidos (ledger)
     const stats = useMemo(() => {
       const totalDebt = realCustomers.reduce((sum, c) => sum + (c.Deuda || 0), 0);
       const customersWithDebt = realCustomers.filter(c => (c.Deuda || 0) > 0).length;

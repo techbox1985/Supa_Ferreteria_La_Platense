@@ -7,6 +7,7 @@ import { generateCustomerStatementHtml, generateReceiptHtml } from '../pos/Recei
 import { getPrintStyles } from '../../utils/printStyles';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
+import { calculateCustomerBalance } from '../../services/api';
 
 interface CustomerStatementModalProps {
   isOpen: boolean;
@@ -83,18 +84,15 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         }
     }, [isOpen, safeCustomer && safeCustomer.Id_Cliente]);
   
+    // Usar el helper para calcular el resumen SOLO desde el ledger
     const summary = useMemo(() => {
         if (!Array.isArray(transactions) || transactions.length === 0) {
             return { totalDebit: 0, totalCredit: 0, finalBalance: 0 };
         }
-        let totalDebit = 0;
-        let totalCredit = 0;
-        for (const tx of transactions) {
-            totalDebit += Number(tx?.debit ?? 0) || 0;
-            totalCredit += Number(tx?.credit ?? 0) || 0;
-        }
-        const finalBalance = totalDebit - totalCredit;
-        return { totalDebit, totalCredit, finalBalance };
+        const { debt, payments } = calculateCustomerBalance(transactions);
+        const totalDebit = transactions.reduce((s, t) => s + Number(t.debit || 0), 0);
+        const totalCredit = transactions.reduce((s, t) => s + Number(t.credit || 0), 0);
+        return { totalDebit, totalCredit, finalBalance: debt };
     }, [transactions]);
 
     const handlePrint = () => {

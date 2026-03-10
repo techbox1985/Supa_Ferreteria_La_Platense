@@ -1527,3 +1527,13 @@ export const searchProducts = async (params: {
 export const markSaleAsBilled = async (saleId: string, cae: string, nro: string, vtoCae: string, qrData: string, date: Date, url: string, ticketUrl?: string, facturacion?: string): Promise<void> => {
     await postToScript('markSaleAsBilled', { saleId, cae, nro, vtoCae, qrData, date: formatDateForSheet(date), url, ticketUrl, facturacion });
 };
+
+// Helper para calcular el balance de un cliente a partir de sus transacciones
+export function calculateCustomerBalance(transactions: { debit?: number; credit?: number }[]): { debt: number; payments: number } {
+  const debit = transactions.reduce((s, t) => s + Number(t.debit || 0), 0);
+  const credit = transactions.reduce((s, t) => s + Number(t.credit || 0), 0);
+  return {
+    debt: debit - credit,
+    payments: credit
+  };
+}
