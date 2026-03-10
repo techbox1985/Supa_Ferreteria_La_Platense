@@ -1204,33 +1204,39 @@ export const annulSale = async (saleId: string): Promise<void> => {
 };
 
 export const getCustomerStatement = async (customerId: string): Promise<AccountTransaction[]> => {
-    const allTransactions = await gvizFetch(`SELECT * ORDER BY B ASC`, 'CuentaCorriente');
-    const customerIdStr = String(customerId).trim();
-    const customerTransactions = allTransactions.filter(t => {
-        const txCustomerId = String(t.Id_Cliente || t.customerId || t['ID_Cliente'] || t['ID Cliente'] || t['IDCliente'] || '').trim();
-        return txCustomerId === customerIdStr;
-    });
-
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const { data, error } = await supabase
+        .from('st_account_transactions')
+        .select('*')
+        .eq('customer_id', customerId)
+        .order('date', { ascending: true });
+    if (error) throw error;
     let balance = 0;
-    return customerTransactions.map(item => {
-        const debit = parseSheetNumber(item.Debe);
-        const credit = parseSheetNumber(item.Haber);
+    return (data || []).map((item: any) => {
+        const debit = Number(item.debit) || 0;
+        const credit = Number(item.credit) || 0;
         balance += debit - credit;
         return {
-            id: item.ID_Transaccion,
-            date: robustParseDate(item.Fecha) || new Date(0),
-            type: item.Tipo as any,
-            description: item.Description,
+            id: item.id,
+            date: item.date ? new Date(item.date) : new Date(0),
+            type: item.type,
+            description: item.description,
             debit,
             credit,
             balance,
-            originalSaleId: item.Venta_Original_ID,
+            originalSaleId: item.original_sale_id,
         };
     });
 };
 
 export const getAccountTransactions = async (): Promise<any[]> => {
-    return gvizFetch('SELECT *', 'CuentaCorriente');
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const { data, error } = await supabase
+        .from('st_account_transactions')
+        .select('*')
+        .order('date', { ascending: false });
+    if (error) throw error;
+    return data || [];
 };
 
 export const getBudgets = async (): Promise<Budget[]> => {
