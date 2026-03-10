@@ -467,7 +467,7 @@ setAccountTransactions(fetchedAccountTransactions);
                     customers={customersWithCalculatedDebt} 
                     refreshData={fetchData} 
                     isLoading={isLoading} 
-                    onViewStatement={handleOpenCustomerStatement}
+                    onViewStatement={(customer) => setCustomerStatementConfig({ isOpen: true, customer })}
                 />;
             case 'budgets':
                 return <BudgetsView 
@@ -538,17 +538,7 @@ setAccountTransactions(fetchedAccountTransactions);
                 <CustomerStatementModal
                     isOpen={!!customerStatementConfig.isOpen}
                     onClose={() => setCustomerStatementConfig({ isOpen: false, customer: null })}
-                    customer={{
-                        Id_Cliente: customerStatementConfig.customer.Id_Cliente || customerStatementConfig.customer.id || '',
-                        'Nombre y Apellido': customerStatementConfig.customer['Nombre y Apellido'] || customerStatementConfig.customer.name || '',
-                        Whatsapp: customerStatementConfig.customer.Whatsapp || customerStatementConfig.customer.whatsapp || '',
-                        'Tipo.Documento': customerStatementConfig.customer['Tipo.Documento'] || customerStatementConfig.customer.document_type || '',
-                        Documento: customerStatementConfig.customer.Documento || customerStatementConfig.customer.document_number || '',
-                        Condicion_IVA: customerStatementConfig.customer.Condicion_IVA || customerStatementConfig.customer.iva_condition || 'Consumidor Final',
-                        Deuda: Number(customerStatementConfig.customer.Deuda ?? 0),
-                        Pagos: Number(customerStatementConfig.customer.Pagos ?? 0),
-                        'Fecha Creacion': customerStatementConfig.customer['Fecha Creacion'] || customerStatementConfig.customer.created_at || undefined
-                    }}
+                    customer={customerStatementConfig.customer}
                     allSales={processedSales}
                     isAdmin={currentUser?.Rol === 'Admin'}
                     refreshData={fetchData}
