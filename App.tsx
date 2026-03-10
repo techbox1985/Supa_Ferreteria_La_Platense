@@ -176,26 +176,27 @@ setAccountTransactions(fetchedAccountTransactions);
 
     // --- Lógica de Procesamiento de Datos ---
 
-    const customersWithCalculatedDebt = useMemo(() => {
+    // --- Enriquecer clientes con deuda real para CustomersView ---
+    const customersWithDebt = useMemo(() => {
         const safeCustomers = Array.isArray(customers) ? customers : [];
         const safeAccountTransactions = Array.isArray(accountTransactions) ? accountTransactions : [];
-        if (safeCustomers.length === 0 && safeAccountTransactions.length === 0) return [];
-
-        // Agrupar transacciones estrictamente por customer_id y calcular deuda
-        const transactionsByCustomer = new Map();
+        // Construir mapa de deuda por customer_id
+        const debtByCustomer = {};
         for (const t of safeAccountTransactions) {
-            const customerId = t.customer_id ? String(t.customer_id).trim() : '';
-            if (!customerId) continue;
-            if (!transactionsByCustomer.has(customerId)) transactionsByCustomer.set(customerId, []);
-            transactionsByCustomer.get(customerId).push(t);
+            const cid = t.customer_id ? String(t.customer_id).trim() : '';
+            if (!cid) continue;
+            if (!debtByCustomer[cid]) debtByCustomer[cid] = { debit: 0, credit: 0 };
+            debtByCustomer[cid].debit += Number(t.debit) || 0;
+            debtByCustomer[cid].credit += Number(t.credit) || 0;
         }
-
-        return safeCustomers.map(customer => {
-            const customerId = customer.Id_Cliente ? String(customer.Id_Cliente).trim() : '';
-            const customerTransactions = transactionsByCustomer.get(customerId) || [];
-            const deuda = customerTransactions.reduce((acc, t) => acc + (Number(t.debit) || 0) - (Number(t.credit) || 0), 0);
-            const pagos = customerTransactions.reduce((acc, t) => acc + (Number(t.credit) || 0), 0);
-            return { ...customer, Deuda: deuda, Pagos: pagos };
+        return safeCustomers.map(c => {
+            const cid = c.Id_Cliente ? String(c.Id_Cliente).trim() : '';
+            const acc = debtByCustomer[cid] || { debit: 0, credit: 0 };
+            return {
+                ...c,
+                Deuda: acc.debit - acc.credit,
+                Pagos: acc.credit
+            };
         });
     }, [customers, accountTransactions]);
 
@@ -446,7 +447,7 @@ setAccountTransactions(fetchedAccountTransactions);
                 return <POSView 
                     products={products} 
                     categories={categories}
-                    customers={customersWithCalculatedDebt} 
+                    customers={customersWithDebt} 
                     refreshData={fetchData} 
                     isLoading={isLoading}
                     cart={cart}
@@ -463,7 +464,7 @@ setAccountTransactions(fetchedAccountTransactions);
             case 'customers':
                 return <CustomersView 
                     products={products} 
-                    customers={customersWithCalculatedDebt} 
+                    customers={customersWithDebt} 
                     refreshData={fetchData} 
                     isLoading={isLoading} 
                     onViewStatement={(customer) => setCustomerStatementConfig({ isOpen: true, customer })}
