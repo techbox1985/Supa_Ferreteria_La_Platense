@@ -208,29 +208,12 @@ setRawTransactions(fetchedTransactions);
         const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
         if (isLoading && safeRawSales.length === 0) return [];
 
-        const productsMap: Map<string, Product> = new Map(safeProducts.map((p: Product) => [p.cod, p]));
+
         const customersMap: Map<string, Customer> = new Map(customersWithCalculatedDebt.map((c: Customer) => [String(c.Id_Cliente), c]));
 
-        const createPlaceholderProduct = (cod: string, name?: string, price?: number): Product => ({
-            cod: cod, Producto: name || `Producto Borrado (${cod})`, Categoria: 'N/A', 'Sub Categoria': 'N/A', Descripcion: 'Eliminado o código cambiado.', 'cod.barras': '', Proveedor: '', 'P.Costo': 0, Precio: price || 0, 'Stock-Inicial': 0, Vendidos: 0, Ingresos: 0, stockk: 0, 'Precio Final': price || 0, Minimo: 0, 'Venta.PV': 0, Online: false, Activo: false,
-        });
-
-        const processedSaleTransactions = new Set<string>();
-        const uniqueTransactions = (safeRawTransactions).reduce((acc: any[], t: any) => {
-            const saleRef = t.Venta_Original_ID || t['Venta Original ID'] || t['Venta_OriginalID'] || t['VentaOriginalID'];
-            if (t.Tipo === 'Venta' && saleRef) {
-                if (!processedSaleTransactions.has(saleRef)) {
-                    processedSaleTransactions.add(saleRef);
-                    acc.push(t);
-                }
-            } else {
-                acc.push(t);
-            }
-            return acc;
-        }, []);
-
+        // hydratedTransactions era una referencia inconsistente, reemplazamos por processedTransactions
         const creditNotesBySaleId = new Map<string, AccountTransaction[]>();
-        hydratedTransactions.forEach(t => {
+        processedTransactions.forEach((t: AccountTransaction) => {
             if (t.type === 'Nota de Crédito' && t.originalSaleId) {
                 const notes = creditNotesBySaleId.get(t.originalSaleId) || [];
                 notes.push(t);
@@ -342,28 +325,31 @@ const processedTransactions = useMemo(() => {
     // --- POS Handlers ---
 
     const handleAddToCart = useCallback((product: Product) => {
-        setCart(prev => {
-            const existing = prev.find(i => i.product.cod === product.cod);
+        setCart((prev: CartItem[]) => {
+            const existing = prev.find((i: CartItem) => i.product.cod === product.cod);
             if (existing) {
-                return prev.map(i => i.product.cod === product.cod ? { ...i, quantity: i.quantity + 1 } : i);
+                return prev.map((i: CartItem) => i.product.cod === product.cod ? { ...i, quantity: i.quantity + 1 } : i);
             }
-            const priceToUse = (product['Precio de Oferta'] && product['Precio de Oferta'] > 0)
-                ? product['Precio de Oferta']
-                : product['Precio Final'];
+            let priceToUse: number = 0;
+            if (typeof product['Precio de Oferta'] === 'number' && product['Precio de Oferta'] > 0) {
+                priceToUse = product['Precio de Oferta'];
+            } else if (typeof product['Precio Final'] === 'number') {
+                priceToUse = product['Precio Final'];
+            }
             return [...prev, { product, quantity: 1, price: priceToUse }];
         });
         addToast(`Agregado: ${product.Producto}`, 'success');
     }, [addToast]);
 
     const handleUpdateCartQuantity = useCallback((productId: string, newQuantity: number) => {
-        setCart(prev => {
-            if (newQuantity <= 0) return prev.filter(i => i.product.cod !== productId);
-            return prev.map(i => i.product.cod === productId ? { ...i, quantity: newQuantity } : i);
+        setCart((prev: CartItem[]) => {
+            if (newQuantity <= 0) return prev.filter((i: CartItem) => i.product.cod !== productId);
+            return prev.map((i: CartItem) => i.product.cod === productId ? { ...i, quantity: newQuantity } : i);
         });
     }, []);
 
     const handleRemoveFromCart = useCallback((productId: string) => {
-        setCart(prev => prev.filter(i => i.product.cod !== productId));
+        setCart((prev: CartItem[]) => prev.filter((i: CartItem) => i.product.cod !== productId));
     }, []);
 
     const handleClearCart = useCallback(() => {
@@ -400,12 +386,12 @@ const processedTransactions = useMemo(() => {
             quantity: 1,
             price: 0,
         };
-        setCart(prevCart => [...prevCart, cartItem]);
+        setCart((prevCart: CartItem[]) => [...prevCart, cartItem]);
         addToast('Producto vario añadido. Edite el nombre y precio.', 'info');
     }, [addToast]);
 
     const handleUpdateCartItemDetails = useCallback((productId: string, details: { name?: string; price?: number }) => {
-        setCart(prevCart => prevCart.map(item => {
+        setCart((prevCart: CartItem[]) => prevCart.map((item: CartItem) => {
             if (item.product.cod === productId && item.product.cod.startsWith('COMMON_')) {
                 const newItem = { ...item };
                 if (details.name !== undefined) {
@@ -446,11 +432,11 @@ const processedTransactions = useMemo(() => {
             isPendingSync: sale.isPendingSync ?? true
         };
 
-        setRawSales(prev => {
+        setRawSales((prev: any[]) => {
             // Evitar duplicados si el refresh ocurre justo después del optimistic
-            const exists = prev.some(s => (s.ID_Venta || s.id) === sale.id);
+            const exists = prev.some((s: any) => (s.ID_Venta || s.id) === sale.id);
             if (exists) {
-                return prev.map(s => (s.ID_Venta || s.id) === sale.id ? rawSaleObject : s);
+                return prev.map((s: any) => (s.ID_Venta || s.id) === sale.id ? rawSaleObject : s);
             }
             return [rawSaleObject, ...prev];
         });
