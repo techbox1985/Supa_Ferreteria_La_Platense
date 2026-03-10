@@ -201,7 +201,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({ products, customers, i
         if (newlyCreatedCustomerName && customers.length > 0) {
             const candidates = customers.filter(c => c['Nombre y Apellido'] === newlyCreatedCustomerName);
             if (candidates.length > 0) {
-                const newCustomer = candidates.reduce((latest, current) => 
+                const newCustomer = (Array.isArray(candidates) ? candidates : []).reduce((latest, current) => 
                     parseInt(String(current.Id_Cliente)) > parseInt(String(latest.Id_Cliente)) ? current : latest
                 );
                 setSelectedCustomer(newCustomer);
@@ -225,7 +225,7 @@ export const BudgetsView: React.FC<BudgetsViewProps> = ({ products, customers, i
     }, [sendModalState, whatsAppCustomers]);
 
 
-    const total = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
+    const total = useMemo(() => (Array.isArray(cart) ? cart : []).reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
 
     const addToCart = useCallback((product: Product) => {
         setCart(prev => {

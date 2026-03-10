@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { ToastProvider, useToast } from './contexts/ToastContext';
@@ -197,21 +196,20 @@ setRawTransactions(fetchedTransactions);
     // --- Lógica de Procesamiento de Datos ---
 
     const customersWithCalculatedDebt = useMemo(() => {
-        if (customers.length === 0 && rawTransactions.length === 0) return [];
+        const safeCustomers = Array.isArray(customers) ? customers : [];
+        const safeTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
+        if (safeCustomers.length === 0 && safeTransactions.length === 0) return [];
 
         const transactionSummary = new Map<string, { totalDebit: number, totalCredit: number }>();
-        
-        rawTransactions.forEach(t => {
-            const customerId = String(t.Id_Cliente || t.customerId || t['ID_Cliente'] || t['ID Cliente'] || t['IDCliente'] || '').trim();
+        (safeTransactions).forEach(t => {
+            const customerId = String(t.customer_id || t.Id_Cliente || t.customerId || t['ID_Cliente'] || t['ID Cliente'] || t['IDCliente'] || '').trim();
             if (!customerId || customerId === '') return;
-
             const summary = transactionSummary.get(customerId) || { totalDebit: 0, totalCredit: 0 };
-            summary.totalDebit += parseSheetNumber(t.Debe || t['Debe']);
-            summary.totalCredit += parseSheetNumber(t.Haber || t['Haber']);
+            summary.totalDebit += safeNumber(t.debit ?? t.Debe);
+            summary.totalCredit += safeNumber(t.credit ?? t.Haber);
             transactionSummary.set(customerId, summary);
         });
-        
-        return customers.map(customer => {
+        return safeCustomers.map(customer => {
             const summary = transactionSummary.get(customer.Id_Cliente);
             if (summary) {
                 return {
@@ -225,9 +223,12 @@ setRawTransactions(fetchedTransactions);
     }, [customers, rawTransactions]);
 
     const processedSales = useMemo(() => {
-        if (isLoading && rawSales.length === 0) return [];
+        const safeProducts = Array.isArray(products) ? products : [];
+        const safeRawSales = Array.isArray(rawSales) ? rawSales : [];
+        const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
+        if (isLoading && safeRawSales.length === 0) return [];
 
-        const productsMap: Map<string, Product> = new Map(products.map((p: Product) => [p.cod, p]));
+        const productsMap: Map<string, Product> = new Map(safeProducts.map((p: Product) => [p.cod, p]));
         const customersMap: Map<string, Customer> = new Map(customersWithCalculatedDebt.map((c: Customer) => [String(c.Id_Cliente), c]));
 
         const createPlaceholderProduct = (cod: string, name?: string, price?: number): Product => ({
@@ -235,7 +236,7 @@ setRawTransactions(fetchedTransactions);
         });
 
         const processedSaleTransactions = new Set<string>();
-        const uniqueTransactions = rawTransactions.reduce((acc: any[], t: any) => {
+        const uniqueTransactions = (safeRawTransactions).reduce((acc: any[], t: any) => {
             const saleRef = t.Venta_Original_ID || t['Venta Original ID'] || t['Venta_OriginalID'] || t['VentaOriginalID'];
             if (t.Tipo === 'Venta' && saleRef) {
                 if (!processedSaleTransactions.has(saleRef)) {
@@ -248,7 +249,7 @@ setRawTransactions(fetchedTransactions);
             return acc;
         }, []);
 
-        const hydratedTransactions: AccountTransaction[] = uniqueTransactions.map((t: any, index: number): AccountTransaction => {
+        const hydratedTransactions: AccountTransaction[] = (uniqueTransactions ?? []).map((t: any, index: number): AccountTransaction => {
             let items: CartItem[] = [];
             const itemsJsonString = t.Items_JSON || t['Items JSON'] || t['Items_JSON'];
 
@@ -291,7 +292,7 @@ setRawTransactions(fetchedTransactions);
         });
         
         const processedSaleIds = new Set<string>();
-        const finalSales = rawSales
+        const finalSales = (safeRawSales)
             .filter(saleRow => saleRow.Estado !== 'Pendiente' && saleRow.Estado !== 'Aprobado')
             .reduce((acc: Sale[], saleRow) => {
                 const saleId = saleRow.ID_Venta || saleRow['ID Venta'] || saleRow.IDVenta || saleRow.id;
@@ -380,24 +381,24 @@ setRawTransactions(fetchedTransactions);
             }, [])
             .sort((a, b) => b.date.getTime() - a.date.getTime());
 
-        return finalSales;
-    }, [products, rawSales, rawTransactions, isLoading, customersWithCalculatedDebt]);
+    return finalSales;
+}, [products, rawSales, rawTransactions, isLoading, customersWithCalculatedDebt]);
 
-    const processedTransactions = useMemo(() => {
-        return rawTransactions.map((t: any, index: number): AccountTransaction => {
-             return {
-                id: t.ID_Transaccion || t.id || `temp-${index}`,
-                date: api.robustParseDate(t.Fecha || t['Fecha']),
-                type: t.Tipo as any,
-                description: t.Descripcion || t['Descripcion'],
-                debit: parseSheetNumber(t.Debe || t['Debe']),
-                credit: parseSheetNumber(t.Haber || t['Haber']),
-                balance: parseSheetNumber(t.Saldo || t['Saldo']),
-                originalSaleId: t.Venta_Original_ID || t['Venta Original ID'],
-                shiftId: t.ID_Turno || t['ID Turno']
-             }
-        });
-    }, [rawTransactions]);
+const processedTransactions = useMemo(() => {
+    const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
+    return (safeRawTransactions).map((t: any, index: number): AccountTransaction => ({
+        id: t.ID_Transaccion || t.id || `temp-${index}`,
+        date: api.robustParseDate(t.Fecha || t['Fecha']),
+        type: t.Tipo as any,
+        description: t.Descripcion || t['Descripcion'],
+        debit: parseSheetNumber(t.Debe || t['Debe']),
+        credit: parseSheetNumber(t.Haber || t['Haber']),
+        balance: parseSheetNumber(t.Saldo || t['Saldo']),
+        originalSaleId: t.Venta_Original_ID || t['Venta Original ID'],
+        shiftId: t.ID_Turno || t['ID Turno']
+     }
+    }));
+}, [rawTransactions]);
 
     // --- POS Handlers ---
 
