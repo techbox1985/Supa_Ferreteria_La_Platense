@@ -1240,9 +1240,14 @@ export const getCustomerStatement = async (customerId: string): Promise<AccountT
         const debit = Number(item.debit) || 0;
         const credit = Number(item.credit) || 0;
         balance += debit - credit;
+        let parsedDate = null;
+        if (item.date) {
+            const d = new Date(item.date);
+            parsedDate = isNaN(d.getTime()) ? null : d;
+        }
         return {
             id: item.id,
-            date: item.date ? new Date(item.date) : new Date(0),
+            date: parsedDate,
             type: item.type,
             description: item.description,
             debit,

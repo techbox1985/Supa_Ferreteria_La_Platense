@@ -211,10 +211,13 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                         const safeCredit = Number(tx.credit ?? 0) || 0;
                                         const safeBalance = Number(tx.balance ?? 0) || 0;
                                         let safeDate: string = 'Fecha Inválida';
-                                        try {
-                                            safeDate = tx.date ? new Date(tx.date).toLocaleString('es-AR') : 'Fecha Inválida';
-                                        } catch {
-                                            safeDate = 'Fecha Inválida';
+                                        if (tx.date instanceof Date && !isNaN(tx.date.getTime())) {
+                                            safeDate = tx.date.toLocaleString('es-AR');
+                                        } else if (typeof tx.date === 'string') {
+                                            const d = new Date(tx.date);
+                                            if (!isNaN(d.getTime())) {
+                                                safeDate = d.toLocaleString('es-AR');
+                                            }
                                         }
                                         return (
                                             <tr key={tx.id || idx}>
