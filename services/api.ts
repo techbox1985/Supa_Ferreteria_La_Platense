@@ -102,106 +102,6 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         } as any));
 };
 
-export const addProductSupabase = async (productData: any): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    
-    const mapping = {
-        cod: productData.cod,
-        name: productData.Producto,
-        category_id: productData.category_id,
-        category_name_legacy: productData.Categoria,
-        sub_category: productData['Sub Categoria'],
-        description: productData.Descripcion,
-        barcode: productData['cod.barras'],
-        supplier_id: productData.supplier_id,
-        supplier_name_legacy: productData.Proveedor,
-        cost_price: productData['P.Costo'],
-        list_price: productData.Precio,
-        offer_price: productData['Precio de Oferta'],
-        initial_stock: productData['Stock-Inicial'],
-        income_count: productData.Ingresos,
-        sold_count: productData.Vendidos,
-        pv_sale: productData['Venta.PV'],
-        current_stock: productData.stockk,
-        final_price: productData['Precio Final'],
-        min_stock: productData.Minimo,
-        is_online: productData.Online,
-        is_active: productData.Activo,
-        photo_url: productData.FOTOGRAFIA,
-        brand: productData.Marca,
-        compatible_model: productData.Modelo_Compatible,
-        technical_type: productData.Tipo_Tecnico,
-        specifications: productData.Especificaciones,
-        warranty_months: productData.Garantia_Meses,
-        internal_notes: productData.Notas_Internas,
-        is_deleted: false
-    };
-
-    const { data, error } = await supabase
-        .from('st_products')
-        .insert([mapping])
-        .select();
-    
-    if (error) throw error;
-    return data[0];
-};
-
-export const updateProductSupabase = async (productData: any): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    
-    const { cod, ...rest } = productData;
-    const mapping: any = {};
-    
-    if (rest.Producto !== undefined) mapping.name = rest.Producto;
-    if (rest.category_id !== undefined) mapping.category_id = rest.category_id;
-    if (rest.Categoria !== undefined) mapping.category_name_legacy = rest.Categoria;
-    if (rest['Sub Categoria'] !== undefined) mapping.sub_category = rest['Sub Categoria'];
-    if (rest.Descripcion !== undefined) mapping.description = rest.Descripcion;
-    if (rest['cod.barras'] !== undefined) mapping.barcode = rest['cod.barras'];
-    if (rest.supplier_id !== undefined) mapping.supplier_id = rest.supplier_id;
-    if (rest.Proveedor !== undefined) mapping.supplier_name_legacy = rest.Proveedor;
-    if (rest['P.Costo'] !== undefined) mapping.cost_price = rest['P.Costo'];
-    if (rest.Precio !== undefined) mapping.list_price = rest.Precio;
-    if (rest['Precio de Oferta'] !== undefined) mapping.offer_price = rest['Precio de Oferta'];
-    if (rest['Stock-Inicial'] !== undefined) mapping.initial_stock = rest['Stock-Inicial'];
-    if (rest.Ingresos !== undefined) mapping.income_count = rest.Ingresos;
-    if (rest.Vendidos !== undefined) mapping.sold_count = rest.Vendidos;
-    if (rest['Venta.PV'] !== undefined) mapping.pv_sale = rest['Venta.PV'];
-    if (rest.stockk !== undefined) mapping.current_stock = rest.stockk;
-    if (rest['Precio Final'] !== undefined) mapping.final_price = rest['Precio Final'];
-    if (rest.Minimo !== undefined) mapping.min_stock = rest.Minimo;
-    if (rest.Online !== undefined) mapping.is_online = rest.Online;
-    if (rest.Activo !== undefined) mapping.is_active = rest.Activo;
-    if (rest.FOTOGRAFIA !== undefined) mapping.photo_url = rest.FOTOGRAFIA;
-    if (rest.Marca !== undefined) mapping.brand = rest.Marca;
-    if (rest.Modelo_Compatible !== undefined) mapping.compatible_model = rest.Modelo_Compatible;
-    if (rest.Tipo_Tecnico !== undefined) mapping.technical_type = rest.Tipo_Tecnico;
-    if (rest.Especificaciones !== undefined) mapping.specifications = rest.Especificaciones;
-    if (rest.Garantia_Meses !== undefined) mapping.warranty_months = rest.Garantia_Meses;
-    if (rest.Notas_Internas !== undefined) mapping.internal_notes = rest.Notas_Internas;
-
-    const { data, error } = await supabase
-        .from('st_products')
-        .update(mapping)
-        .eq('cod', cod)
-        .select();
-    
-    if (error) throw error;
-    return data[0];
-};
-
-export const deleteProductSupabase = async (cod: string): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    const { data, error } = await supabase
-        .from('st_products')
-        .update({ is_deleted: true, deleted_at: new Date() })
-        .eq('cod', cod)
-        .select();
-    
-    if (error) throw error;
-    return { deleted: true, data: data[0] };
-};
-
 export const getCategoriesSupabase = async (): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     const { data, error } = await supabase
@@ -1705,7 +1605,8 @@ const postToScript = async (action: string, payload: any, options: { allowQueue?
         'getProductsAndSyncStatus',
         'getAllUsersForAdmin',
         'getCategoriesData',
-        'searchProducts'
+        'searchProducts',
+        'createCreditNote'
     ];
 
     if (!WHITELIST_READ_ONLY.includes(action)) {
