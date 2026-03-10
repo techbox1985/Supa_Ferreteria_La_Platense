@@ -396,7 +396,6 @@ const processedTransactions = useMemo(() => {
         balance: parseSheetNumber(t.Saldo || t['Saldo']),
         originalSaleId: t.Venta_Original_ID || t['Venta Original ID'],
         shiftId: t.ID_Turno || t['ID Turno']
-     }
     }));
 }, [rawTransactions]);
 
