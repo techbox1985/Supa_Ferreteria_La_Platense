@@ -19,14 +19,7 @@ const CustomerRow: React.FC<{
 
   return (
     <tr className="hover:bg-gray-50 transition-colors">
-      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{customer['Nombre y Apellido']}</td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{customer.Whatsapp || '-'}</td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{customer.Condicion_IVA || 'N/A'}</td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{customer['Tipo.Documento'] || '-'}</td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{customer.Documento || '-'}</td>
-      <td className={`px-6 py-4 whitespace-nowrap text-sm font-semibold ${debtColor}`}>${customer.Deuda.toLocaleString('es-AR')}</td>
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${customer.Pagos.toLocaleString('es-AR')}</td>
-      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+      <td className="px-2 py-3 whitespace-nowrap text-left text-sm font-medium space-x-1 min-w-[70px] max-w-[80px]">
         {!isConsumidorFinal && (
           <>
             <button onClick={() => onViewStatement(customer)} className="text-green-600 hover:text-green-800" title="Cuenta Corriente">
@@ -38,6 +31,13 @@ const CustomerRow: React.FC<{
           </>
         )}
       </td>
+      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 min-w-[160px] max-w-[260px]">{customer['Nombre y Apellido']}</td>
+      <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[110px] max-w-[150px]">{customer.Whatsapp || '-'}</td>
+      <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[90px] max-w-[120px]">{customer.Condicion_IVA || 'N/A'}</td>
+      <td className="px-2 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[70px] max-w-[90px]">{customer['Tipo.Documento'] || '-'}</td>
+      <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[100px] max-w-[130px]">{customer.Documento || '-'}</td>
+      <td className={`px-2 py-3 whitespace-nowrap text-sm font-semibold ${debtColor} min-w-[80px] max-w-[90px]`}>${customer.Deuda.toLocaleString('es-AR')}</td>
+      <td className="px-2 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[80px] max-w-[90px]">${customer.Pagos.toLocaleString('es-AR')}</td>
     </tr>
   );
 });
@@ -173,14 +173,14 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre y Apellido</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">WhatsApp</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Condición IVA</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo Doc.</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Documento</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deuda</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pagos</th>
-                    <th scope="col" className="relative px-6 py-3"><span className="sr-only">Acciones</span></th>
+                    <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[70px] max-w-[80px]">Acciones</th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[160px] max-w-[260px]">Nombre y Apellido</th>
+                    <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[110px] max-w-[150px]">WhatsApp</th>
+                    <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[90px] max-w-[120px]">Condición IVA</th>
+                    <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[70px] max-w-[90px]">Tipo Doc.</th>
+                    <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[100px] max-w-[130px]">Documento</th>
+                    <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[80px] max-w-[90px]">Deuda</th>
+                    <th scope="col" className="px-2 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[80px] max-w-[90px]">Pagos</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
