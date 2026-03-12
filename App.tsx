@@ -5,7 +5,6 @@ import { Header } from './components/layout/Header';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { POSView } from './components/pos/POSView';
 import { CustomersView } from './components/customers/CustomersView';
-import { BudgetsView } from './components/budgets/BudgetsView';
 import { TodayView } from './components/today/TodayView';
 import { ExpensesView } from './components/expenses/ExpensesView';
 import { LowStockView } from './components/low-stock/LowStockView';
@@ -36,7 +35,7 @@ const parseSheetNumber = (value: any): number => {
 const AppContent: React.FC = () => {
     const { currentUser } = useContext(AuthContext);
     const { addToast } = useToast();
-    const [currentView, setCurrentView] = useState<'pos' | 'customers' | 'budgets' | 'today' | 'expenses' | 'low-stock' | 'admin-panel' | 'sales-history'>('pos');
+    const [currentView, setCurrentView] = useState<'pos' | 'customers' | 'today' | 'expenses' | 'low-stock' | 'admin-panel' | 'sales-history'>('pos');
     
     // Estados de Datos
     const [products, setProducts] = useState<Product[]>([]);
@@ -460,6 +459,7 @@ setAccountTransactions(fetchedAccountTransactions);
                     saleBeingEdited={saleBeingEdited}
                     onClearSaleBeingEdited={() => setSaleBeingEdited(null)}
                     onOptimisticAddSale={handleOptimisticAddSale}
+                    // Eliminado: onNavigateBudgets
                 />;
             case 'customers':
                 return <CustomersView 
@@ -470,13 +470,7 @@ setAccountTransactions(fetchedAccountTransactions);
                     onViewStatement={(customer) => setCustomerStatementConfig({ isOpen: true, customer })}
                 />;
             case 'budgets':
-                return <BudgetsView 
-                    products={products} 
-                    customers={customersWithCalculatedDebt} 
-                    isLoading={isLoading} 
-                    refreshData={fetchData}
-                    onOptimisticAddSale={handleOptimisticAddSale}
-                />;
+                // Eliminado: vista budgets
             case 'today':
                 return <TodayView 
                     processedSales={processedSales} 

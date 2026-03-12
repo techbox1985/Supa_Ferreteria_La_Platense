@@ -88,8 +88,10 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSal
         );
     }
     
-    const filters = (
-        <div className="bg-white p-4 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-4">
+    // Filtros y buscador reales integrados visualmente
+    const [searchTerm, setSearchTerm] = useState('');
+    const filtersAndSearch = (
+        <div className="bg-white p-4 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-4 mt-4">
             <div className="flex-grow">
                 <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">Desde</label>
                 <input 
@@ -127,21 +129,43 @@ export const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSal
                     }
                 </select>
             </div>
+            {/* Buscador real */}
+            <div className="flex-grow md:max-w-xs relative mt-4 md:mt-0">
+                <label htmlFor="search-term" className="block text-sm font-medium text-gray-700">Buscar</label>
+                <div className="relative mt-1">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" className="h-4 w-4 text-gray-400" />
+                    </div>
+                    <input
+                        id="search-term"
+                        type="text"
+                        placeholder="Buscar cliente, ID, CUIT, factura..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
+                </div>
+            </div>
         </div>
     );
 
     return (
-        <div className="h-full overflow-y-auto">
+        <div className="h-full p-2 space-y-4">
             <SalesDashboard
-                title="Análisis e Historial de Ventas"
+                title=""
                 salesData={salesInDateRange}
                 customers={customers}
                 products={products}
                 refreshData={refreshData}
                 isLoading={isLoading}
-                headerChildren={filters}
+                headerChildren={filtersAndSearch}
                 noDataMessage="No se encontraron ventas para el período o filtro seleccionado."
                 statTitlePrefix="en Período"
+                showStats={true}
+                searchTerm={searchTerm}
+                setSearchTerm={setSearchTerm}
+                stickyStats={true}
+                stickyFilters={true}
             />
         </div>
     );

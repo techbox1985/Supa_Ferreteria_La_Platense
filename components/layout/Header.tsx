@@ -82,7 +82,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefre
       </div>
       <nav className="flex items-center space-x-1 bg-slate-50/50 p-1 rounded-2xl border border-slate-200/50">
         <NavButton
-          label="Punto de Venta"
+          label="POS"
           iconPath="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l.383-1.437M7.5 14.25L5.106 5.165A2.25 2.25 0 002.894 3H2.25"
           isActive={currentView === 'pos'}
           onClick={() => onNavigate('pos')}
@@ -106,7 +106,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefre
           onClick={() => onNavigate('expenses')}
         />
         <NavButton
-          label="Bajos de Stock"
+          label="B.stock"
           iconPath="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
           isActive={currentView === 'low-stock'}
           onClick={() => onNavigate('low-stock')}
@@ -116,12 +116,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefre
           iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
           isActive={currentView === 'customers'}
           onClick={() => onNavigate('customers')}
-        />
-        <NavButton
-          label="Presupuestos"
-          iconPath="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
-          isActive={currentView === 'budgets'}
-          onClick={() => onNavigate('budgets')}
         />
 
         {/* Admin Only Buttons */}

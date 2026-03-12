@@ -34,7 +34,7 @@ export const LowStockView: React.FC<LowStockViewProps> = ({ products, isLoading 
                         <Icon path="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" className="h-5 w-5 text-orange-400"/>
                     </div>
                     <div className="ml-3">
-                        <h3 className="text-lg font-bold text-orange-800">Productos con Bajo Stock</h3>
+                        <h3 className="text-lg font-bold text-orange-800">B.stock</h3>
                         <div className="mt-2 text-sm text-orange-700">
                             <p>Esta es una lista de productos cuyo stock actual es inferior al mínimo configurado. Úsela para planificar sus próximos pedidos.</p>
                         </div>

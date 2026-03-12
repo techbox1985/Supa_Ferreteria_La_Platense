@@ -14,6 +14,7 @@ import { ProductDetailModal } from './ProductDetailModal';
 import { getPrintStyles } from '../../utils/printStyles';
 
 interface POSViewProps {
+    onNavigateBudgets: () => void;
   products: Product[];
   categories: string[];
   customers: Customer[];
@@ -32,6 +33,7 @@ interface POSViewProps {
 }
 
 export const POSView: React.FC<POSViewProps> = ({
+  onNavigateBudgets,
   products,
   categories,
   customers,
@@ -48,9 +50,40 @@ export const POSView: React.FC<POSViewProps> = ({
   onClearSaleBeingEdited,
   onOptimisticAddSale,
 }) => {
+  const { activeShift } = useContext(AuthContext);
+  const { addToast } = useToast();
+  // Lógica para guardar presupuesto
+  const handleFinalizeBudget = useCallback(async (sale: Sale, _generateInvoice: boolean) => {
+    if (!activeShift) {
+      addToast("Error: No hay un turno activo. No se puede registrar el presupuesto.", 'error');
+      return;
+    }
+    try {
+      const budget = {
+        id: sale.id,
+        date: sale.date,
+        customer: sale.customer,
+        items: sale.items,
+        total: sale.total,
+        status: 'active',
+        shiftId: activeShift.ID_Turno,
+        document_type: 'budget',
+      };
+      await api.addBudgetSupabase(budget);
+      setCheckoutOpen(false);
+      onClearCart();
+      addToast('Presupuesto guardado correctamente.', 'success');
+      refreshData();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error inesperado.';
+      addToast(`Error al guardar presupuesto: ${errorMessage}`, 'error');
+    }
+  }, [activeShift, addToast, onClearCart, refreshData]);
+  // ...existing code...
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCheckoutOpen, setCheckoutOpen] = useState(false);
+    const [isBudgetMode, setIsBudgetMode] = useState(false);
   const [isCustomerFormOpen, setCustomerFormOpen] = useState(false);
   const [productForDetail, setProductForDetail] = useState<Product | null>(null);
 
@@ -59,8 +92,6 @@ export const POSView: React.FC<POSViewProps> = ({
   const [saleForPrintModal, setSaleForPrintModal] = useState<Sale | null>(null);
   const [printModalIsFiscal, setPrintModalIsFiscal] = useState(false);
 
-  const { activeShift } = useContext(AuthContext);
-  const { addToast } = useToast();
 
 const categoryOptions = useMemo(() => {
   const unique = Array.from(
@@ -292,14 +323,14 @@ const categoryOptions = useMemo(() => {
           </div>
         ) : (
           <div className="flex-grow overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6 pr-2 -mr-4">
-            {filteredProducts.map(product => (
-              <ProductCard
-                key={product.cod}
-                product={product}
-                onAddToCart={onAddToCart}
-                onViewDetails={setProductForDetail}
-              />
-            ))}
+              {filteredProducts.map(product => (
+                <ProductCard
+                  key={product.cod}
+                  product={product}
+                  onAddToCart={onAddToCart}
+                  onViewDetails={setProductForDetail}
+                />
+              ))}
           </div>
         )}
       </div>
@@ -311,7 +342,14 @@ const categoryOptions = useMemo(() => {
           onUpdateQuantity={onUpdateQuantity}
           onRemoveItem={onRemoveItem}
           onClearCart={onClearCart}
-          onCheckout={() => setCheckoutOpen(true)}
+          onCheckout={() => {
+            setIsBudgetMode(false);
+            setCheckoutOpen(true);
+          }}
+          onBudget={() => {
+            setIsBudgetMode(true);
+            setCheckoutOpen(true);
+          }}
           onUpdateCartItemDetails={onUpdateCartItemDetails}
         />
       </div>
@@ -321,9 +359,10 @@ const categoryOptions = useMemo(() => {
         onClose={() => setCheckoutOpen(false)}
         cart={cart}
         customers={customers}
-        onFinalizeSale={handleFinalizeSale}
+        onFinalizeSale={isBudgetMode ? handleFinalizeBudget : handleFinalizeSale}
         onAddNewCustomer={() => { setCheckoutOpen(false); setCustomerFormOpen(true); }}
         saleBeingEdited={saleBeingEdited}
+        isBudgetMode={isBudgetMode}
       />
 
       <CustomerFormModal
@@ -367,7 +406,7 @@ const categoryOptions = useMemo(() => {
 
               {/* 2) Opciones fiscales solo si corresponde */}
               {printModalIsFiscal && (
-                <Fragment>
+                <>
                   <button
                     disabled={!isInvoiceReady || !fiscalTicketUrl}
                     onClick={() => {
@@ -399,7 +438,7 @@ const categoryOptions = useMemo(() => {
                   >
                     {(!isInvoiceReady || !fiscalA4Url) ? 'Fiscal A4 (generando...)' : 'Fiscal A4'}
                   </button>
-                </Fragment>
+                </>
               )}
             </div>
 

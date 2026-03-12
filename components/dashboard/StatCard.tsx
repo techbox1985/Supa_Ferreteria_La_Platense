@@ -14,15 +14,16 @@ export const StatCard: React.FC<StatCardProps> = React.memo(({ title, value, ico
   const isClickable = !!onClick;
   return (
     <div
-      className={`bg-white p-5 rounded-xl shadow-md flex items-center space-x-4 transition-all duration-300 hover:scale-105 hover:shadow-lg ${isClickable ? 'cursor-pointer' : ''}`}
+      className={`bg-white px-3 py-2 md:px-4 md:py-2 rounded shadow flex items-center gap-2 md:gap-2 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg ${isClickable ? 'cursor-pointer' : ''} min-w-[170px]`}
       onClick={onClick}
+      style={{ minWidth: 170, maxWidth: '100%' }}
     >
-      <div className={`rounded-full p-3 ${iconBgColor}`}>
-        <Icon path={iconPath} className="w-7 h-7 text-white" />
+      <div className={`rounded-full p-1 md:p-1.5 ${iconBgColor}`}>
+        <Icon path={iconPath} className="w-4 h-4 md:w-5 md:h-5 text-white" />
       </div>
-      <div>
-        <p className="text-sm font-medium text-gray-500">{title}</p>
-        <p className="text-3xl font-bold text-gray-900">{value}</p>
+      <div className="min-w-0">
+        <p className="text-[11px] md:text-xs font-medium text-gray-500 truncate" title={title}>{title}</p>
+        <p className="text-sm md:text-base font-bold text-gray-900 truncate" title={value}>{value}</p>
         {description && <p className="text-xs text-gray-400 mt-1">{description}</p>}
       </div>
     </div>

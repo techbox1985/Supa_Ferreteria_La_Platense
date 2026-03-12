@@ -8,6 +8,7 @@ import { getPrintStyles } from '../../utils/printStyles';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
 import { calculateCustomerBalance } from '../../services/api';
+import { PaymentModal } from './PaymentModal';
 
 interface CustomerStatementModalProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ const getTypeStyle = (type: AccountTransaction['type']) => {
 
 export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ isOpen, onClose, customer, allSales, isAdmin, refreshData }) => {
     // Guardar y normalizar el customer recibido
+    const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const safeCustomer: Customer = {
         Id_Cliente: customer?.Id_Cliente || '',
         'Nombre y Apellido': customer?.['Nombre y Apellido'] || '',
@@ -153,7 +155,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
 
   return (
     <>
-        <Modal isOpen={isOpen} onClose={onClose} title={`Estado de Cuenta - ${safeCustomer['Nombre y Apellido']}`} size="xl">
+        <Modal isOpen={isOpen} onClose={onClose} title={`Estado de Cuenta - ${safeCustomer['Nombre y Apellido']}`} size="2xl">
         <div className="space-y-4">
             <div className="flex justify-between items-start gap-4 flex-wrap">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-grow">
@@ -171,7 +173,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                     </div>
                 </div>
                 
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 flex flex-col gap-2">
                     <button
                         onClick={handlePrint}
                         disabled={isLoading || transactions.length === 0}
@@ -179,6 +181,13 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                     >
                         <Icon path="M6.75 7.5h10.5a.75.75 0 01.75.75v10.5a.75.75 0 01-.75-.75h-10.5a.75.75 0 01-.75-.75V8.25a.75.75 0 01.75-.75z" className="w-5 h-5"/>
                         <span>Imprimir Resumen</span>
+                    </button>
+                    <button
+                        onClick={() => setIsPaymentModalOpen(true)}
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2"
+                    >
+                        <Icon path="M12 4v16m8-8H4" className="w-5 h-5"/>
+                        <span>Registrar Pago</span>
                     </button>
                 </div>
             </div>
@@ -198,7 +207,6 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                         <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">Acciones</th>
                                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
                                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Descripción</th>
                                         <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Debe</th>
                                         <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Haber</th>
                                         <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">Saldo</th>
@@ -245,11 +253,10 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                                 </td>
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm">{safeDate}</td>
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm">
-                                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getTypeStyle(tx.type)}`}>
+                                                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getTypeStyle(tx.type)}`}> 
                                                         {tx.type ? String(tx.type).replace('_', ' ') : ''}
                                                     </span>
                                                 </td>
-                                                <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-500">{tx.description || ''}</td>
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-red-600">{safeDebit > 0 ? formatCurrency(safeDebit) : '-'}</td>
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-green-600">{safeCredit > 0 ? formatCurrency(safeCredit) : '-'}</td>
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium">{formatCurrency(safeBalance)}</td>
@@ -271,6 +278,23 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
             confirmText="Sí, Anular Venta"
             isProcessing={isAnnuling}
         />
+        {isPaymentModalOpen && (
+            <PaymentModal
+                isOpen={isPaymentModalOpen}
+                onClose={() => setIsPaymentModalOpen(false)}
+                customer={safeCustomer}
+                onSave={async (paymentData) => {
+                    try {
+                        await api.registerCustomerPayment(safeCustomer.Id_Cliente, paymentData);
+                        addToast('Pago registrado con éxito.', 'success');
+                        setIsPaymentModalOpen(false);
+                        refreshData();
+                    } catch (error) {
+                        addToast('Error al registrar el pago.', 'error');
+                    }
+                }}
+            />
+        )}
     </>
   );
 };

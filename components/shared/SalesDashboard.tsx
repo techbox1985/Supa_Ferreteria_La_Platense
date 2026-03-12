@@ -154,9 +154,11 @@ interface SalesDashboardProps {
     searchBarAddon?: React.ReactNode;
 }
 
-export const SalesDashboard: React.FC<SalesDashboardProps> = ({ title, salesData, products, customers, refreshData, isLoading, headerChildren, noDataMessage, statTitlePrefix = '', showStats = true, searchBarAddon }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: string; setSearchTerm?: (v: string) => void; stickyStats?: boolean; stickyFilters?: boolean }> = ({ title, salesData, products, customers, refreshData, isLoading, headerChildren, noDataMessage, statTitlePrefix = '', showStats = true, searchBarAddon, searchTerm: externalSearchTerm, setSearchTerm: externalSetSearchTerm, stickyStats = false, stickyFilters = false }) => {
+    const [internalSearchTerm, internalSetSearchTerm] = useState('');
+    const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
+    const setSearchTerm = externalSetSearchTerm !== undefined ? externalSetSearchTerm : internalSetSearchTerm;
+    const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -612,45 +614,13 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ title, salesData
     }, [addToast, refreshData]);
 
     return (
-        <div className="p-6 space-y-8">
-            <div className="flex justify-between items-center flex-wrap gap-4">
-                 <div className="flex items-center gap-4">
-                    <h1 className="text-3xl font-bold text-gray-800">{title}</h1>
-                    <button 
-                        onClick={refreshData} 
-                        disabled={isLoading}
-                        className="bg-blue-100 text-blue-700 p-2 rounded-full hover:bg-blue-200 transition-colors disabled:bg-gray-200 disabled:text-gray-500 disabled:cursor-not-allowed"
-                        title="Actualizar datos"
-                    >
-                        <Icon 
-                            path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z"
-                            className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`}
-                        />
-                    </button>
-                </div>
-                <div className="flex items-center gap-4 flex-grow md:flex-grow-0 justify-end">
-                    <div className="flex-grow md:max-w-xs relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" className="h-4 w-4 text-gray-400" />
-                        </div>
-                        <input
-                            type="text"
-                            placeholder="Buscar cliente, ID, CUIT, factura..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
-                        />
-                    </div>
-                    {searchBarAddon}
-                </div>
-            </div>
-
-            {headerChildren}
-            
+        <div className="p-2 space-y-4">
             {showStats && (
-                <div className="space-y-6">
-                    <h2 className="text-xl font-bold text-gray-700">Métricas Principales</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div
+                    className={stickyStats ? 'z-30 bg-white sticky top-0 left-0 right-0 shadow-sm' : ''}
+                    style={stickyStats ? { paddingTop: 0, paddingBottom: 0 } : {}}
+                >
+                    <div className="flex flex-nowrap gap-4 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 pb-2">
                         <StatCard 
                             title={`Ingresos ${statTitlePrefix}`}
                             value={formatCurrency(stats.totalRevenue)} 
@@ -672,9 +642,6 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ title, salesData
                             iconBgColor="bg-purple-500"
                             onClick={handleShowProductsSoldDetails}
                         />
-                    </div>
-                    <h2 className="text-xl font-bold text-gray-700 pt-4">Desglose por Método de Pago</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                         <StatCard 
                             title={`Efectivo ${statTitlePrefix}`}
                             value={formatCurrency(stats.totalCash)} 
@@ -697,7 +664,7 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ title, salesData
                             onClick={handleShowCreditDetails}
                         />
                         <StatCard 
-                            title={`E-Cheq ${statTitlePrefix}`}
+                            title={`E-Cheq ${statTitlePrefix}`} 
                             value={formatCurrency(stats.totalEcheq)} 
                             iconPath="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"
                             iconBgColor="bg-indigo-500"
@@ -706,55 +673,69 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({ title, salesData
                     </div>
                 </div>
             )}
-            
-            <div>
-                 <h2 className="text-2xl font-bold text-gray-800 mb-4">Detalle de Ventas ({filteredSales.length})</h2>
+
+            {headerChildren && (
+                <div
+                    className={stickyFilters ? 'z-20 bg-white sticky top-[56px] left-0 right-0 shadow-sm' : ''}
+                    style={stickyFilters ? { marginTop: 0 } : {}}
+                >
+                    {headerChildren}
+                </div>
+            )}
+
+            <div className="relative">
                 <div className="bg-white shadow-md rounded-lg overflow-hidden">
                     <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200" style={{ tableLayout: 'fixed' }}>
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th scope="col" className="px-4 py-3 w-12 min-w-[48px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
-                                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Venta</th>
-                                    <th scope="col" className="px-4 py-3 w-40 min-w-[160px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                                    <th scope="col" className="px-4 py-3 max-w-[200px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
-                                    <th scope="col" className="px-4 py-3 w-16 min-w-[64px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
-                                    <th scope="col" className="px-4 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Desc</th>
-                                    <th scope="col" className="px-4 py-3 w-28 min-w-[112px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Efectivo</th>
-                                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Digital</th>
-                                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-Cheq</th>
-                                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cta. Cte.</th>
-                                    <th scope="col" className="px-4 py-3 w-16 min-w-[64px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
-                                </tr>
-                            </thead>
-                            <tbody className="bg-white divide-y-0">
-                            {filteredSales.length > 0 ? filteredSales.map(sale => (
-                                    <React.Fragment key={sale.id}>
-                                        <SaleRow
-                                            sale={sale}
-                                            onOpenActions={(s) => handleOpenActions(s, 'sale')}
-                                            isAdmin={isAdmin}
-                                        />
-                                        {sale.creditNotes && sale.creditNotes.map(note => (
-                                            <CreditNoteRow 
-                                                key={note.id} 
-                                                note={note} 
-                                                onReprint={handleReprintCreditNote} 
-                                                onOpenActions={(n) => handleOpenActions(n, 'note')}
-                                            />
-                                        ))}
-                                    </React.Fragment>
-                                )) : (
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full divide-y divide-gray-200" style={{ tableLayout: 'fixed' }}>
+                                <thead className="bg-gray-50 z-10 sticky top-[104px]" style={{zIndex:11, background:'#f9fafb'}}>
                                     <tr>
-                                        <td colSpan={13} className="text-center py-10 text-gray-500">
-                                            {noDataMessage}
-                                        </td>
+                                        <th scope="col" className="px-4 py-3 w-12 min-w-[48px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                                        <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Venta</th>
+                                        <th scope="col" className="px-4 py-3 w-40 min-w-[160px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+                                        <th scope="col" className="px-4 py-3 max-w-[200px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
+                                        <th scope="col" className="px-4 py-3 w-16 min-w-[64px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
+                                        <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
+                                        <th scope="col" className="px-4 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Desc</th>
+                                        <th scope="col" className="px-4 py-3 w-28 min-w-[112px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
+                                        <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Efectivo</th>
+                                        <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Digital</th>
+                                        <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-Cheq</th>
+                                        <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cta. Cte.</th>
+                                        <th scope="col" className="px-4 py-3 w-16 min-w-[64px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
                                     </tr>
-                                )}
-                            </tbody>
-                        </table>
+                                </thead>
+                            </table>
+                            <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
+                                <table className="min-w-full divide-y divide-gray-200" style={{ tableLayout: 'fixed' }}>
+                                    <tbody className="bg-white divide-y-0">
+                                    {filteredSales.length > 0 ? filteredSales.map(sale => (
+                                            <React.Fragment key={sale.id}>
+                                                <SaleRow
+                                                    sale={sale}
+                                                    onOpenActions={(s) => handleOpenActions(s, 'sale')}
+                                                    isAdmin={isAdmin}
+                                                />
+                                                {sale.creditNotes && sale.creditNotes.map(note => (
+                                                    <CreditNoteRow 
+                                                        key={note.id} 
+                                                        note={note} 
+                                                        onReprint={handleReprintCreditNote} 
+                                                        onOpenActions={(n) => handleOpenActions(n, 'note')}
+                                                    />
+                                                ))}
+                                            </React.Fragment>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan={13} className="text-center py-10 text-gray-500">
+                                                    {noDataMessage}
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

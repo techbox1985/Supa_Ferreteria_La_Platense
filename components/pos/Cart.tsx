@@ -8,6 +8,7 @@ interface CartProps {
   onRemoveItem: (productId: string) => void;
   onClearCart: () => void;
   onCheckout: () => void;
+  onBudget: () => void;
   onUpdateCartItemDetails: (productId: string, details: { name?: string; price?: number }) => void;
 }
 
@@ -67,7 +68,7 @@ const CartEntry: React.FC<{
     )
 }
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onUpdateCartItemDetails }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onBudget, onUpdateCartItemDetails }) => {
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   return (
@@ -88,12 +89,20 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
                 <span className="text-2xl font-bold text-gray-800">${total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
             </div>
             <button
-            onClick={onCheckout}
-            disabled={cart.length === 0}
-            className="flex-grow bg-green-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              onClick={onCheckout}
+              disabled={cart.length === 0}
+              className="flex-grow bg-green-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
             >
-            <Icon path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z" className="w-6 h-6"/>
-            <span>Cobrar</span>
+              <Icon path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z" className="w-6 h-6"/>
+              <span>Cobrar</span>
+            </button>
+            <button
+              onClick={onBudget}
+              disabled={cart.length === 0}
+              className="flex-grow bg-blue-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+            >
+              <Icon path="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" className="w-6 h-6"/>
+              <span>Presupuestar</span>
             </button>
         </div>
       )}

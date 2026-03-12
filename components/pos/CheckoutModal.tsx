@@ -16,6 +16,7 @@ interface CheckoutModalProps {
   ) => Promise<void>;
   onAddNewCustomer: () => void;
   saleBeingEdited: Sale | null;
+  isBudgetMode?: boolean;
 }
 
 const parseLocaleNumber = (value: string): number => {
@@ -37,6 +38,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onFinalizeSale,
   onAddNewCustomer,
   saleBeingEdited,
+  isBudgetMode = false,
 }) => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [cash, setCash] = useState('');
@@ -352,7 +354,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   }, [change]);
 
   return (
-    <Modal isOpen={isOpen} onClose={isProcessing ? () => {} : onClose} title={saleBeingEdited ? 'Editar Venta' : 'Finalizar Venta'} size="4xl">
+    <Modal isOpen={isOpen} onClose={isProcessing ? () => {} : onClose} title={isBudgetMode ? 'Presupuestar' : (saleBeingEdited ? 'Editar Venta' : 'Finalizar Venta')} size="4xl">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="space-y-6">
           <div className="bg-gray-50 p-4 rounded-lg flex justify-between items-center border border-gray-200">
@@ -625,7 +627,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             <button
               onClick={handleFinalize}
               disabled={isProcessing}
-              className="w-full bg-green-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-green-700 flex items-center justify-center space-x-2 disabled:bg-gray-400"
+              className={`w-full ${isBudgetMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} text-white py-3 rounded-lg text-lg font-semibold flex items-center justify-center space-x-2 disabled:bg-gray-400`}
             >
               {isProcessing ? (
                 <Icon
@@ -634,11 +636,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 />
               ) : (
                 <Icon
-                  path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z"
+                  path={isBudgetMode ? "M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" : "M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z"}
                   className="w-6 h-6"
                 />
               )}
-              <span>{isProcessing ? 'Procesando...' : 'Confirmar Venta'}</span>
+              <span>{isProcessing ? 'Procesando...' : (isBudgetMode ? 'Guardar Presupuesto' : 'Confirmar Venta')}</span>
             </button>
           </div>
         </div>
