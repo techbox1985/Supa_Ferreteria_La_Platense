@@ -32,7 +32,7 @@ interface POSViewProps {
   onOptimisticAddSale: (sale: Sale) => void;
 }
 
-export const POSView: React.FC<POSViewProps> = ({
+const POSView: React.FC<POSViewProps> = ({
   onNavigateBudgets,
   products,
   categories,
@@ -104,6 +104,12 @@ const categoryOptions = useMemo(() => {
   return ['All', ...unique];
 }, [categories]);
 
+
+  // --- OPTIMIZACIÓN: Límite inicial y cargar más ---
+  const INITIAL_VISIBLE_PRODUCTS = 40;
+  const LOAD_MORE_STEP = 40;
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_PRODUCTS);
+
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchesCategory = selectedCategory === 'All' || p.Categoria === selectedCategory;
@@ -115,6 +121,14 @@ const categoryOptions = useMemo(() => {
       return matchesCategory && matchesSearch;
     });
   }, [products, searchTerm, selectedCategory]);
+
+  // Regla: si hay búsqueda o filtro, mostrar todos los resultados; si no, limitar
+  const limitedProducts = useMemo(() => {
+    if (searchTerm || selectedCategory !== 'All') {
+      return filteredProducts;
+    }
+    return filteredProducts.slice(0, visibleCount);
+  }, [filteredProducts, searchTerm, selectedCategory, visibleCount]);
 
   const visibleProductsCount = filteredProducts.length;
 
@@ -322,16 +336,29 @@ const categoryOptions = useMemo(() => {
             </div>
           </div>
         ) : (
-          <div className="flex-grow overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6 pr-2 -mr-4">
-              {filteredProducts.map(product => (
-                <ProductCard
-                  key={product.cod}
-                  product={product}
-                  onAddToCart={onAddToCart}
-                  onViewDetails={setProductForDetail}
-                />
-              ))}
-          </div>
+          <>
+            <div className="flex-grow overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6 pr-2 -mr-4">
+                {limitedProducts.map(product => (
+                  <ProductCard
+                    key={product.cod}
+                    product={product}
+                    onAddToCart={onAddToCart}
+                    onViewDetails={setProductForDetail}
+                  />
+                ))}
+            </div>
+            {/* Botón Cargar más */}
+            {!searchTerm && selectedCategory === 'All' && visibleCount < filteredProducts.length && (
+              <div className="flex justify-center mt-6">
+                <button
+                  onClick={() => setVisibleCount(v => v + LOAD_MORE_STEP)}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold shadow hover:bg-blue-700 transition-colors"
+                >
+                  Cargar más productos
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -454,3 +481,5 @@ const categoryOptions = useMemo(() => {
     </div>
   );
 };
+
+export default POSView;

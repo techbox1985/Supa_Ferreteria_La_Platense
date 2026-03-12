@@ -46,10 +46,27 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
     let from = 0;
     let allProducts: any[] = [];
 
+    // Solo los campos mínimos necesarios para el POS
+    const PRODUCT_FIELDS = [
+        'cod',
+        'name',
+        'category_id',
+        'barcode',
+        'list_price',
+        'offer_price',
+        'current_stock',
+        'min_stock',
+        'is_active',
+        'photo_url',
+        'image_url',
+        'is_deleted',
+        'legacy_last_update',
+        'final_price'
+    ];
     while (true) {
         const { data, error } = await supabase
             .from('st_products')
-            .select('*')
+            .select(PRODUCT_FIELDS.join(','))
             .eq('is_deleted', false)
             .range(from, from + PAGE_SIZE - 1);
 
@@ -74,31 +91,17 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             cod: item.cod ?? '',
             Producto: item.name ?? '',
             Categoria: categoryMap.get(item.category_id) || '',
-            'Sub Categoria': item.sub_category ?? '',
-            Descripcion: item.description ?? '',
             'cod.barras': item.barcode ?? '',
-            Proveedor: item.supplier_id ? String(item.supplier_id) : '',
-            'P.Costo': Number(item.cost_price ?? 0),
             Precio: Number(item.list_price ?? 0),
             'Precio de Oferta': Number(item.offer_price ?? 0),
-            'Stock-Inicial': Number(item.initial_stock ?? 0),
-            Vendidos: Number(item.sold_count ?? 0),
-            Ingresos: Number(item.income_count ?? 0),
             stockk: Number(item.current_stock ?? 0),
-            'Precio Final': Number(item.final_price ?? 0),
             Minimo: Number(item.min_stock ?? 0),
-            'Venta.PV': Number(item.pv_sale ?? 0),
-            Online: Boolean(item.is_online ?? false),
             Activo: Boolean(item.is_active ?? true),
             FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',
             Imagen: item.image_url ?? item.photo_url ?? '',
             Eliminado: Boolean(item.is_deleted ?? false),
-            Marca: item.brand ?? '',
-            Modelo_Compatible: item.compatible_model ?? '',
-            Tipo_Tecnico: item.technical_type ?? '',
-            Garantia_Meses: Number(item.warranty_months ?? 0),
-            Notas_Internas: item.internal_notes ?? '',
-            'Ultima.Actualizacion': item.legacy_last_update ?? ''
+            'Ultima.Actualizacion': item.legacy_last_update ?? '',
+            'Precio Final': Number(item.final_price ?? 0)
         } as any));
 };
 
