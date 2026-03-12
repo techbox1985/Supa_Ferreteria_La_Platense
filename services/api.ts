@@ -832,9 +832,10 @@ export const addBudgetSupabase = async (budget: Budget): Promise<void> => {
             sale_number: nextSaleNumber,
             sold_at: budget.date instanceof Date ? budget.date.toISOString() : new Date().toISOString(),
             customer_id: customerId,
+            shift_id: budget.shiftId, // shift_id obligatorio igual que en POS
             subtotal: budget.total,
             total: budget.total,
-            status: 'pending',
+            status: 'active',
             customer_name_snapshot: budget.customer?.['Nombre y Apellido'] || 'Consumidor Final',
             customer_document_snapshot: budget.customer?.Documento || null,
         }])
