@@ -76,7 +76,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
 
 
   return (
-    <div className={`bg-white rounded-2xl shadow-soft border border-slate-200/60 overflow-hidden flex flex-col transition-all duration-300 ${!canBeAdded ? 'opacity-60' : 'hover:scale-[1.02] hover:shadow-premium'} ${isLowOnStock ? 'border-2 border-orange-400' : ''}`}>
+    <div className={`bg-white rounded-2xl shadow-soft border border-slate-200/60 overflow-hidden flex flex-col transition-all duration-300 p-3 sm:p-4 ${!canBeAdded ? 'opacity-60' : 'hover:scale-[1.02] hover:shadow-premium'} ${isLowOnStock ? 'border-2 border-orange-400' : ''}`}>
       <div className="relative">
         <img
           src={product.FOTOGRAFIA || 'https://picsum.photos/400'}

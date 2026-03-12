@@ -30,8 +30,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ isOpen, 
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title={product.Producto} size="lg">
-        <div className="flex flex-col md:flex-row gap-6">
+      <Modal isOpen={isOpen} onClose={onClose} title={product.Producto} size="lg" className="max-w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+        <div className="flex flex-col md:flex-row gap-4 sm:gap-6">
           <div className="md:w-1/2">
             <img 
               src={product.FOTOGRAFIA || 'https://picsum.photos/400'} 

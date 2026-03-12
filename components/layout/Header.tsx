@@ -49,13 +49,13 @@ const OfflineIndicator: React.FC<{ isOnline: boolean; pendingCount: number }> = 
 };
 
 
-export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isRefreshing, isOnline, pendingSyncCount, onOpenSyncQueue }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isRefreshing, isOnline, pendingSyncCount, onOpenSyncQueue }) => {
   const { currentUser, activeShift, openCloseShiftModal } = useContext(AuthContext);
   const isAdmin = currentUser?.Rol === 'Admin';
 
   return (
-    <header className="bg-white/80 backdrop-blur-md px-6 py-3 shadow-soft flex justify-between items-center sticky top-0 z-40 border-b border-slate-200/60">
-      <div className="flex items-center space-x-6">
+    <header className="bg-white/80 backdrop-blur-md px-4 sm:px-6 py-2 sm:py-3 shadow-soft flex flex-col sm:flex-row justify-between items-center sticky top-0 z-40 border-b border-slate-200/60">
+      <div className="flex items-center space-x-4 sm:space-x-6 w-full">
         <div className="relative group">
           <img src="https://tolosarefrigeracion.com.ar/wp-content/uploads/2024/12/LOGO-min.png" alt="Refrigeración Tolosa Logo" className="h-10 transition-transform duration-300 group-hover:scale-105" />
           <span className="absolute -top-2 -right-12 bg-primary-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm tracking-wider uppercase">
@@ -80,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefre
           <OfflineIndicator isOnline={isOnline} pendingCount={pendingSyncCount} />
         </button>
       </div>
-      <nav className="flex items-center space-x-1 bg-slate-50/50 p-1 rounded-2xl border border-slate-200/50">
+      <nav className="flex items-center space-x-1 bg-slate-50/50 p-1 rounded-2xl border border-slate-200/50 overflow-x-auto max-w-full scrollbar-thin scrollbar-thumb-slate-300">
         <NavButton
           label="POS"
           iconPath="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l.383-1.437M7.5 14.25L5.106 5.165A2.25 2.25 0 002.894 3H2.25"
@@ -121,7 +121,7 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefre
         )}
       </nav>
       {currentUser && activeShift && (
-        <div className="flex items-center space-x-6">
+        <div className="flex items-center space-x-4 sm:space-x-6 mt-2 sm:mt-0">
             <div className="text-right border-r border-slate-200 pr-4">
                 <p className="font-bold text-slate-800 text-sm">{currentUser.Nombre}</p>
                 <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Caja Abierta</p>
@@ -139,3 +139,5 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefre
     </header>
   );
 };
+
+export default Header;

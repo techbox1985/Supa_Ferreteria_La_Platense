@@ -86,6 +86,7 @@ const POSView: React.FC<POSViewProps> = ({
     const [isBudgetMode, setIsBudgetMode] = useState(false);
   const [isCustomerFormOpen, setCustomerFormOpen] = useState(false);
   const [productForDetail, setProductForDetail] = useState<Product | null>(null);
+  const [isMobileCartOpen, setIsMobileCartOpen] = useState(false); // Estado para carrito colapsable en mobile
 
   // Modal de impresión
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -280,11 +281,21 @@ const categoryOptions = useMemo(() => {
   const fiscalA4Url = saleForPrintModal?.facturaInfo?.url;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 h-[calc(100vh-80px)]">
+    <div className="relative grid grid-cols-1 lg:grid-cols-3 gap-6 p-4 sm:p-6 h-[calc(100vh-80px)]">
+      {/* Botón flotante para abrir carrito en mobile */}
+      <button
+        className="fixed bottom-4 right-4 z-50 lg:hidden bg-green-600 text-white rounded-full shadow-lg px-6 py-3 flex items-center space-x-2 font-bold text-lg focus:outline-none focus:ring-2 focus:ring-green-400 transition-all"
+        style={{ display: isMobileCartOpen ? 'none' : 'flex' }}
+        onClick={() => setIsMobileCartOpen(true)}
+        aria-label="Abrir carrito"
+      >
+        <Icon path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z" className="w-7 h-7" />
+        <span>Ver carrito</span>
+      </button>
       {/* Products Section */}
-      <div className="lg:col-span-2 bg-gray-50 rounded-xl p-6 flex flex-col">
+      <div className="lg:col-span-2 bg-gray-50 rounded-xl p-4 sm:p-6 flex flex-col">
         <div className="mb-6">
-          <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-4">
             <h2 className="text-2xl font-bold text-gray-800">Productos</h2>
             <span className="text-sm font-medium text-gray-500">
               Mostrando {visibleProductsCount} producto{visibleProductsCount === 1 ? '' : 's'}
@@ -337,7 +348,7 @@ const categoryOptions = useMemo(() => {
           </div>
         ) : (
           <>
-            <div className="flex-grow overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6 pr-2 -mr-4">
+            <div className="flex-grow overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 pr-2 -mr-4">
                 {limitedProducts.map(product => (
                   <ProductCard
                     key={product.cod}
@@ -352,7 +363,7 @@ const categoryOptions = useMemo(() => {
               <div className="flex justify-center mt-6">
                 <button
                   onClick={() => setVisibleCount(v => v + LOAD_MORE_STEP)}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold shadow hover:bg-blue-700 transition-colors"
+                  className="w-full sm:w-auto px-6 py-2 bg-blue-600 text-white rounded-lg font-semibold shadow hover:bg-blue-700 transition-colors"
                 >
                   Cargar más productos
                 </button>
@@ -363,7 +374,8 @@ const categoryOptions = useMemo(() => {
       </div>
 
       {/* Cart Section */}
-      <div className="lg:col-span-1">
+      {/* Desktop: siempre visible. Mobile: colapsable */}
+      <div className="lg:col-span-1 mt-6 lg:mt-0 hidden lg:block">
         <Cart
           cart={cart}
           onUpdateQuantity={onUpdateQuantity}
@@ -380,6 +392,44 @@ const categoryOptions = useMemo(() => {
           onUpdateCartItemDetails={onUpdateCartItemDetails}
         />
       </div>
+
+      {/* Mobile: panel colapsable */}
+      {isMobileCartOpen && (
+        <div className="fixed inset-0 z-50 flex items-end lg:hidden bg-black/40" onClick={() => setIsMobileCartOpen(false)}>
+          <div
+            className="w-full bg-white rounded-t-2xl shadow-2xl p-4 max-h-[80vh] flex flex-col animate-slide-up"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-2">
+              <h2 className="text-xl font-bold text-gray-800">Carrito</h2>
+              <button
+                className="text-gray-400 hover:text-gray-700 p-2"
+                onClick={() => setIsMobileCartOpen(false)}
+                aria-label="Cerrar carrito"
+              >
+                <Icon path="M6 18L18 6M6 6l12 12" className="w-6 h-6" />
+              </button>
+            </div>
+            <Cart
+              cart={cart}
+              onUpdateQuantity={onUpdateQuantity}
+              onRemoveItem={onRemoveItem}
+              onClearCart={onClearCart}
+              onCheckout={() => {
+                setIsBudgetMode(false);
+                setCheckoutOpen(true);
+                setIsMobileCartOpen(false);
+              }}
+              onBudget={() => {
+                setIsBudgetMode(true);
+                setCheckoutOpen(true);
+                setIsMobileCartOpen(false);
+              }}
+              onUpdateCartItemDetails={onUpdateCartItemDetails}
+            />
+          </div>
+        </div>
+      )}
 
       <CheckoutModal
         isOpen={isCheckoutOpen}
@@ -409,7 +459,7 @@ const categoryOptions = useMemo(() => {
       {/* Modal de impresión */}
       {isPrintModalOpen && saleForPrintModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
+          <div className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-md sm:max-w-lg shadow-xl overflow-y-auto max-h-[90vh]">
             <h3 className="text-xl font-bold mb-4">Imprimir</h3>
 
             <div className="space-y-3">
