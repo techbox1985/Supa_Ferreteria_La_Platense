@@ -3,7 +3,7 @@ import React, { useContext } from 'react';
 import { Icon } from '../ui/Icon';
 import { AuthContext } from '../../contexts/AuthContext';
 
-type View = 'pos' | 'customers' | 'budgets' | 'expenses' | 'low-stock' | 'admin-panel' | 'sales-history';
+type View = 'pos' | 'customers' | 'budgets' | 'expenses' | 'admin-panel' | 'sales-history';
 
 interface HeaderProps {
   currentView: View;
@@ -99,12 +99,6 @@ export const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefre
           iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
           isActive={currentView === 'expenses'}
           onClick={() => onNavigate('expenses')}
-        />
-        <NavButton
-          label="B.stock"
-          iconPath="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"
-          isActive={currentView === 'low-stock'}
-          onClick={() => onNavigate('low-stock')}
         />
         <NavButton
           label="Clientes"

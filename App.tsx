@@ -7,7 +7,7 @@ import { POSView } from './components/pos/POSView';
 import { CustomersView } from './components/customers/CustomersView';
 
 import { ExpensesView } from './components/expenses/ExpensesView';
-import { LowStockView } from './components/low-stock/LowStockView';
+
 import { AdminPanelView } from './components/admin/AdminPanelView';
 import { SalesHistoryView } from './components/sales-history/SalesHistoryView';
 import { BillingCopilotWindow } from './components/shared/BillingCopilotWindow';
@@ -35,7 +35,7 @@ const parseSheetNumber = (value: any): number => {
 const AppContent: React.FC = () => {
     const { currentUser } = useContext(AuthContext);
     const { addToast } = useToast();
-    const [currentView, setCurrentView] = useState<'pos' | 'customers' | 'expenses' | 'low-stock' | 'admin-panel' | 'sales-history'>('pos');
+    const [currentView, setCurrentView] = useState<'pos' | 'customers' | 'expenses' | 'admin-panel' | 'sales-history'>('pos');
     
     // Estados de Datos
     const [products, setProducts] = useState<Product[]>([]);
@@ -473,8 +473,7 @@ setAccountTransactions(fetchedAccountTransactions);
                 // Eliminado: vista budgets
             case 'expenses':
                 return <ExpensesView expenses={expenses} shifts={shifts} allUsers={allUsers} isLoading={isLoading} refreshData={fetchData} />;
-            case 'low-stock':
-                return <LowStockView products={products} isLoading={isLoading} />;
+            // Eliminado: acceso duplicado a LowStockView desde menú superior
             case 'admin-panel':
                 return <AdminPanelView 
                     products={products} 
