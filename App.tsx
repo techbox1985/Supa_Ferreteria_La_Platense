@@ -3,13 +3,11 @@ import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { ToastProvider, useToast } from './contexts/ToastContext';
 import { Header } from './components/layout/Header';
 import { LoginScreen } from './components/auth/LoginScreen';
-import { POSView } from './components/pos/POSView';
-import { CustomersView } from './components/customers/CustomersView';
-
-import { ExpensesView } from './components/expenses/ExpensesView';
-
-import { AdminPanelView } from './components/admin/AdminPanelView';
-import { SalesHistoryView } from './components/sales-history/SalesHistoryView';
+const POSView = React.lazy(() => import('./components/pos/POSView'));
+const CustomersView = React.lazy(() => import('./components/customers/CustomersView'));
+const ExpensesView = React.lazy(() => import('./components/expenses/ExpensesView'));
+const AdminPanelView = React.lazy(() => import('./components/admin/AdminPanelView'));
+const SalesHistoryView = React.lazy(() => import('./components/sales-history/SalesHistoryView'));
 import { BillingCopilotWindow } from './components/shared/BillingCopilotWindow';
 import { CustomerStatementModal } from './components/customers/CustomerStatementModal';
 import { SyncQueueModal } from './components/sync/SyncQueueModal';
@@ -459,7 +457,6 @@ setAccountTransactions(fetchedAccountTransactions);
                     saleBeingEdited={saleBeingEdited}
                     onClearSaleBeingEdited={() => setSaleBeingEdited(null)}
                     onOptimisticAddSale={handleOptimisticAddSale}
-                    // Eliminado: onNavigateBudgets
                 />;
             case 'customers':
                 return <CustomersView 
@@ -469,11 +466,8 @@ setAccountTransactions(fetchedAccountTransactions);
                     isLoading={isLoading} 
                     onViewStatement={(customer) => setCustomerStatementConfig({ isOpen: true, customer })}
                 />;
-            case 'budgets':
-                // Eliminado: vista budgets
             case 'expenses':
                 return <ExpensesView expenses={expenses} shifts={shifts} allUsers={allUsers} isLoading={isLoading} refreshData={fetchData} />;
-            // Eliminado: acceso duplicado a LowStockView desde menú superior
             case 'admin-panel':
                 return <AdminPanelView 
                     products={products} 
@@ -512,7 +506,19 @@ setAccountTransactions(fetchedAccountTransactions);
                 onOpenSyncQueue={() => setIsSyncQueueOpen(true)}
             />
             <main className="flex-grow overflow-y-auto relative">
-                {renderView()}
+                <React.Suspense fallback={
+                    <div className="flex items-center justify-center h-full w-full min-h-[200px]">
+                        <div className="flex flex-col items-center">
+                            <svg className="animate-spin h-8 w-8 text-blue-500 mb-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+                            </svg>
+                            <span className="text-gray-500">Cargando...</span>
+                        </div>
+                    </div>
+                }>
+                    {renderView()}
+                </React.Suspense>
             </main>
             
             {customerStatementConfig.isOpen && customerStatementConfig.customer && typeof customerStatementConfig.customer === 'object' && (
