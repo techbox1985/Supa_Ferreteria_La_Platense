@@ -5,7 +5,7 @@ import { Header } from './components/layout/Header';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { POSView } from './components/pos/POSView';
 import { CustomersView } from './components/customers/CustomersView';
-import { TodayView } from './components/today/TodayView';
+
 import { ExpensesView } from './components/expenses/ExpensesView';
 import { LowStockView } from './components/low-stock/LowStockView';
 import { AdminPanelView } from './components/admin/AdminPanelView';
@@ -35,7 +35,7 @@ const parseSheetNumber = (value: any): number => {
 const AppContent: React.FC = () => {
     const { currentUser } = useContext(AuthContext);
     const { addToast } = useToast();
-    const [currentView, setCurrentView] = useState<'pos' | 'customers' | 'today' | 'expenses' | 'low-stock' | 'admin-panel' | 'sales-history'>('pos');
+    const [currentView, setCurrentView] = useState<'pos' | 'customers' | 'expenses' | 'low-stock' | 'admin-panel' | 'sales-history'>('pos');
     
     // Estados de Datos
     const [products, setProducts] = useState<Product[]>([]);
@@ -471,18 +471,6 @@ setAccountTransactions(fetchedAccountTransactions);
                 />;
             case 'budgets':
                 // Eliminado: vista budgets
-            case 'today':
-                return <TodayView 
-                    processedSales={processedSales} 
-                    products={products} 
-                    customers={customersWithCalculatedDebt} 
-                    expenses={expenses} 
-                    transactions={processedTransactions}
-                    allUsers={allUsers}
-                    shifts={shifts}
-                    isLoading={isLoading}
-                    refreshData={fetchData}
-                />;
             case 'expenses':
                 return <ExpensesView expenses={expenses} shifts={shifts} allUsers={allUsers} isLoading={isLoading} refreshData={fetchData} />;
             case 'low-stock':
