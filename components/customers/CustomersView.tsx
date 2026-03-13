@@ -54,7 +54,7 @@ interface CustomersViewProps {
   onViewStatement: (customer: Customer) => void;
 }
 
-export const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refreshData, isLoading, onViewStatement }) => {
+const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refreshData, isLoading, onViewStatement }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isFormOpen, setFormOpen] = useState(false);
     const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);

@@ -26,6 +26,6 @@
     "**/*.js",
     "**/*.jsx"
   ],
-  "exclude": ["node_modules", "dist", "build", "facturagratis-injector.js"],
+  "exclude": ["node_modules", "dist", "build", "facturagratis-injector.js", "vite.config.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
