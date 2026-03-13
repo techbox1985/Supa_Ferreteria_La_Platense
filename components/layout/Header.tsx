@@ -54,8 +54,10 @@ const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isR
   const isAdmin = currentUser?.Rol === 'Admin';
 
   return (
-    <header className="bg-white/80 backdrop-blur-md px-4 sm:px-6 py-2 sm:py-3 shadow-soft flex flex-col sm:flex-row justify-between items-center sticky top-0 z-40 border-b border-slate-200/60">
-      <div className="flex items-center space-x-4 sm:space-x-6 w-full">
+    <header className="bg-white/80 backdrop-blur-md px-4 sm:px-6 py-2 sm:py-3 shadow-soft flex flex-col sm:flex-row items-center sticky top-0 z-40 border-b border-slate-200/60">
+      <div className="flex flex-col sm:flex-row w-full items-center">
+        {/* Bloque Izquierdo */}
+        <div className="flex items-center space-x-4 sm:space-x-6 flex-shrink-0 min-w-0">
         <div className="relative group">
           <img src="https://tolosarefrigeracion.com.ar/wp-content/uploads/2024/12/LOGO-min.png" alt="Refrigeración Tolosa Logo" className="h-10 transition-transform duration-300 group-hover:scale-105" />
           <span className="absolute -top-2 -right-12 bg-primary-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm tracking-wider uppercase">
@@ -79,8 +81,10 @@ const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isR
         >
           <OfflineIndicator isOnline={isOnline} pendingCount={pendingSyncCount} />
         </button>
-      </div>
-      <nav className="flex items-center space-x-1 bg-slate-50/50 p-1 rounded-2xl border border-slate-200/50 overflow-x-auto max-w-full scrollbar-thin scrollbar-thumb-slate-300">
+        </div>
+        {/* Bloque Central */}
+        <nav className="flex-1 min-w-0 flex justify-center">
+          <div className="flex items-center space-x-1 bg-slate-50/50 p-1 rounded-2xl border border-slate-200/50 overflow-x-auto max-w-3xl w-full justify-center scrollbar-thin scrollbar-thumb-slate-300">
         <NavButton
           label="POS"
           iconPath="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l.383-1.437M7.5 14.25L5.106 5.165A2.25 2.25 0 002.894 3H2.25"
@@ -119,23 +123,26 @@ const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isR
                 />
             </>
         )}
-      </nav>
-      {currentUser && activeShift && (
-        <div className="flex items-center space-x-4 sm:space-x-6 mt-2 sm:mt-0">
+          </div>
+        </nav>
+        {/* Bloque Derecho */}
+        {currentUser && activeShift && (
+          <div className="flex items-center space-x-4 sm:space-x-6 mt-2 sm:mt-0 flex-shrink-0 min-w-0 ml-auto">
             <div className="text-right border-r border-slate-200 pr-4">
-                <p className="font-bold text-slate-800 text-sm">{currentUser.Nombre}</p>
-                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Caja Abierta</p>
+              <p className="font-bold text-slate-800 text-sm">{currentUser.Nombre}</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Caja Abierta</p>
             </div>
             <button
-                onClick={openCloseShiftModal}
-                className="bg-red-50 text-red-600 px-4 py-2.5 rounded-xl hover:bg-red-600 hover:text-white transition-all duration-300 flex items-center space-x-2 font-bold text-sm shadow-sm"
-                title="Cerrar Caja y Salir"
+              onClick={openCloseShiftModal}
+              className="bg-red-50 text-red-600 px-4 py-2.5 rounded-xl hover:bg-red-600 hover:text-white transition-all duration-300 flex items-center space-x-2 font-bold text-sm shadow-sm"
+              title="Cerrar Caja y Salir"
             >
-                <Icon path="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" className="w-5 h-5" />
-                <span>Cerrar Caja</span>
+              <Icon path="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" className="w-5 h-5" />
+              <span>Cerrar Caja</span>
             </button>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </header>
   );
 };

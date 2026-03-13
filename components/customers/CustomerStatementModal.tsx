@@ -285,7 +285,13 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                 customer={safeCustomer}
                 onSave={async (paymentData) => {
                     try {
-                        await api.registerCustomerPayment(safeCustomer.Id_Cliente, paymentData);
+                                                await api.recordPayment(
+                                                    safeCustomer.Id_Cliente,
+                                                    paymentData.amount,
+                                                    paymentData.description,
+                                                    paymentData.paymentMethod,
+                                                    paymentData.shiftId
+                                                );
                         addToast('Pago registrado con éxito.', 'success');
                         setIsPaymentModalOpen(false);
                         refreshData();

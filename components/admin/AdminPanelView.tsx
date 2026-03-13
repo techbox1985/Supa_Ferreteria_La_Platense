@@ -5,7 +5,7 @@ import { Icon } from '../ui/Icon';
 import { ProductAdminView } from './ProductAdminView';
 import { UsersView } from './UsersView';
 import { ShiftsView } from '../cash-register/ShiftsView';
-import { SalesHistoryView } from '../sales-history/SalesHistoryView';
+import SalesHistoryView from '../sales-history/SalesHistoryView';
 import { TopProductsView } from '../reports/TopProductsView';
 import { TopCustomersView } from '../reports/TopCustomersView';
 import { QuickPriceEditorView } from './QuickPriceEditorView';
@@ -115,3 +115,5 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ products, custom
         </div>
     );
 };
+
+export default AdminPanelView;

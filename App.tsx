@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { ToastProvider, useToast } from './contexts/ToastContext';
-import { Header } from './components/layout/Header';
+import Header from './components/layout/Header';
 import { LoginScreen } from './components/auth/LoginScreen';
 const POSView = React.lazy(() => import('./components/pos/POSView'));
 const CustomersView = React.lazy(() => import('./components/customers/CustomersView'));
