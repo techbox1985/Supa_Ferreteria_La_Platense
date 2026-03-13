@@ -90,40 +90,35 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
     
     // Filtros y buscador reales integrados visualmente
     const [searchTerm, setSearchTerm] = useState('');
-    const isMobile = typeof window !== 'undefined' ? window.innerWidth < 640 : false;
     const filtersAndSearch = (
-        <div className={
-            isMobile
-                ? 'bg-white p-2 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-2 mt-2'
-                : 'bg-white p-4 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-4 mt-4'
-        }>
+        <div className="bg-white p-2 md:p-4 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-2 md:gap-4 mt-2 md:mt-4">
             <div className="flex-grow">
-                <label htmlFor="start-date" className={isMobile ? 'block text-xs font-medium text-gray-700' : 'block text-sm font-medium text-gray-700'}>Desde</label>
+                <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">Desde</label>
                 <input 
                     type="date" 
                     id="start-date"
                     value={startDate}
                     onChange={e => setStartDate(e.target.value)}
-                    className={isMobile ? 'mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-xs' : 'mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500'}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
             </div>
             <div className="flex-grow">
-                <label htmlFor="end-date" className={isMobile ? 'block text-xs font-medium text-gray-700' : 'block text-sm font-medium text-gray-700'}>Hasta</label>
+                <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">Hasta</label>
                 <input 
                     type="date" 
                     id="end-date"
                     value={endDate}
                     onChange={e => setEndDate(e.target.value)}
-                    className={isMobile ? 'mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-xs' : 'mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500'}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
             </div>
             <div className="flex-grow">
-                <label htmlFor="seller-filter" className={isMobile ? 'block text-xs font-medium text-gray-700' : 'block text-sm font-medium text-gray-700'}>Vendedor</label>
+                <label htmlFor="seller-filter" className="block text-sm font-medium text-gray-700">Vendedor</label>
                 <select 
                     id="seller-filter"
                     value={sellerFilter}
                     onChange={e => setSellerFilter(e.target.value)}
-                    className={isMobile ? 'mt-1 block w-full px-2 py-1 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-xs' : 'mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500'}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 >
                     <option value="All">Todos los Vendedores</option>
                     {allUsers
@@ -135,11 +130,11 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
                 </select>
             </div>
             {/* Buscador real */}
-            <div className={isMobile ? 'flex-grow md:max-w-xs relative mt-2 md:mt-0' : 'flex-grow md:max-w-xs relative mt-4 md:mt-0'}>
-                <label htmlFor="search-term" className={isMobile ? 'block text-xs font-medium text-gray-700' : 'block text-sm font-medium text-gray-700'}>Buscar</label>
+            <div className="flex-grow md:max-w-xs relative mt-4 md:mt-0">
+                <label htmlFor="search-term" className="block text-sm font-medium text-gray-700">Buscar</label>
                 <div className="relative mt-1">
-                    <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                        <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" className={isMobile ? 'h-3 w-3 text-gray-400' : 'h-4 w-4 text-gray-400'} />
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" className="h-4 w-4 text-gray-400" />
                     </div>
                     <input
                         id="search-term"
@@ -147,7 +142,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
                         placeholder="Buscar cliente, ID, CUIT, factura..."
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
-                        className={isMobile ? 'w-full pl-8 pr-2 py-1 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-xs' : 'w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm'}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
                     />
                 </div>
             </div>
@@ -155,7 +150,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
     );
 
     return (
-        <div className="h-full p-2 space-y-4">
+        <div className="h-full p-2 space-y-3 md:space-y-4">
             <SalesDashboard
                 title=""
                 salesData={salesInDateRange}

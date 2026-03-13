@@ -1,15 +1,5 @@
 
 import React, { useState, useMemo, useContext, useCallback, useEffect } from 'react';
-// Helper para detectar mobile real
-const useIsReallyMobile = () => {
-    const [isReallyMobile, setIsReallyMobile] = useState(typeof window !== 'undefined' ? window.innerWidth < 640 : false);
-    useEffect(() => {
-        const handleResize = () => setIsReallyMobile(window.innerWidth < 640);
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
-    return isReallyMobile;
-};
 import { Sale, Product, Customer, CartItem, CreditNote, AccountTransaction } from '../../types';
 import * as api from '../../services/api';
 import { Icon } from '../ui/Icon';
@@ -165,7 +155,6 @@ interface SalesDashboardProps {
 }
 
 export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: string; setSearchTerm?: (v: string) => void; stickyStats?: boolean; stickyFilters?: boolean }> = ({ title, salesData, products, customers, refreshData, isLoading, headerChildren, noDataMessage, statTitlePrefix = '', showStats = true, searchBarAddon, searchTerm: externalSearchTerm, setSearchTerm: externalSetSearchTerm, stickyStats = false, stickyFilters = false }) => {
-    const isReallyMobile = useIsReallyMobile();
     const [internalSearchTerm, internalSetSearchTerm] = useState('');
     const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
     const setSearchTerm = externalSetSearchTerm !== undefined ? externalSetSearchTerm : internalSetSearchTerm;
@@ -624,93 +613,92 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
         refreshData();
     }, [addToast, refreshData]);
 
-
-        return (
-            <div className={isReallyMobile ? 'p-1 space-y-1' : 'p-2 space-y-4'}>
-                {showStats && (
-                    <div
-                        className={stickyStats ? 'z-30 bg-white sticky top-0 left-0 right-0 shadow-sm' : ''}
-                        style={stickyStats ? { paddingTop: 0, paddingBottom: 0 } : {}}
-                    >
-                        <div
-                            className={isReallyMobile ? 'flex flex-nowrap gap-2 overflow-x-auto pb-1 -mx-1 px-1' : 'flex flex-nowrap gap-4 overflow-x-auto pb-2'}
-                            style={isReallyMobile ? { WebkitOverflowScrolling: 'touch' } : {}}
-                        >
-                            <StatCard
-                                title={`Ingresos ${statTitlePrefix}`}
-                                value={formatCurrency(stats.totalRevenue)}
-                                iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125-1.125h-.375m1.5-1.5H21a.75.75 0 00-.75-.75v-.75m0 0l-3.75-3.75M3 12m0 0l3.75 3.75M3.75 12H18m-9.75 6.75h1.5"
-                                iconBgColor="bg-blue-500"
-                                onClick={handleShowRevenueDetails}
-                                className={isReallyMobile ? 'min-w-[110px] h-16 p-1 text-xs' : ''}
-                            />
-                            <StatCard
-                                title={`Ventas ${statTitlePrefix}`}
-                                value={stats.salesCount.toLocaleString('es-AR')}
-                                iconPath="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344-.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6.75A2.25 2.25 0 014.5 4.5h15A2.25 2.25 0 0121.75 6.75v3.026"
-                                iconBgColor="bg-green-500"
-                                onClick={handleShowRevenueDetails}
-                                className={isReallyMobile ? 'min-w-[110px] h-16 p-1 text-xs' : ''}
-                            />
-                            <StatCard
-                                title={`Productos ${statTitlePrefix}`}
-                                value={stats.totalProductsSold.toLocaleString('es-AR')}
-                                iconPath="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z"
-                                iconBgColor="bg-purple-500"
-                                onClick={handleShowProductsSoldDetails}
-                                className={isReallyMobile ? 'min-w-[110px] h-16 p-1 text-xs' : ''}
-                            />
-                            <StatCard
-                                title={`Efectivo ${statTitlePrefix}`}
-                                value={formatCurrency(stats.totalCash)}
-                                iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
-                                iconBgColor="bg-teal-500"
-                                onClick={handleShowCashDetails}
-                                className={isReallyMobile ? 'min-w-[110px] h-16 p-1 text-xs' : ''}
-                            />
-                            <StatCard
-                                title={`Digital ${statTitlePrefix}`}
-                                value={formatCurrency(stats.totalDigital)}
-                                iconPath="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z"
-                                iconBgColor="bg-sky-500"
-                                onClick={handleShowDigitalDetails}
-                                className={isReallyMobile ? 'min-w-[110px] h-16 p-1 text-xs' : ''}
-                            />
-                            <StatCard
-                                title={`Cta. Cte. ${statTitlePrefix}`}
-                                value={formatCurrency(stats.totalCredit)}
-                                iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
-                                iconBgColor="bg-red-500"
-                                onClick={handleShowCreditDetails}
-                                className={isReallyMobile ? 'min-w-[110px] h-16 p-1 text-xs' : ''}
-                            />
-                            <StatCard
-                                title={`E-Cheq ${statTitlePrefix}`}
-                                value={formatCurrency(stats.totalEcheq)}
-                                iconPath="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"
-                                iconBgColor="bg-indigo-500"
-                                onClick={handleShowEcheqDetails}
-                                className={isReallyMobile ? 'min-w-[110px] h-16 p-1 text-xs' : ''}
-                            />
-                        </div>
+    return (
+        <div className="p-2 space-y-3 md:space-y-4">
+            {showStats && (
+                <div
+                    className={
+                        stickyStats
+                            ? 'z-30 bg-white sticky left-0 right-0 shadow-sm ' +
+                              'top-0 md:top-0'
+                            : ''
+                    }
+                    style={stickyStats ? { paddingTop: 0, paddingBottom: 0 } : {}}
+                >
+                    <div className="flex flex-nowrap gap-2 md:gap-4 overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100 pb-1 md:pb-2">
+                        <StatCard 
+                            title={`Ingresos ${statTitlePrefix}`}
+                            value={formatCurrency(stats.totalRevenue)} 
+                            iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125-1.125h-.375m1.5-1.5H21a.75.75 0 00-.75-.75v-.75m0 0l-3.75-3.75M3 12m0 0l3.75 3.75M3.75 12H18m-9.75 6.75h1.5"
+                            iconBgColor="bg-blue-500"
+                            onClick={handleShowRevenueDetails}
+                        />
+                        <StatCard 
+                            title={`Ventas ${statTitlePrefix}`} 
+                            value={stats.salesCount.toLocaleString('es-AR')} 
+                            iconPath="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344-.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6.75A2.25 2.25 0 014.5 4.5h15A2.25 2.25 0 0121.75 6.75v3.026"
+                            iconBgColor="bg-green-500"
+                            onClick={handleShowRevenueDetails}
+                        />
+                        <StatCard 
+                            title={`Productos ${statTitlePrefix}`} 
+                            value={stats.totalProductsSold.toLocaleString('es-AR')} 
+                            iconPath="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z"
+                            iconBgColor="bg-purple-500"
+                            onClick={handleShowProductsSoldDetails}
+                        />
+                        <StatCard 
+                            title={`Efectivo ${statTitlePrefix}`}
+                            value={formatCurrency(stats.totalCash)} 
+                            iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
+                            iconBgColor="bg-teal-500"
+                            onClick={handleShowCashDetails}
+                        />
+                        <StatCard 
+                            title={`Digital ${statTitlePrefix}`} 
+                            value={formatCurrency(stats.totalDigital)} 
+                            iconPath="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z"
+                            iconBgColor="bg-sky-500"
+                            onClick={handleShowDigitalDetails}
+                        />
+                        <StatCard 
+                            title={`Cta. Cte. ${statTitlePrefix}`}
+                            value={formatCurrency(stats.totalCredit)} 
+                            iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
+                            iconBgColor="bg-red-500"
+                            onClick={handleShowCreditDetails}
+                        />
+                        <StatCard 
+                            title={`E-Cheq ${statTitlePrefix}`} 
+                            value={formatCurrency(stats.totalEcheq)} 
+                            iconPath="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75"
+                            iconBgColor="bg-indigo-500"
+                            onClick={handleShowEcheqDetails}
+                        />
                     </div>
-                )}
+                </div>
+            )}
 
-                {headerChildren && (
-                    <div
-                        className={stickyFilters ? 'z-20 bg-white sticky top-[48px] left-0 right-0 shadow-sm' : ''}
-                        style={isReallyMobile ? { padding: '6px 2px', marginBottom: 2 } : stickyFilters ? { marginTop: 0 } : {}}
-                    >
-                        {headerChildren}
-                    </div>
-                )}
+            {headerChildren && (
+                <div
+                    className={
+                        stickyFilters
+                            ? 'z-20 bg-white ' +
+                              'md:sticky md:top-[56px] left-0 right-0 shadow-sm'
+                            : ''
+                    }
+                    style={stickyFilters ? { marginTop: 0 } : {}}
+                >
+                    <div className="p-2 md:p-0">{headerChildren}</div>
+                </div>
+            )}
 
             <div className="relative">
                 <div className="bg-white shadow-md rounded-lg overflow-hidden">
                     <div className="overflow-x-auto">
                         <div className="overflow-x-auto">
                             <table className="min-w-full divide-y divide-gray-200" style={{ tableLayout: 'fixed' }}>
-                                <thead className="bg-gray-50 z-10 sticky top-[104px]" style={{zIndex:11, background:'#f9fafb'}}>
+                                <thead className="bg-gray-50 z-10 md:sticky md:top-[104px]" style={{zIndex:11, background:'#f9fafb'}}>
                                     <tr>
                                         <th scope="col" className="px-4 py-3 w-12 min-w-[48px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
                                         <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Venta</th>
