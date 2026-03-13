@@ -1,3 +1,5 @@
+// ...
+
 
 import React, { useState, useMemo, useContext } from 'react';
 import { Expense, Shift, User } from '../../types';
@@ -226,4 +228,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, shifts, al
             <ConfirmationModal isOpen={!!expenseToDelete} onClose={() => setExpenseToDelete(null)} onConfirm={handleConfirmDelete} title="Eliminar Gasto" message={`¿Confirmar eliminación de "${expenseToDelete?.Detalle}"?`} />
         </div>
     );
-};
+}
+
+export default ExpensesView;
+

@@ -1,3 +1,4 @@
+// ...
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Customer, Product } from '../../types';
 import { Icon } from '../ui/Icon';
@@ -221,3 +222,5 @@ export const CustomersView: React.FC<CustomersViewProps> = ({ products, customer
       </div>
     );
   };
+
+export default CustomersView;
