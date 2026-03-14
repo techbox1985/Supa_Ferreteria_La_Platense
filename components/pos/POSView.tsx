@@ -269,6 +269,16 @@ const categoryOptions = useMemo(() => {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 h-[calc(100vh-80px)] relative">
+      {saleBeingEdited && (
+        <div className="col-span-full mb-4">
+          <div className="bg-blue-100 border border-blue-300 text-blue-800 rounded-lg px-4 py-2 flex items-center gap-2">
+            <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" className="w-5 h-5" />
+            <span className="font-semibold">Editando venta existente</span>
+            <span className="text-xs text-blue-600 font-mono ml-2">ID: {saleBeingEdited.id.slice(0,8)}</span>
+            <button onClick={onClearSaleBeingEdited} className="ml-auto text-blue-500 hover:text-blue-700 text-xs underline">Cancelar edición</button>
+          </div>
+        </div>
+      )}
       {/* Products Section */}
       <div className="lg:col-span-2 bg-gray-50 rounded-xl p-6 flex flex-col">
         <div className="mb-6">

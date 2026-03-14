@@ -140,6 +140,7 @@ const SaleRow: React.FC<{
 SaleRow.displayName = 'SaleRow';
 
 
+
 interface SalesDashboardProps {
     title: string;
     salesData: Sale[];
@@ -152,9 +153,10 @@ interface SalesDashboardProps {
     statTitlePrefix?: string;
     showStats?: boolean;
     searchBarAddon?: React.ReactNode;
+    onEditSale?: (sale: Sale) => void;
 }
 
-export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: string; setSearchTerm?: (v: string) => void; stickyStats?: boolean; stickyFilters?: boolean }> = ({ title, salesData, products, customers, refreshData, isLoading, headerChildren, noDataMessage, statTitlePrefix = '', showStats = true, searchBarAddon, searchTerm: externalSearchTerm, setSearchTerm: externalSetSearchTerm, stickyStats = false, stickyFilters = false }) => {
+export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: string; setSearchTerm?: (v: string) => void; stickyStats?: boolean; stickyFilters?: boolean }> = ({ title, salesData, products, customers, refreshData, isLoading, headerChildren, noDataMessage, statTitlePrefix = '', showStats = true, searchBarAddon, searchTerm: externalSearchTerm, setSearchTerm: externalSetSearchTerm, stickyStats = false, stickyFilters = false, onEditSale }) => {
     const [internalSearchTerm, internalSetSearchTerm] = useState('');
     const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
     const setSearchTerm = externalSetSearchTerm !== undefined ? externalSetSearchTerm : internalSetSearchTerm;
@@ -961,15 +963,21 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
                                         <span className="font-medium">Generar Nota de Crédito</span>
                                     </button>
 
-                                    {!(selectedItemForActions.item as Sale).status === 'annulled' && (
-                                        <button 
-                                            onClick={() => { handleEditSale(selectedItemForActions.item as Sale); setSelectedItemForActions(null); }}
-                                            className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
-                                        >
-                                            <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" className="w-6 h-6" />
-                                            <span className="font-medium">Editar Venta</span>
-                                        </button>
-                                    )}
+                                    {/* Botón Editar solo si la venta es elegible */}
+                                    {(() => {
+                                        const sale = selectedItemForActions.item as Sale;
+                                        const isEditable = !sale.facturaInfo && sale.status !== 'annulled' && !sale.returnedTotal;
+                                        if (!isEditable) return null;
+                                        return (
+                                            <button 
+                                                onClick={() => { onEditSale && onEditSale(sale); setSelectedItemForActions(null); }}
+                                                className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
+                                            >
+                                                <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" className="w-6 h-6" />
+                                                <span className="font-medium">Editar Venta</span>
+                                            </button>
+                                        );
+                                    })()}
 
                                     {isAdmin && (selectedItemForActions.item as Sale).status !== 'annulled' && (
                                         <button 

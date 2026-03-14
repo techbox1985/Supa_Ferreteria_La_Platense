@@ -438,6 +438,24 @@ setAccountTransactions(fetchedAccountTransactions);
         console.debug(`[SALE_UI_REFRESH_DONE] ID: ${sale.id}`);
     }, []);
 
+
+    // Manejo de handoff de edición de venta
+    React.useEffect(() => {
+        const handler = (e: any) => {
+            if (!e.detail) return;
+            setSaleBeingEdited(e.detail);
+            setCurrentView('pos');
+        };
+        window.addEventListener('edit-sale', handler);
+        return () => window.removeEventListener('edit-sale', handler);
+    }, []);
+
+    // Handler para editar venta desde SalesHistoryView
+    const handleEditSale = (sale: Sale) => {
+        setSaleBeingEdited(sale);
+        setCurrentView('pos');
+    };
+
     const renderView = () => {
         switch (currentView) {
             case 'pos':
@@ -488,6 +506,7 @@ setAccountTransactions(fetchedAccountTransactions);
                     shifts={shifts} 
                     isLoading={isLoading} 
                     refreshData={fetchData} 
+                    onEditSale={handleEditSale}
                 />;
             default:
                 return null;

@@ -94,7 +94,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     currentTotal += adjustment;
 
     return {
-      total: currentTotal,
+      total: currentTotal > 0 ? currentTotal : 0,
       adjustmentAmount: adjustment,
       adjustmentDescription: descriptions.join(' / '),
     };

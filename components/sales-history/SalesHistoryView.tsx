@@ -13,6 +13,7 @@ interface SalesHistoryViewProps {
     shifts: Shift[];
     isLoading: boolean;
     refreshData: () => void;
+    onEditSale?: (sale: Sale) => void;
 }
 
 const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, products, customers, allUsers, shifts, isLoading, refreshData }) => {
@@ -149,6 +150,9 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
         </div>
     );
 
+    const handleEditSale = (sale: Sale) => {
+        if (onEditSale) onEditSale(sale);
+    };
     return (
         <div className="h-full p-2 space-y-3 md:space-y-4">
             <SalesDashboard
@@ -166,6 +170,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
                 setSearchTerm={setSearchTerm}
                 stickyStats={true}
                 stickyFilters={true}
+                onEditSale={handleEditSale}
             />
         </div>
     );

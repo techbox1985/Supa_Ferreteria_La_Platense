@@ -72,26 +72,26 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   return (
-    <div className="bg-white rounded-xl shadow-lg p-3 sm:p-6 flex flex-col h-full max-h-[80vh]">
+    <div className="bg-white rounded-xl shadow-lg p-6 flex flex-col h-full">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-3 border-b border-gray-200 flex-shrink-0 gap-2">
+      <div className="flex justify-between items-center pb-4 border-b border-gray-200 flex-shrink-0">
         <h2 className="text-2xl font-bold text-gray-800">Carrito</h2>
         <button onClick={onClearCart} disabled={cart.length === 0} className="text-sm text-red-500 hover:underline disabled:text-gray-400 disabled:cursor-not-allowed">
           Vaciar Carrito
         </button>
       </div>
-
+      
       {/* Checkout section */}
       {cart.length > 0 && (
-        <div className="border-b-2 border-dashed py-3 flex-shrink-0 flex flex-col sm:flex-row items-stretch gap-2 sm:gap-4">
-            <div className="flex-grow bg-gray-50 rounded-lg flex justify-between items-center p-2 mb-2 sm:mb-0">
-                <span className="text-lg font-bold text-gray-800">Total</span>
-                <span className="text-xl font-bold text-gray-800">${total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+        <div className="border-b-2 border-dashed py-4 flex-shrink-0 flex items-stretch gap-4">
+            <div className="flex-grow bg-gray-50 rounded-lg flex justify-between items-center p-3">
+                <span className="text-xl font-bold text-gray-800">Total</span>
+                <span className="text-2xl font-bold text-gray-800">${total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
             </div>
             <button
               onClick={onCheckout}
               disabled={cart.length === 0}
-              className="w-full sm:flex-grow bg-green-600 text-white py-2 rounded-lg text-base font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              className="flex-grow bg-green-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
             >
               <Icon path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z" className="w-6 h-6"/>
               <span>Cobrar</span>
@@ -99,7 +99,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
             <button
               onClick={onBudget}
               disabled={cart.length === 0}
-              className="w-full sm:flex-grow bg-blue-600 text-white py-2 rounded-lg text-base font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              className="flex-grow bg-blue-600 text-white py-3 rounded-lg text-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
             >
               <Icon path="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" className="w-6 h-6"/>
               <span>Presupuestar</span>
@@ -108,7 +108,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
       )}
 
       {/* Items list / Empty state */}
-      <div className="flex-grow overflow-y-auto pt-3 -mr-2 pr-2">
+      <div className="flex-grow overflow-y-auto pt-4 -mr-3 pr-3">
         {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-gray-500 h-full">
                 <Icon path="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l.383-1.437M7.5 14.25L5.106 5.165A2.25 2.25 0 002.894 3H2.25" className="w-16 h-16 mb-4 text-gray-300" />
