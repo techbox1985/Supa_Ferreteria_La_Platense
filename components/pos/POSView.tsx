@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useContext, useCallback, Fragment } from 'react';
+import React, { useState, useMemo, useContext, useCallback, useRef, useEffect, Fragment } from 'react';
 import { Product, CartItem, Customer, Sale } from '../../types';
 import { ProductCard } from './ProductCard';
 import { Cart } from './Cart';
@@ -81,6 +81,68 @@ const POSView: React.FC<POSViewProps> = ({
   }, [activeShift, addToast, onClearCart, refreshData]);
   // ...existing code...
   const [searchTerm, setSearchTerm] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const cartSectionRef = useRef<HTMLDivElement>(null);
+    // Focus search input on POS mount (desktop only)
+    useEffect(() => {
+      if (typeof window === 'undefined') return;
+      const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+      if (!isMobile && searchInputRef.current) {
+        setTimeout(() => searchInputRef.current?.focus(), 150);
+      }
+    }, []);
+
+    // Keyboard shortcuts
+    useEffect(() => {
+      function isTypingInInput(e: KeyboardEvent) {
+        const tag = (e.target as HTMLElement)?.tagName;
+        const editable = (e.target as HTMLElement)?.isContentEditable;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable;
+      }
+      function handler(e: KeyboardEvent) {
+        // "/" shortcut for search
+        if (e.key === '/' && !isTypingInInput(e)) {
+          e.preventDefault();
+          searchInputRef.current?.focus();
+          return;
+        }
+        // Alt+C for cart
+        if ((e.altKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) && !isTypingInInput(e)) {
+          e.preventDefault();
+          // Desktop: focus or highlight cart section
+          if (window.innerWidth >= 1024) {
+            cartSectionRef.current?.focus?.();
+            cartSectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+          } else {
+            setIsMobileCartOpen((v) => !v);
+          }
+          return;
+        }
+        // Alt+Enter for checkout
+        if (e.altKey && (e.key === 'Enter' || e.code === 'Enter') && !isTypingInInput(e)) {
+          if (cart.length > 0 && !isCheckoutOpen) {
+            e.preventDefault();
+            setIsBudgetMode(false);
+            setCheckoutOpen(true);
+          }
+          return;
+        }
+      }
+      window.addEventListener('keydown', handler);
+      return () => window.removeEventListener('keydown', handler);
+    }, [cart.length, isCheckoutOpen]);
+
+    // Refocus search after checkout closes (if not editing sale)
+    useEffect(() => {
+      if (!isCheckoutOpen && !saleBeingEdited) {
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+            if (!isMobile) searchInputRef.current?.focus();
+          }
+        }, 200);
+      }
+    }, [isCheckoutOpen, saleBeingEdited]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCheckoutOpen, setCheckoutOpen] = useState(false);
   const [isBudgetMode, setIsBudgetMode] = useState(false);
@@ -296,10 +358,13 @@ const categoryOptions = useMemo(() => {
               </span>
               <input
                 type="text"
+                ref={searchInputRef}
                 placeholder="Buscar por nombre, código o cód. de barras..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                aria-label="Buscar productos"
+                autoComplete="off"
               />
             </div>
 
@@ -348,7 +413,13 @@ const categoryOptions = useMemo(() => {
       </div>
 
       {/* Cart Section Desktop */}
-      <div className="lg:col-span-1 hidden lg:block">
+      <div
+        className="lg:col-span-1 hidden lg:block outline-none"
+        tabIndex={-1}
+        ref={cartSectionRef}
+        aria-label="Sección carrito"
+        style={{ scrollMarginTop: 80 }}
+      >
         <Cart
           cart={cart}
           onUpdateQuantity={onUpdateQuantity}
@@ -364,6 +435,14 @@ const categoryOptions = useMemo(() => {
           }}
           onUpdateCartItemDetails={onUpdateCartItemDetails}
         />
+      </div>
+      {/* Shortcuts hint */}
+      <div className="mt-4 mb-2 flex justify-end">
+        <div className="text-xs text-gray-400 bg-gray-50 rounded px-2 py-1 border border-gray-200 select-none" title="Atajos rápidos POS">
+          <span className="mr-2">/ buscar</span>
+          <span className="mr-2">Alt+C carrito</span>
+          <span>Alt+Enter cobrar</span>
+        </div>
       </div>
 
       {/* Floating Cart Button (Mobile only) */}
