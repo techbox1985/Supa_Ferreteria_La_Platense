@@ -86,54 +86,20 @@ const POSView: React.FC<POSViewProps> = ({
       addToast(`Error al guardar presupuesto: ${errorMessage}`, 'error');
     }
   }, [activeShift, addToast, onClearCart, refreshData]);
-    // Focus search input on POS mount (desktop only)
+    // Focus search input on mount and add Ctrl+/ shortcut
     useEffect(() => {
-      if (typeof window === 'undefined') return;
-      const isMobile = /Mobi|Android/i.test(navigator.userAgent);
-      if (!isMobile && searchInputRef.current) {
-        setTimeout(() => searchInputRef.current?.focus(), 150);
+      if (searchInputRef.current) {
+        searchInputRef.current.focus();
       }
-    }, []);
-
-    // Keyboard shortcuts
-    useEffect(() => {
-      function isTypingInInput(e: KeyboardEvent) {
-        const tag = (e.target as HTMLElement)?.tagName;
-        const editable = (e.target as HTMLElement)?.isContentEditable;
-        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable;
-      }
-      function handler(e: KeyboardEvent) {
-        // "/" shortcut for search
-        if (e.key === '/' && !isTypingInInput(e)) {
+      function handleKeyDown(e: KeyboardEvent) {
+        if (e.ctrlKey && e.key === '/') {
           e.preventDefault();
           searchInputRef.current?.focus();
-          return;
-        }
-        // Alt+C for cart
-        if ((e.altKey && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C')) && !isTypingInInput(e)) {
-          e.preventDefault();
-          // Desktop: focus or highlight cart section
-          if (window.innerWidth >= 1024) {
-            cartSectionRef.current?.focus?.();
-            cartSectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-          } else {
-            setIsMobileCartOpen((v) => !v);
-          }
-          return;
-        }
-        // Alt+Enter for checkout
-        if (e.altKey && (e.key === 'Enter' || e.code === 'Enter') && !isTypingInInput(e)) {
-          if (cart.length > 0 && !isCheckoutOpen) {
-            e.preventDefault();
-            setIsBudgetMode(false);
-            setCheckoutOpen(true);
-          }
-          return;
         }
       }
-      window.addEventListener('keydown', handler);
-      return () => window.removeEventListener('keydown', handler);
-    }, [cart.length, isCheckoutOpen]);
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
 
     // Refocus search after checkout closes (if not editing sale)
     useEffect(() => {
