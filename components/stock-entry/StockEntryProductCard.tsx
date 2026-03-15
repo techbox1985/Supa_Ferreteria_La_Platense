@@ -11,8 +11,10 @@ interface StockEntryProductCardProps {
 export const StockEntryProductCard: React.FC<StockEntryProductCardProps> = React.memo(({ product, onAddToEntryList, onViewDetails }) => {
   const cost = product['P.Costo'];
   const salePrice = product['Precio Final'];
-  const margin = cost > 0 ? ((salePrice - cost) / cost) * 100 : salePrice > 0 ? Infinity : 0;
-  const hasNegativeMargin = salePrice < cost && salePrice > 0;
+  const safeCost = typeof cost === 'number' ? cost : 0;
+  const safeSalePrice = typeof salePrice === 'number' ? salePrice : 0;
+  const margin = safeCost > 0 ? ((safeSalePrice - safeCost) / safeCost) * 100 : safeSalePrice > 0 ? Infinity : 0;
+  const hasNegativeMargin = safeSalePrice < safeCost && safeSalePrice > 0;
 
   return (
     <div
@@ -49,11 +51,11 @@ export const StockEntryProductCard: React.FC<StockEntryProductCardProps> = React
         
         <div className="mt-auto pt-3">
           <p className="text-xs text-gray-500">P. Costo</p>
-          <p className="text-2xl font-bold text-gray-900">${cost.toLocaleString('es-AR')}</p>
+          <p className="text-2xl font-bold text-gray-900">${safeCost.toLocaleString('es-AR')}</p>
           <div className="flex justify-between items-center mt-1">
             <div>
               <p className="text-xs text-gray-500">P. Venta</p>
-              <p className="text-sm font-semibold text-gray-700">${salePrice.toLocaleString('es-AR')}</p>
+              <p className="text-sm font-semibold text-gray-700">${safeSalePrice.toLocaleString('es-AR')}</p>
             </div>
             <div>
               <p className="text-xs text-gray-500">Margen</p>

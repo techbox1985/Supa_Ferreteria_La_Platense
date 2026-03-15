@@ -16,7 +16,7 @@ interface SalesHistoryViewProps {
     onEditSale?: (sale: Sale) => void;
 }
 
-const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, products, customers, allUsers, shifts, isLoading, refreshData }) => {
+const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData }) => {
     // Helper para obtener YYYY-MM-DD en hora local
     const getLocalDateString = (date: Date) => {
         const year = date.getFullYear();
@@ -150,16 +150,14 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
         </div>
     );
 
-    const handleEditSale = (sale: Sale) => {
-        if (onEditSale) onEditSale(sale);
-    };
+    // ...existing code...
     return (
         <div className="h-full p-2 space-y-3 md:space-y-4">
             <SalesDashboard
                 title=""
                 salesData={salesInDateRange}
                 customers={customers}
-                products={products}
+                // products eliminado: no requerido por SalesDashboard
                 refreshData={refreshData}
                 isLoading={isLoading}
                 headerChildren={filtersAndSearch}
@@ -167,10 +165,9 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, pro
                 statTitlePrefix="en Período"
                 showStats={true}
                 searchTerm={searchTerm}
-                setSearchTerm={setSearchTerm}
                 stickyStats={true}
                 stickyFilters={true}
-                onEditSale={handleEditSale}
+                // onEditSale eliminado: no corresponde
             />
         </div>
     );

@@ -37,8 +37,12 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
         return matchesCategory && matchesSearch;
       })
       .sort((a, b) => {
-        const aHasNegativeMargin = a['Precio Final'] < a['P.Costo'];
-        const bHasNegativeMargin = b['Precio Final'] < b['P.Costo'];
+        const aPrecioFinal = typeof a['Precio Final'] === 'number' ? a['Precio Final'] : 0;
+        const aPCosto = typeof a['P.Costo'] === 'number' ? a['P.Costo'] : 0;
+        const bPrecioFinal = typeof b['Precio Final'] === 'number' ? b['Precio Final'] : 0;
+        const bPCosto = typeof b['P.Costo'] === 'number' ? b['P.Costo'] : 0;
+        const aHasNegativeMargin = aPrecioFinal < aPCosto;
+        const bHasNegativeMargin = bPrecioFinal < bPCosto;
         if (aHasNegativeMargin && !bHasNegativeMargin) return -1;
         if (!aHasNegativeMargin && bHasNegativeMargin) return 1;
         return (a.Producto || '').localeCompare(b.Producto || '');
@@ -53,7 +57,12 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
           i.product.cod === product.cod ? { ...i, quantity: i.quantity + 1 } : i
         );
       }
-      return [...prev, { product, quantity: 1, costPrice: product['P.Costo'], salePrice: product.Precio }];
+      return [...prev, {
+        product,
+        quantity: 1,
+        costPrice: typeof product['P.Costo'] === 'number' ? product['P.Costo'] : 0,
+        salePrice: typeof product.Precio === 'number' ? product.Precio : 0
+      }];
     });
   }, []);
 

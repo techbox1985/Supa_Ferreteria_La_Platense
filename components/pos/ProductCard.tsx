@@ -42,8 +42,10 @@ const parseDate = (dateString: string | null | undefined): Date | null => {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, onAddToCart, onViewDetails, allowOutOfStock = false, imageHeightClass = 'h-48' }) => {
-  const canBeAdded = product.Activo && (allowOutOfStock || product.stockk > 0);
-  const isLowOnStock = product.stockk > 0 && product.Minimo > 0 && product.stockk < product.Minimo;
+  const stock = product.stockk ?? 0;
+  const minimo = product.Minimo ?? 0;
+  const canBeAdded = product.Activo && (allowOutOfStock || stock > 0);
+  const isLowOnStock = stock > 0 && minimo > 0 && stock < minimo;
   const isOnSale = product['Precio de Oferta'] && product['Precio de Oferta'] > 0;
 
   const handleImageClick = () => {
@@ -53,8 +55,8 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
   };
   
   // POS Mode (original logic)
-  const stockColor = product.stockk > 10 ? 'bg-green-100 text-green-800' : 
-                     product.stockk > 0 ? 'bg-yellow-100 text-yellow-800' : 
+  const stockColor = stock > 10 ? 'bg-green-100 text-green-800' : 
+                     stock > 0 ? 'bg-yellow-100 text-yellow-800' : 
                      'bg-red-100 text-red-800';
   
   const isPriceUpdatedOnline = product.Precio !== product['Precio Final'];
@@ -97,7 +99,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
             title={isLowOnStock ? `Bajo stock (Mínimo: ${product.Minimo})` : undefined}
          >
             {isLowOnStock && <Icon path="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" className="w-3 h-3"/>}
-            <span>Stock: {product.stockk}</span>
+            <span>Stock: {stock}</span>
         </div>
         <button 
             onClick={() => onViewDetails(product)}
@@ -123,10 +125,14 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
                 {isOnSale ? (
                   <div>
                     <p className="text-2xl font-black text-red-600 leading-none">${product['Precio de Oferta']!.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
-                    <del className="text-xs font-bold text-slate-400 ml-0.5">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</del>
+                    {typeof originalPrice === 'number' && !isNaN(originalPrice) && (
+                      <del className="text-xs font-bold text-slate-400 ml-0.5">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</del>
+                    )}
                   </div>
                 ) : (
-                  <p className="text-2xl font-black text-slate-900 leading-none">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                  (typeof originalPrice === 'number' && !isNaN(originalPrice) && (
+                    <p className="text-2xl font-black text-slate-900 leading-none">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                  ))
                 )}
                 {isPriceUpdatedOnline ? (
                     <p className="text-[10px] font-black text-green-600 uppercase tracking-tighter mt-1">Actualizado Online</p>

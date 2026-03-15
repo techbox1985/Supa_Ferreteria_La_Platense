@@ -45,7 +45,7 @@ const AppContent: React.FC = () => {
     const [allUsers, setAllUsers] = useState<User[]>([]);
 const [suppliers, setSuppliers] = useState<Supplier[]>([]);
 const [categories, setCategories] = useState<string[]>([]);
-const [rawTransactions, setRawTransactions] = useState<any[]>([]);
+const [rawTransactions] = useState<any[]>([]);
 const [accountTransactions, setAccountTransactions] = useState<any[]>([]);
     
     // Estados de UI
@@ -200,8 +200,7 @@ setAccountTransactions(fetchedAccountTransactions);
 
     // Mover processedTransactions ANTES de processedSales para evitar undefined
     const processedTransactions = useMemo(() => {
-        const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
-        return (safeRawTransactions).map((t: any, index: number): AccountTransaction => ({
+        return (Array.isArray(rawTransactions) ? rawTransactions : []).map((t: any, index: number): AccountTransaction => ({
             id: t.ID_Transaccion || t.id || `temp-${index}`,
             date: new Date(t.Fecha || t['Fecha']),
             type: t.Tipo as any,
@@ -215,9 +214,9 @@ setAccountTransactions(fetchedAccountTransactions);
     }, [rawTransactions]);
 
     const processedSales = useMemo(() => {
-        const safeProducts = Array.isArray(products) ? products : [];
+        // ...existing code...
         const safeRawSales = Array.isArray(rawSales) ? rawSales : [];
-        const safeRawTransactions = Array.isArray(rawTransactions) ? rawTransactions : [];
+        // ...existing code...
         if (isLoading && safeRawSales.length === 0) return [];
 
         const customersMap: Map<string, Customer> = new Map(customersWithCalculatedDebt.map((c: Customer) => [String(c.Id_Cliente), c]));

@@ -11,8 +11,18 @@ export const LowStockView: React.FC<LowStockViewProps> = ({ products, isLoading 
     
     const lowStockProducts = useMemo(() => {
         return products
-            .filter(p => p.Activo && p.Minimo > 0 && p.stockk < p.Minimo)
-            .sort((a, b) => (a.stockk / a.Minimo) - (b.stockk / b.Minimo)); // Sort by urgency (percentage of stock left)
+                        .filter(p => {
+                            const minimo = p.Minimo ?? 0;
+                            const stock = p.stockk ?? 0;
+                            return p.Activo && minimo > 0 && stock < minimo;
+                        })
+                        .sort((a, b) => {
+                            const aStock = a.stockk ?? 0;
+                            const aMin = a.Minimo ?? 1;
+                            const bStock = b.stockk ?? 0;
+                            const bMin = b.Minimo ?? 1;
+                            return (aStock / aMin) - (bStock / bMin);
+                        }); // Sort by urgency (percentage of stock left)
     }, [products]);
 
     if (isLoading) {
@@ -56,7 +66,9 @@ export const LowStockView: React.FC<LowStockViewProps> = ({ products, isLoading 
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                             {lowStockProducts.length > 0 ? lowStockProducts.map(product => {
-                                const needed = product.Minimo - product.stockk;
+                                const minimo = product.Minimo ?? 0;
+                                const stock = product.stockk ?? 0;
+                                const needed = minimo - stock;
                                 return (
                                 <tr key={product.cod} className="hover:bg-orange-50">
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{product.Producto}</td>

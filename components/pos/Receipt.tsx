@@ -18,7 +18,7 @@ const COMPANY_RAZON_SOCIAL = 'RODRIGUEZ LUCAS ANDRES Y MARCUCCI';
 const COMPANY_CUIT = '30-71624467-3';
 const COMPANY_IVA = 'Responsable Inscripto';
 const COMPANY_IIBB = '30-71624467-3';
-const COMPANY_INICIO_ACT = '01/01/2019';
+// ...existing code...
 
 export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): string => {
     const styles = customStyles || getPrintStyles();

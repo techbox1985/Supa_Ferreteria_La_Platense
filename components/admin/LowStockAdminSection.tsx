@@ -10,7 +10,7 @@ interface LowStockAdminSectionProps {
   suppliers: Supplier[];
 }
 
-export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ products, suppliers }) => {
+export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ products }) => {
   const [providerFilter, setProviderFilter] = useState('All');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 

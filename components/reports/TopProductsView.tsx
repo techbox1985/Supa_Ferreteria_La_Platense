@@ -192,7 +192,7 @@ export const TopProductsView: React.FC<TopProductsViewProps> = ({ processedSales
                     </td>
                     <td className="px-6 py-4 text-center">
                         <span className={`text-xs font-bold px-2 py-1 rounded-md ${
-                            item.product.stockk <= item.product.Minimo ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
+                            (item.product.stockk ?? 0) <= (item.product.Minimo ?? 0) ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'
                         }`}>
                             {item.product.stockk}
                         </span>

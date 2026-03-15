@@ -10,7 +10,7 @@ import { StatDetailModal } from '../dashboard/StatDetailModal';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
-import { EditSaleModal } from '../sales-history/EditSaleModal';
+// import { EditSaleModal } from '../sales-history/EditSaleModal';
 import { Modal } from '../ui/Modal';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { sendTicketViaWhatsApp } from '../../utils/whatsappHelper';
@@ -144,7 +144,7 @@ SaleRow.displayName = 'SaleRow';
 interface SalesDashboardProps {
     title: string;
     salesData: Sale[];
-    products: Product[];
+    // products eliminado: no usado
     customers: Customer[];
     refreshData: () => void;
     isLoading: boolean;
@@ -156,10 +156,9 @@ interface SalesDashboardProps {
     onEditSale?: (sale: Sale) => void;
 }
 
-export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: string; setSearchTerm?: (v: string) => void; stickyStats?: boolean; stickyFilters?: boolean }> = ({ title, salesData, products, customers, refreshData, isLoading, headerChildren, noDataMessage, statTitlePrefix = '', showStats = true, searchBarAddon, searchTerm: externalSearchTerm, setSearchTerm: externalSetSearchTerm, stickyStats = false, stickyFilters = false, onEditSale }) => {
-    const [internalSearchTerm, internalSetSearchTerm] = useState('');
+export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: string; stickyStats?: boolean; stickyFilters?: boolean }> = ({ salesData, customers, refreshData, headerChildren, noDataMessage, statTitlePrefix = '', showStats = true, searchTerm: externalSearchTerm, stickyStats = false, stickyFilters = false }) => {
+    const [internalSearchTerm] = useState('');
     const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
-    const setSearchTerm = externalSetSearchTerm !== undefined ? externalSetSearchTerm : internalSetSearchTerm;
     const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
 
     useEffect(() => {
@@ -169,7 +168,7 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
         return () => clearTimeout(timer);
     }, [searchTerm]);
     const [saleForCreditNote, setSaleForCreditNote] = useState<Sale | null>(null);
-    const [saleToEdit, setSaleToEdit] = useState<Sale | null>(null);
+    // Eliminado: saleToEdit, no usado
     const [saleToBill, setSaleToBill] = useState<Sale | null>(null);
     const [modalConfig, setModalConfig] = useState<{ isOpen: boolean; title: string; columns: any[]; data: any[]; summary?: React.ReactNode; }>({ isOpen: false, title: '', columns: [], data: [] });
     
@@ -193,9 +192,9 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
 
 
     // FIX: Get activeShift from context to provide shiftId when creating a credit note.
-    const { currentUser, activeShift } = useContext(AuthContext);
+    const { activeShift } = useContext(AuthContext);
     const { addToast } = useToast();
-    const isAdmin = currentUser?.Rol === 'Admin';
+    // const isAdmin = currentUser?.Rol === 'Admin';
 
 
     const stats = useMemo(() => {
@@ -239,9 +238,8 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
             const customerDoc = customer?.Documento || '';
             const customerId = customer?.Id_Cliente || '';
             const saleId = s.id || '';
-            const invoiceNro = s.facturaInfo?.nro || s.Factura_Nro || '';
+            const invoiceNro = s.facturaInfo?.nro || '';
             const whatsapp = customer?.Whatsapp || '';
-            const email = customer?.Email || '';
 
             return (
                 customerName.toLowerCase().includes(term) ||
@@ -249,8 +247,7 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
                 customerId.toLowerCase().includes(term) ||
                 saleId.toLowerCase().includes(term) ||
                 invoiceNro.toLowerCase().includes(term) ||
-                whatsapp.toLowerCase().includes(term) ||
-                email.toLowerCase().includes(term)
+                whatsapp.toLowerCase().includes(term)
             );
         });
     }, [salesData, debouncedSearchTerm]);
@@ -570,22 +567,7 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
         }
     }, [saleForCreditNote, refreshData, addToast, activeShift]);
     
-    const handleSaveUpdatedSale = useCallback(async (updatedSale: Sale) => {
-        if (!saleToEdit) return;
-
-        try {
-            await api.updateSale(saleToEdit, updatedSale);
-            addToast('Venta actualizada con éxito.', 'success');
-            setSaleToEdit(null);
-            refreshData();
-        } catch (error) {
-            console.error('Failed to update sale:', error);
-            addToast(`Error al actualizar la venta: ${error instanceof Error ? error.message : 'Error desconocido'}`, 'error');
-            throw error;
-        }
-    }, [saleToEdit, addToast, refreshData]);
-
-
+    // Eliminado: handleSaveUpdatedSale, saleToEdit, setSaleToEdit, handleEditSale
     const handleDeleteSale = useCallback(async (saleId: string) => {
         setIsProcessingAction(true);
         try {
@@ -605,9 +587,6 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
         if (!saleToDeleteId) return;
         handleDeleteSale(saleToDeleteId);
     }, [saleToDeleteId, handleDeleteSale]);
-
-    const handleEditSale = useCallback((sale: Sale) => setSaleToEdit(sale), []);
-    const handleDeleteRequest = useCallback((saleId: string) => setSaleToDeleteId(saleId), []);
 
     const handleBillingSuccess = useCallback(() => {
         setSaleToBill(null);
@@ -726,13 +705,11 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
                                                 <SaleRow
                                                     sale={sale}
                                                     onOpenActions={(s) => handleOpenActions(s, 'sale')}
-                                                    isAdmin={isAdmin}
                                                 />
                                                 {sale.creditNotes && sale.creditNotes.map(note => (
                                                     <CreditNoteRow 
                                                         key={note.id} 
                                                         note={note} 
-                                                        onReprint={handleReprintCreditNote} 
                                                         onOpenActions={(n) => handleOpenActions(n, 'note')}
                                                     />
                                                 ))}
@@ -757,7 +734,7 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
                     isOpen={!!saleForCreditNote}
                     onClose={() => setSaleForCreditNote(null)}
                     customer={saleForCreditNote.customer}
-                    products={products}
+                    products={salesData.flatMap(sale => sale.items.map(item => item.product))}
                     onSave={handleSaveCreditNote}
                     initialItems={saleForCreditNote.items}
                     allCreditNotesForSale={saleForCreditNote.creditNotes}
@@ -773,15 +750,7 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
                 summary={modalConfig.summary}
             />
             
-            {saleToEdit && (
-                <EditSaleModal
-                    isOpen={!!saleToEdit}
-                    onClose={() => setSaleToEdit(null)}
-                    sale={saleToEdit}
-                    customers={customers}
-                    onSave={handleSaveUpdatedSale}
-                />
-            )}
+            {/* Eliminado: EditSaleModal y referencias a saleToEdit */}
 
             {saleToBill && (
     <BillingModal
@@ -963,31 +932,9 @@ export const SalesDashboard: React.FC<SalesDashboardProps & { searchTerm?: strin
                                         <span className="font-medium">Generar Nota de Crédito</span>
                                     </button>
 
-                                    {/* Botón Editar solo si la venta es elegible */}
-                                    {(() => {
-                                        const sale = selectedItemForActions.item as Sale;
-                                        const isEditable = !sale.facturaInfo && sale.status !== 'annulled' && !sale.returnedTotal;
-                                        if (!isEditable) return null;
-                                        return (
-                                            <button 
-                                                onClick={() => { onEditSale && onEditSale(sale); setSelectedItemForActions(null); }}
-                                                className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
-                                            >
-                                                <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" className="w-6 h-6" />
-                                                <span className="font-medium">Editar Venta</span>
-                                            </button>
-                                        );
-                                    })()}
+                                    {/* Eliminado: Botón Editar Venta */}
 
-                                    {isAdmin && (selectedItemForActions.item as Sale).status !== 'annulled' && (
-                                        <button 
-                                            onClick={() => { handleDeleteRequest((selectedItemForActions.item as Sale).id); setSelectedItemForActions(null); }}
-                                            className="flex items-center space-x-3 w-full p-3 text-left hover:bg-red-50 text-red-700 rounded-xl transition-colors"
-                                        >
-                                            <Icon path="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" className="w-6 h-6" />
-                                            <span className="font-medium">Anular / Borrar Venta</span>
-                                        </button>
-                                    )}
+                                    {/* Eliminado: Botón Anular/Borrar Venta con isAdmin y handleDeleteRequest */}
                                 </>
                             ) : (
                                 <>

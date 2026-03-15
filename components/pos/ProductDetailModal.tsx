@@ -23,14 +23,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ isOpen, 
 
   if (!isOpen || !product) return null;
 
-  const canBeAdded = product.stockk > 0;
+  const stock = product.stockk ?? 0;
+  const canBeAdded = stock > 0;
   const isOnSale = product['Precio de Oferta'] && product['Precio de Oferta'] > 0;
   const finalPrice = isOnSale ? product['Precio de Oferta']! : product['Precio Final'];
   const originalPrice = product['Precio Final'];
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title={product.Producto} size="lg" className="max-w-full sm:max-w-lg max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+      <Modal isOpen={isOpen} onClose={onClose} title={product.Producto} size="lg">
         <div className="flex flex-col md:flex-row gap-4 sm:gap-6">
           <div className="md:w-1/2">
             <img 
@@ -65,11 +66,17 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ isOpen, 
             <div className="mt-auto pt-4 flex flex-col items-end gap-4">
                 {isOnSale ? (
                  <div className="text-right">
-                   <p className="text-4xl font-extrabold text-red-600">${finalPrice.toLocaleString('es-AR')}</p>
-                   <del className="text-xl font-medium text-gray-500">${originalPrice.toLocaleString('es-AR')}</del>
+                    {typeof finalPrice === 'number' && !isNaN(finalPrice) && (
+                      <p className="text-4xl font-extrabold text-red-600">${finalPrice.toLocaleString('es-AR')}</p>
+                    )}
+                    {typeof originalPrice === 'number' && !isNaN(originalPrice) && (
+                      <del className="text-xl font-medium text-gray-500">${originalPrice.toLocaleString('es-AR')}</del>
+                    )}
                  </div>
                ) : (
-                 <p className="text-4xl font-extrabold text-gray-900">${finalPrice.toLocaleString('es-AR')}</p>
+                  (typeof finalPrice === 'number' && !isNaN(finalPrice) && (
+                    <p className="text-4xl font-extrabold text-gray-900">${finalPrice.toLocaleString('es-AR')}</p>
+                  ))
                )}
               {onAddToCart && (
                 <button

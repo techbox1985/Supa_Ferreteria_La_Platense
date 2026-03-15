@@ -17,7 +17,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
         login, 
         isLoggingIn, 
         shiftModalState, 
-        openOpenShiftModal,
+        // ...existing code...
         closeShiftModal, 
         handleOpenShift, 
         handleCloseShiftAndLogout 

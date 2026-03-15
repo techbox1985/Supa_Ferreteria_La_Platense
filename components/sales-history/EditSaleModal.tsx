@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Sale, Customer, CartItem } from '../../types';
+import { Sale, Customer } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { SearchableSelect } from '../ui/SearchableSelect';
-import { useToast } from '../../contexts/ToastContext';
+// ...existing code...
 
 interface EditSaleModalProps {
   isOpen: boolean;
@@ -21,7 +21,7 @@ const parseLocaleNumber = (value: string): number => {
 export const EditSaleModal: React.FC<EditSaleModalProps> = ({ isOpen, onClose, sale, customers, onSave }) => {
   const [editedSale, setEditedSale] = useState<Sale | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const { addToast } = useToast();
+  // ...existing code...
 
   const [discountPercent, setDiscountPercent] = useState('');
   const [discountAmount, setDiscountAmount] = useState('');

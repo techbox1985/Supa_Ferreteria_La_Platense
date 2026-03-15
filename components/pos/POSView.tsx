@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useContext, useCallback, useRef, useEffect, Fragment } from 'react';
+import React, { useState, useMemo, useContext, useCallback, useRef, useEffect } from 'react';
 import { Product, CartItem, Customer, Sale } from '../../types';
 import { ProductCard } from './ProductCard';
 import { Cart } from './Cart';
@@ -6,7 +6,7 @@ import { Icon } from '../ui/Icon';
 import { CheckoutModal } from './CheckoutModal';
 import { CustomerFormModal } from '../customers/CustomerFormModal';
 import * as api from '../../services/api';
-import { generateReceiptHtml, generateInvoiceHtml } from './Receipt';
+import { generateReceiptHtml } from './Receipt';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { sendTicketViaWhatsApp } from '../../utils/whatsappHelper';
@@ -33,7 +33,7 @@ interface POSViewProps {
 }
 
 const POSView: React.FC<POSViewProps> = ({
-  onNavigateBudgets,
+  // ...existing code...
   products,
   categories,
   customers,
@@ -70,11 +70,13 @@ const POSView: React.FC<POSViewProps> = ({
         customer: sale.customer,
         items: sale.items,
         total: sale.total,
-        status: 'active',
+        status: 'pending',
         shiftId: activeShift.ID_Turno,
         document_type: 'budget',
       };
-      await api.addBudgetSupabase(budget);
+      if (budget.customer) {
+        await api.addBudgetSupabase({ ...budget, customer: budget.customer, status: 'pending' });
+      }
       setCheckoutOpen(false);
       onClearCart();
       addToast('Presupuesto guardado correctamente.', 'success');
@@ -244,15 +246,15 @@ const categoryOptions = useMemo(() => {
             };
 
             // Campos planos para el Sheet
-            finalSaleObject.Factura_Nro = invoiceData.nro || '';
-            finalSaleObject.Factura_CAE = invoiceData.cae || '';
-            finalSaleObject.Factura_Vto_CAE = invoiceData.vtoCae || '';
-            finalSaleObject.Factura_QR_Data = invoiceData.qrData || '';
-            finalSaleObject.Factura_Fecha = new Date().toLocaleString('es-AR');
-            finalSaleObject.Factura_URL =
-              invoiceData.comprobante_pdf_url ||
-              invoiceData.url ||
-              '';
+            finalSaleObject.facturaInfo = {
+              ...finalSaleObject.facturaInfo,
+              nro: invoiceData.nro || '',
+              cae: invoiceData.cae || '',
+              vtoCae: invoiceData.vtoCae || '',
+              qrData: invoiceData.qrData || '',
+              fecha: new Date().toLocaleString('es-AR'),
+            };
+            // Eliminado: finalSaleObject.Factura_URL (no existe en Sale)
             // @ts-expect-error: Factura_Ticket_URL might not be in Sale type but is sent to webhook
             finalSaleObject.Factura_Ticket_URL =
               invoiceData.comprobante_ticket_url ||

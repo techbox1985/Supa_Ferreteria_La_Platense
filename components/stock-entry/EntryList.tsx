@@ -37,8 +37,8 @@ const EntryListItem: React.FC<EntryListItemProps> = ({ item, onUpdateQuantity, o
                 </p>
                  <p className="text-xs text-gray-500">
                     Stock Actual: <span className="font-medium">{item.product.stockk}</span> | 
-                    Costo Ant: <span className="font-medium">${item.product['P.Costo'].toLocaleString('es-AR')}</span> | 
-                    Venta Ant: <span className="font-medium">${item.product.Precio.toLocaleString('es-AR')}</span>
+                    Costo Ant: <span className="font-medium">${typeof item.product['P.Costo'] === 'number' ? item.product['P.Costo'].toLocaleString('es-AR') : '-'}</span> |
+                    Venta Ant: <span className="font-medium">${typeof item.product.Precio === 'number' ? item.product.Precio.toLocaleString('es-AR') : '-'}</span>
                 </p>
             </div>
             <button onClick={() => onRemoveItem(item.product.cod)} aria-label={`Remover ${item.product.Producto}`} className="text-red-500 hover:text-red-700 p-1">

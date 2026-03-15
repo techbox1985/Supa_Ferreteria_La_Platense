@@ -420,8 +420,9 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         categoriesData={categoriesData}
         allProducts={products}
         providers={suppliers
-          .filter((s: any) => s.activo !== false)
-          .map((s: any) => s.nombre)
+          .filter((s: any) => s.activo !== false && typeof s.nombre === 'string')
+          .map((s: any) => s.nombre as string)
+          .filter((n: string) => !!n)
           .sort()}
         categories={categories}
         suppliers={suppliers}
@@ -431,7 +432,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         isOpen={isMassUpdateOpen}
         onClose={() => setIsMassUpdateOpen(false)}
         categories={Object.keys(categoriesData)}
-        providers={providers.filter((p) => p !== 'All')}
+        providers={providers.filter((p): p is string => p !== 'All' && typeof p === 'string')}
         onUpdate={refreshProducts}
       />
 

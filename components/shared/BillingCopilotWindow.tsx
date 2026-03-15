@@ -52,7 +52,6 @@ export const BillingCopilotWindow: React.FC = () => {
 
     navigator.clipboard.writeText(currentValue).then(() => {
       addToast(`${currentFieldName} copiado: ${currentValue}`, 'success');
-      
       // Advance to the next field or item
       if (currentFieldIndex < FIELD_NAMES.length - 1) {
         setCurrentFieldIndex(prev => prev + 1);
@@ -65,7 +64,7 @@ export const BillingCopilotWindow: React.FC = () => {
           addToast('¡Todos los productos han sido procesados!', 'info');
         }
       }
-    }).catch(err => {
+    }).catch(() => {
       addToast('Error al copiar el dato.', 'error');
     });
   };

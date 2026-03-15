@@ -63,7 +63,7 @@ export const deleteProductSupabase = async (cod: string): Promise<any> => {
 };
 // --- Helpers mínimos para destrabar build ---
 // Implementación temporal de postToScript: simula una llamada y devuelve un objeto vacío o echo
-async function postToScript(action: string, payload: any, options?: any): Promise<any> {
+async function postToScript(_action: string, _payload: any, _options?: any): Promise<any> {
     // Puedes personalizar el mock según la acción si lo necesitas
     return { data: {} };
 }
@@ -86,7 +86,7 @@ import {
     Supplier,
     User
 } from '../types';
-import { offlineService } from './offlineService';
+// import { offlineService } from './offlineService';
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../database.types';
 
@@ -94,8 +94,16 @@ import type { Database } from '../database.types';
 // --- SUPABASE SERVICES ---
 // =============================================================================
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+/// <reference types="vite/client" />
+const viteEnv = (import.meta as ImportMeta & {
+    env: {
+        VITE_SUPABASE_URL: string;
+        VITE_SUPABASE_ANON_KEY: string;
+    };
+}).env;
+
+const SUPABASE_URL = viteEnv.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = viteEnv.VITE_SUPABASE_ANON_KEY;
 
 let supabase: ReturnType<typeof createClient<Database>> | null = null;
 
@@ -1013,7 +1021,8 @@ export const getBudgetsSupabase = async (): Promise<Budget[]> => {
         customer: s.customer!,
         items: s.items,
         total: s.total,
-        status: s.status === 'approved' ? 'approved' : 'pending'
+        status: 'approved',
+        shiftId: s.shiftId ?? '',
     } as Budget));
 };
 
@@ -1319,11 +1328,7 @@ export const getCustomerStatement = async (customerId: string): Promise<AccountT
         const debit = Number(item.debit) || 0;
         const credit = Number(item.credit) || 0;
         balance += debit - credit;
-        let parsedDate = null;
-        if (item.date) {
-            const d = new Date(item.date);
-            parsedDate = isNaN(d.getTime()) ? null : d;
-        }
+        let parsedDate: Date = new Date(item.date || item.created_at || Date.now());
         return {
             id: item.id,
             date: parsedDate,

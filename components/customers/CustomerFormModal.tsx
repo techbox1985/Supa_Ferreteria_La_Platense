@@ -94,7 +94,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
   };
   
   return (
-    <Modal isOpen={isOpen} onClose={isSaving ? () => {} : onClose} title={isEditing ? "Editar Cliente" : "Nuevo Cliente"} className="max-w-full sm:max-w-md max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+    <Modal isOpen={isOpen} onClose={isSaving ? () => {} : onClose} title={isEditing ? "Editar Cliente" : "Nuevo Cliente"}>
       <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
         <div>
           <label htmlFor="name" className="block text-sm font-medium text-gray-700">Nombre y Apellido</label>

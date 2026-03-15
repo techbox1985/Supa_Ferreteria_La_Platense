@@ -1,4 +1,4 @@
-import React, { ReactNode } from 'react';
+import { ReactNode } from 'react';
 import { Modal } from '../ui/Modal';
 
 interface Column<T> {

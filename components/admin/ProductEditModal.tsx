@@ -74,7 +74,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   onSave,
   categoriesData,
   providers,
-  allProducts,
+    // ...existing code...
   categories = [],
   suppliers = [],
 }) => {

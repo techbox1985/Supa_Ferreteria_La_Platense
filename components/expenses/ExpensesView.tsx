@@ -60,7 +60,7 @@ interface ExpensesViewProps {
     refreshData: () => void;
 }
 
-export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, shifts, allUsers, isLoading, refreshData }) => {
+export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading, refreshData }) => {
     const [isFormOpen, setFormOpen] = useState(false);
     const [expenseToEdit, setExpenseToEdit] = useState<Expense | null>(null);
     const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
@@ -130,7 +130,10 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, shifts, al
     const handleSaveExpense = async (data: { id_gastos?: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital' }) => {
         try {
             if (data.id_gastos) {
-                await api.updateExpense(data);
+                                if (typeof data.id_gastos === 'string' && data.id_gastos.length > 0) {
+                                    const dataWithId: typeof data & { id_gastos: string } = { ...data, id_gastos: data.id_gastos };
+                                    await api.updateExpense(dataWithId);
+                                }
                 addToast('Gasto actualizado.', 'success');
             } else {
                 if (!activeShift) throw new Error("No hay turno activo");

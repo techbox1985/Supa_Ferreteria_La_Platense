@@ -21,7 +21,7 @@ interface TodayViewProps {
     refreshData: () => void;
 }
 
-export const TodayView: React.FC<TodayViewProps> = ({ processedSales, products, customers, expenses, transactions, allUsers, shifts, isLoading, refreshData }) => {
+export const TodayView: React.FC<TodayViewProps> = ({ processedSales, customers, expenses, transactions, allUsers, shifts, isLoading, refreshData }) => {
     
     const [modalConfig, setModalConfig] = useState<{ isOpen: boolean; title: string; columns: any[]; data: any[]; summary?: React.ReactNode; }>({ isOpen: false, title: '', columns: [], data: [] });
     const { currentUser, activeShift } = useContext(AuthContext);
@@ -184,7 +184,7 @@ export const TodayView: React.FC<TodayViewProps> = ({ processedSales, products, 
                     <StatCard title="Ventas a Cta. Cte." value={formatCurrency(stats.totalCreditSales)} iconPath="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m-7.512 2.72a9.094 9.094 0 013.741-.479 3 3 0 01-4.682-2.72M13.5 3A3.375 3.375 0 0010.125 6.375v3.75c0 .621.504 1.125 1.125 1.125h.375m0 0c-.375.621.504 1.125 1.125 1.125h.375m0 0c.621-.504 1.125-1.125 1.125-1.125v-3.75A3.375 3.375 0 0013.5 3z" iconBgColor="bg-red-500" />
                 </div>
             </div>
-            <SalesDashboard title="Detalle de Ventas" salesData={todayData.salesForToday} customers={customers} products={products} refreshData={refreshData} isLoading={isLoading} noDataMessage="No se encontraron ventas para hoy." showStats={false} searchBarAddon={sellerFilterControl} />
+            <SalesDashboard title="Detalle de Ventas" salesData={todayData.salesForToday} customers={customers} refreshData={refreshData} isLoading={isLoading} noDataMessage="No se encontraron ventas para hoy." showStats={false} searchBarAddon={sellerFilterControl} />
             <StatDetailModal isOpen={modalConfig.isOpen} onClose={() => setModalConfig(prev => ({ ...prev, isOpen: false }))} title={modalConfig.title} columns={modalConfig.columns} data={modalConfig.data} summary={modalConfig.summary} />
         </div>
     );

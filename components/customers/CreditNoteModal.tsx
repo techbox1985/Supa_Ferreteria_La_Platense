@@ -58,10 +58,13 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
     products
         .filter(p => p.Activo)
         .sort((a, b) => a.Producto.localeCompare(b.Producto))
-        .map(p => ({
+        .map(p => {
+          const precioFinal = typeof p['Precio Final'] === 'number' ? p['Precio Final'] : 0;
+          return {
             value: p.cod,
-            label: `[${p.cod}] ${p.Producto} - $${p['Precio Final'].toLocaleString('es-AR')}`
-        }))
+            label: `[${p.cod}] ${p.Producto} - $${precioFinal.toLocaleString('es-AR')}`
+          };
+        })
   , [products]);
 
 
@@ -71,13 +74,14 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
     const product = products.find(p => p.cod === selectedCod);
     if (product) {
       setItems(currentItems => {
+        const precioFinal = typeof product['Precio Final'] === 'number' ? product['Precio Final'] : 0;
         const existing = currentItems.find(i => i.product.cod === product.cod);
         if (existing) {
           return currentItems.map(i => 
             i.product.cod === product.cod ? { ...i, quantity: i.quantity + 1 } : i
           );
         }
-        return [...currentItems, { product, quantity: 1, price: product['Precio Final'] }];
+        return [...currentItems, { product, quantity: 1, price: precioFinal }];
       });
     }
     setProductSearch(''); // Reset the selector after adding a product

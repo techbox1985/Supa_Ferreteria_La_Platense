@@ -1,5 +1,5 @@
 // ...
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Customer, Product } from '../../types';
 import { Icon } from '../ui/Icon';
 import { CustomerFormModal } from './CustomerFormModal';
@@ -54,7 +54,7 @@ interface CustomersViewProps {
   onViewStatement: (customer: Customer) => void;
 }
 
-const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refreshData, isLoading, onViewStatement }) => {
+const CustomersView: React.FC<CustomersViewProps> = ({ customers, refreshData, isLoading }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isFormOpen, setFormOpen] = useState(false);
     const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
@@ -94,17 +94,17 @@ const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refr
     const handleViewStatement = useCallback((customer: Customer) => {
       // Normalizar y proteger el objeto customer antes de abrir el modal
       if (!customer || typeof customer !== 'object') return;
-      // Asegurar que los campos mínimos existen
+      // Asegurar que los campos mínimos existen (solo campos válidos del modelo actual)
       const safeCustomer: Customer = {
-        Id_Cliente: customer.Id_Cliente || customer.id || '',
-        'Nombre y Apellido': customer['Nombre y Apellido'] || customer.name || '',
-        Whatsapp: customer.Whatsapp || customer.whatsapp || '',
-        'Tipo.Documento': customer['Tipo.Documento'] || customer.document_type || '',
-        Documento: customer.Documento || customer.document_number || '',
-        Condicion_IVA: customer.Condicion_IVA || customer.iva_condition || 'Consumidor Final',
+        Id_Cliente: customer.Id_Cliente || '',
+        'Nombre y Apellido': customer['Nombre y Apellido'] || '',
+        Whatsapp: customer.Whatsapp || '',
+        'Tipo.Documento': customer['Tipo.Documento'] || '',
+        Documento: customer.Documento || '',
+        Condicion_IVA: customer.Condicion_IVA || 'Consumidor Final',
         Deuda: Number(customer.Deuda ?? 0),
         Pagos: Number(customer.Pagos ?? 0),
-        'Fecha Creacion': customer['Fecha Creacion'] || customer.created_at || undefined
+        'Fecha Creacion': customer['Fecha Creacion'] || undefined
       };
       setStatementCustomer(safeCustomer);
     }, []);
@@ -204,7 +204,7 @@ const CustomersView: React.FC<CustomersViewProps> = ({ products, customers, refr
               isOpen={isFormOpen}
               onClose={() => setFormOpen(false)}
               onSave={handleSaveCustomer}
-              customers={localCustomers}
+              customers={realCustomers}
               customerToEdit={customerToEdit}
           />
         )}
