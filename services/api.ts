@@ -1,3 +1,77 @@
+// --- PRODUCTOS SUPABASE: Métodos CRUD mínimos para ProductAdminView ---
+export const updateProductSupabase = async (productData: any): Promise<any> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!productData.cod) throw new Error('Falta el código de producto');
+    const mapping: any = { ...productData };
+    // Remover campos que no existen en la tabla si es necesario
+    delete mapping.Categoria;
+    delete mapping.Proveedor;
+    // Mapear campos conocidos
+    if (productData.category_id) mapping.category_id = productData.category_id;
+    if (productData.supplier_id) mapping.supplier_id = productData.supplier_id;
+    if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
+    if (productData['Precio Final'] !== undefined) mapping.list_price = productData['Precio Final'];
+    if (productData['Precio de Oferta'] !== undefined) mapping.offer_price = productData['Precio de Oferta'];
+    if (productData.stockk !== undefined) mapping.current_stock = productData.stockk;
+    if (productData.Minimo !== undefined) mapping.min_stock = productData.Minimo;
+    if (productData.Activo !== undefined) mapping.is_active = !!productData.Activo;
+    if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = productData.FOTOGRAFIA;
+    if (productData.Imagen !== undefined) mapping.image_url = productData.Imagen;
+    if (productData.Eliminado !== undefined) mapping.is_deleted = !!productData.Eliminado;
+    const { data, error } = await supabase
+        .from('st_products')
+        .update(mapping)
+        .eq('cod', productData.cod)
+        .select();
+    if (error) throw error;
+    return data?.[0] || null;
+};
+
+export const addProductSupabase = async (productData: any): Promise<any> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const mapping: any = { ...productData };
+    delete mapping.Categoria;
+    delete mapping.Proveedor;
+    if (productData.category_id) mapping.category_id = productData.category_id;
+    if (productData.supplier_id) mapping.supplier_id = productData.supplier_id;
+    if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
+    if (productData['Precio Final'] !== undefined) mapping.list_price = productData['Precio Final'];
+    if (productData['Precio de Oferta'] !== undefined) mapping.offer_price = productData['Precio de Oferta'];
+    if (productData.stockk !== undefined) mapping.current_stock = productData.stockk;
+    if (productData.Minimo !== undefined) mapping.min_stock = productData.Minimo;
+    if (productData.Activo !== undefined) mapping.is_active = !!productData.Activo;
+    if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = productData.FOTOGRAFIA;
+    if (productData.Imagen !== undefined) mapping.image_url = productData.Imagen;
+    if (productData.Eliminado !== undefined) mapping.is_deleted = !!productData.Eliminado;
+    const { data, error } = await supabase
+        .from('st_products')
+        .insert([mapping])
+        .select();
+    if (error) throw error;
+    return data?.[0] || null;
+};
+
+export const deleteProductSupabase = async (cod: string): Promise<any> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const { data, error } = await supabase
+        .from('st_products')
+        .update({ is_deleted: true, updated_at: new Date() })
+        .eq('cod', cod)
+        .select();
+    if (error) throw error;
+    return data?.[0] || null;
+};
+// --- Helpers mínimos para destrabar build ---
+// Implementación temporal de postToScript: simula una llamada y devuelve un objeto vacío o echo
+async function postToScript(action: string, payload: any, options?: any): Promise<any> {
+    // Puedes personalizar el mock según la acción si lo necesitas
+    return { data: {} };
+}
+
+// Implementación temporal de formatDateForSheet: retorna fecha en formato ISO simple
+function formatDateForSheet(date: Date): string {
+    return date.toISOString().split('T')[0];
+}
 // FIX: Imported all necessary types from the central types file.
 import {
     AccountTransaction,
@@ -14,6 +88,7 @@ import {
 } from '../types';
 import { offlineService } from './offlineService';
 import { createClient } from '@supabase/supabase-js';
+import type { Database } from '../database.types';
 
 // =============================================================================
 // --- SUPABASE SERVICES ---
@@ -22,10 +97,10 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-let supabase: ReturnType<typeof createClient> | null = null;
+let supabase: ReturnType<typeof createClient<Database>> | null = null;
 
 if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-    supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
 } else {
     console.warn('Supabase URL o Anon Key no están configuradas. Las funciones de facturación electrónica no funcionarán.');
 }

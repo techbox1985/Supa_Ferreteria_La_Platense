@@ -16,7 +16,11 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
 
   // Filtrar productos que están bajo stock o sin stock
   const allLowStockProducts = useMemo(() => {
-    return products.filter(p => p.Activo && (p.stockk <= p.Minimo || p.stockk <= 0));
+    return products.filter(p => {
+      const stock = p.stockk ?? 0;
+      const min = p.Minimo ?? 0;
+      return p.Activo && (stock <= min || stock <= 0);
+    });
   }, [products]);
 
   // Aplicar filtro de proveedor
@@ -40,14 +44,17 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
 
     // Generar CSV (Excel compatible)
     const headers = ['Producto', 'Código', 'Proveedor', 'Stock Actual', 'Mínimo', 'Estado'];
-    const rows = dataToExport.map(p => [
-      p.Producto,
-      p.cod,
-      p.Proveedor || 'Sin proveedor',
-      p.stockk,
-      p.Minimo,
-      p.stockk <= 0 ? 'SIN STOCK' : 'BAJO STOCK'
-    ]);
+    const rows = dataToExport.map(p => {
+      const stock = p.stockk ?? 0;
+      return [
+        p.Producto,
+        p.cod,
+        p.Proveedor || 'Sin proveedor',
+        stock,
+        p.Minimo ?? 0,
+        stock <= 0 ? 'SIN STOCK' : 'BAJO STOCK'
+      ];
+    });
 
     const csvContent = [
       headers.join(';'),
@@ -109,33 +116,36 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        {filteredLowStock.length > 0 ? filteredLowStock.map(p => (
-          <div key={p.cod} className={`bg-white p-4 rounded-xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md ${p.stockk <= 0 ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'}`}>
-            <div>
-              <div className="flex justify-between items-start mb-2">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${p.stockk <= 0 ? 'bg-red-200 text-red-800' : 'bg-orange-200 text-orange-800'}`}>
-                  {p.stockk <= 0 ? 'Sin stock' : 'Bajo stock'}
-                </span>
-                <span className="text-[10px] text-gray-400 font-mono">#{p.cod}</span>
-              </div>
-              <h3 className="text-sm font-bold text-gray-800 line-clamp-2 leading-tight" title={p.Producto}>
-                {p.Producto}
-              </h3>
-              <p className="text-[11px] text-gray-500 mt-1 truncate">{p.Proveedor || 'Sin proveedor'}</p>
-            </div>
-            
-            <div className="mt-4 flex items-end justify-between border-t border-white/50 pt-2">
+        {filteredLowStock.length > 0 ? filteredLowStock.map(p => {
+          const stock = p.stockk ?? 0;
+          const min = p.Minimo ?? 0;
+          return (
+            <div key={p.cod} className={`bg-white p-4 rounded-xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md ${stock <= 0 ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'}`}>
               <div>
-                <p className="text-[10px] text-gray-500 uppercase tracking-tighter">Stock Actual</p>
-                <p className={`text-xl font-black ${p.stockk <= 0 ? 'text-red-600' : 'text-orange-600'}`}>{p.stockk}</p>
+                <div className="flex justify-between items-start mb-2">
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${stock <= 0 ? 'bg-red-200 text-red-800' : 'bg-orange-200 text-orange-800'}`}>
+                    {stock <= 0 ? 'Sin stock' : 'Bajo stock'}
+                  </span>
+                  <span className="text-[10px] text-gray-400 font-mono">#{p.cod}</span>
+                </div>
+                <h3 className="text-sm font-bold text-gray-800 line-clamp-2 leading-tight" title={p.Producto}>
+                  {p.Producto}
+                </h3>
+                <p className="text-[11px] text-gray-500 mt-1 truncate">{p.Proveedor || 'Sin proveedor'}</p>
               </div>
-              <div className="text-right">
-                <p className="text-[10px] text-gray-500 uppercase tracking-tighter">Mínimo</p>
-                <p className="text-sm font-bold text-gray-700">{p.Minimo}</p>
+              <div className="mt-4 flex items-end justify-between border-t border-white/50 pt-2">
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-tighter">Stock Actual</p>
+                  <p className={`text-xl font-black ${stock <= 0 ? 'text-red-600' : 'text-orange-600'}`}>{stock}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-gray-500 uppercase tracking-tighter">Mínimo</p>
+                  <p className="text-sm font-bold text-gray-700">{min}</p>
+                </div>
               </div>
             </div>
-          </div>
-        )) : (
+          );
+        }) : (
           <div className="col-span-full py-12 text-center bg-white rounded-xl border border-dashed">
             <Icon path="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" className="w-12 h-12 text-green-400 mx-auto mb-2" />
             <p className="text-gray-500 font-medium">No hay productos críticos para mostrar.</p>

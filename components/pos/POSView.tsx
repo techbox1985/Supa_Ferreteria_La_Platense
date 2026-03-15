@@ -52,6 +52,11 @@ const POSView: React.FC<POSViewProps> = ({
 }) => {
   const { activeShift } = useContext(AuthContext);
   const { addToast } = useToast();
+  // Declaración de estados principales
+  const [isCheckoutOpen, setCheckoutOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const cartSectionRef = useRef<HTMLDivElement>(null);
   // Lógica para guardar presupuesto
   const handleFinalizeBudget = useCallback(async (sale: Sale, _generateInvoice: boolean) => {
     if (!activeShift) {
@@ -79,10 +84,6 @@ const POSView: React.FC<POSViewProps> = ({
       addToast(`Error al guardar presupuesto: ${errorMessage}`, 'error');
     }
   }, [activeShift, addToast, onClearCart, refreshData]);
-  // ...existing code...
-  const [searchTerm, setSearchTerm] = useState('');
-  const searchInputRef = useRef<HTMLInputElement>(null);
-  const cartSectionRef = useRef<HTMLDivElement>(null);
     // Focus search input on POS mount (desktop only)
     useEffect(() => {
       if (typeof window === 'undefined') return;
@@ -144,7 +145,6 @@ const POSView: React.FC<POSViewProps> = ({
       }
     }, [isCheckoutOpen, saleBeingEdited]);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [isCheckoutOpen, setCheckoutOpen] = useState(false);
   const [isBudgetMode, setIsBudgetMode] = useState(false);
   const [isCustomerFormOpen, setCustomerFormOpen] = useState(false);
   const [productForDetail, setProductForDetail] = useState<Product | null>(null);

@@ -33,7 +33,8 @@ const parseSheetNumber = (value: any): number => {
 const AppContent: React.FC = () => {
     const { currentUser } = useContext(AuthContext);
     const { addToast } = useToast();
-    const [currentView, setCurrentView] = useState<'pos' | 'customers' | 'expenses' | 'admin-panel' | 'sales-history'>('pos');
+    type View = 'pos' | 'customers' | 'budgets' | 'expenses' | 'admin-panel' | 'sales-history';
+    const [currentView, setCurrentView] = useState<View>('pos');
     
     // Estados de Datos
     const [products, setProducts] = useState<Product[]>([]);
@@ -460,6 +461,7 @@ setAccountTransactions(fetchedAccountTransactions);
         switch (currentView) {
             case 'pos':
                 return <POSView 
+                    onNavigateBudgets={() => setCurrentView('budgets')}
                     products={products} 
                     categories={categories}
                     customers={customersWithCalculatedDebt} 
@@ -517,7 +519,7 @@ setAccountTransactions(fetchedAccountTransactions);
         <div className="flex flex-col h-screen bg-slate-50 font-sans">
             <Header 
                 currentView={currentView} 
-                onNavigate={setCurrentView} 
+                onNavigate={(view: View) => setCurrentView(view)} 
                 onRefresh={fetchData} 
                 isRefreshing={isRefreshing}
                 isOnline={isOnline}

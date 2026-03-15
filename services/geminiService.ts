@@ -47,7 +47,7 @@ export const generateProductDescription = async (product: Product): Promise<stri
       }
     });
 
-    return response.text.trim();
+    return response.text?.trim() ?? "";
   } catch (error) {
     console.error("Error al generar descripción con Gemini:", error);
     // Return the error message to be displayed in the UI.
