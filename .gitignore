@@ -1,2 +1,12 @@
-node_modules
+# build
+dist/
+
+# env
 .env
+.env.local
+
+# editor
+.vscode/
+
+# node
+node_modules/
