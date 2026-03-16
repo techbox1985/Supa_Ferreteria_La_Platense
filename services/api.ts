@@ -902,33 +902,34 @@ export const getSalesSupabase = async (statusFilter: string[] = ['active', 'annu
 export const addBudgetSupabase = async (budget: Budget): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
-    const { data: lastSale } = await supabase
-        .from('st_sales')
-        .select('sale_number')
-        .order('sale_number', { ascending: false })
+    // Obtener el último budget_number
+    const { data: lastBudget } = await supabase
+        .from('st_budgets')
+        .select('budget_number')
+        .order('budget_number', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-    const nextSaleNumber = Number(lastSale?.sale_number ?? 0) + 1;
+    const nextBudgetNumber = Number(lastBudget?.budget_number ?? 0) + 1;
     const customerId = budget.customer?.Id_Cliente && budget.customer.Id_Cliente !== '0' ? budget.customer.Id_Cliente : null;
 
-    const { data: insertedSale, error: saleError } = await supabase
-        .from('st_sales')
+    const { data: insertedBudget, error: budgetError } = await supabase
+        .from('st_budgets')
         .insert([{
-            sale_number: nextSaleNumber,
-            sold_at: budget.date instanceof Date ? budget.date.toISOString() : new Date().toISOString(),
+            budget_number: nextBudgetNumber,
             customer_id: customerId,
-            shift_id: budget.shiftId, // shift_id obligatorio igual que en POS
-            subtotal: budget.total,
+            budgeted_at: budget.date instanceof Date ? budget.date.toISOString() : new Date().toISOString(),
+            subtotal: typeof budget.subtotal === 'number' ? budget.subtotal : budget.total,
+            adjustment_amount: typeof budget.adjustmentAmount === 'number' ? budget.adjustmentAmount : 0,
             total: budget.total,
-            status: 'active',
+            status: 'pending',
             customer_name_snapshot: budget.customer?.['Nombre y Apellido'] || 'Consumidor Final',
-            customer_document_snapshot: budget.customer?.Documento || null,
+            customer_document_snapshot: budget.customer?.Documento || null
         }])
         .select()
         .single();
 
-    if (saleError) throw saleError;
+    if (budgetError) throw budgetError;
 
     const productCodes = budget.items.map(i => i.product?.cod).filter(Boolean);
     let productMap = new Map<string, string>();
@@ -938,7 +939,7 @@ export const addBudgetSupabase = async (budget: Budget): Promise<void> => {
     }
 
     const itemsToInsert = budget.items.map(item => ({
-        sale_id: insertedSale.id,
+        budget_id: insertedBudget.id,
         product_id: productMap.get(item.product.cod) || null,
         product_code: item.product.cod || null,
         product_name_snapshot: item.product.Producto || 'Producto',
@@ -948,7 +949,7 @@ export const addBudgetSupabase = async (budget: Budget): Promise<void> => {
     }));
 
     if (itemsToInsert.length > 0) {
-        await supabase.from('st_sale_items').insert(itemsToInsert);
+        await supabase.from('st_budget_items').insert(itemsToInsert);
     }
 };
 
@@ -1014,16 +1015,60 @@ export const deleteBudgetSupabase = async (budgetId: string): Promise<void> => {
 };
 
 export const getBudgetsSupabase = async (): Promise<Budget[]> => {
-    const sales = await getSalesSupabase(['pending', 'approved']);
-    return sales.map(s => ({
-        id: s.id,
-        date: s.date,
-        customer: s.customer!,
-        items: s.items,
-        total: s.total,
-        status: 'approved',
-        shiftId: s.shiftId ?? '',
-    } as Budget));
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    // Traer presupuestos y sus items
+    const { data: budgetsRaw, error: budgetsError } = await supabase
+        .from('st_budgets')
+        .select(`
+            id,
+            budget_number,
+            customer_id,
+            budgeted_at,
+            subtotal,
+            adjustment_amount,
+            total,
+            status,
+            customer_name_snapshot,
+            customer_document_snapshot,
+            st_budget_items (
+                id,
+                product_id,
+                product_code,
+                product_name_snapshot,
+                quantity,
+                unit_price,
+                line_total
+            )
+        `)
+        .in('status', ['pending', 'approved']);
+
+    if (budgetsError) throw budgetsError;
+    if (!budgetsRaw) return [];
+
+    return budgetsRaw.map((b: any) => ({
+        id: b.id,
+        date: b.budgeted_at ? new Date(b.budgeted_at) : new Date(),
+        customer: {
+            Id_Cliente: b.customer_id || '',
+            'Nombre y Apellido': b.customer_name_snapshot || 'Consumidor Final',
+            Documento: b.customer_document_snapshot || '',
+        },
+        items: (b.st_budget_items || []).map((item: any) => ({
+            product: {
+                cod: item.product_code || '',
+                Producto: item.product_name_snapshot || '',
+            },
+            quantity: Number(item.quantity ?? 0),
+            price: Number(item.unit_price ?? 0),
+            line_total: Number(item.line_total ?? 0),
+        })),
+        total: Number(b.total ?? 0),
+        status: b.status,
+        shiftId: '',
+        subtotal: typeof b.subtotal === 'number' ? b.subtotal : undefined,
+        adjustmentAmount: typeof b.adjustment_amount === 'number' ? b.adjustment_amount : undefined,
+    }));
 };
 
 // =============================================================================

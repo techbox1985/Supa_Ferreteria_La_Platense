@@ -177,7 +177,9 @@ export interface Budget {
     items: CartItem[];
     total: number;
     status: 'pending' | 'approved' | 'rejected';
-    shiftId: string; // Turno activo asociado al presupuesto
+    shiftId: string;
+    subtotal?: number;
+    adjustmentAmount?: number;
 }
 
 export interface StockEntryItem {

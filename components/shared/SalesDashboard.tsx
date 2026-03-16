@@ -61,7 +61,7 @@ const CreditNoteRow: React.FC<{
 CreditNoteRow.displayName = 'CreditNoteRow';
 
 const SaleRow: React.FC<{
-    sale: Sale;
+    sale: Sale & { document_type?: string };
     onOpenActions: (sale: Sale) => void;
 }> = React.memo(({ sale, onOpenActions }) => {
     const isAnnulled = sale.status === 'annulled';
@@ -80,7 +80,11 @@ const SaleRow: React.FC<{
             onClick={() => onOpenActions(sale)}
         >
             <td className="px-4 py-4 text-center w-12 min-w-[48px]">
-                <Icon path="M3.75 9.776c.112-.017.227-.026.344-.026h15.812c.117 0 .232.009.344-.026m-16.5 0a2.25 2.25 0 00-1.883 2.542l.857 6a2.25 2.25 0 002.227 1.932H19.05a2.25 2.25 0 002.227-1.932l.857-6a2.25 2.25 0 00-1.883-2.542m-16.5 0V6.75A2.25 2.25 0 014.5 4.5h15A2.25 2.25 0 0121.75 6.75v3.026" className="w-5 h-5 text-gray-400 mx-auto" />
+                {sale.document_type === 'budget' ? (
+                  <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800">Presupuesto</span>
+                ) : (
+                  <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-800">Venta</span>
+                )}
             </td>
             <td className="px-4 py-4 whitespace-nowrap text-sm font-mono w-24 min-w-[96px]">{sale.id.slice(0, 8)}</td>
             <td className="px-4 py-4 whitespace-nowrap text-sm w-40 min-w-[160px]">{new Date(sale.date).toLocaleString('es-AR')}</td>
