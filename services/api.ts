@@ -1431,15 +1431,41 @@ export const convertBudgetToSaleSupabase = async (
     total: number,
     adjustmentAmount: number,
     adjustmentDescription: string
-): Promise<void> => {
+): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
-    const customerId = customer?.Id_Cliente && customer.Id_Cliente !== '0' && !String(customer.Id_Cliente).startsWith('CLAD')
-        ? customer.Id_Cliente
-        : null;
+    const { data: currentBudget, error: currentBudgetError } = await supabase
+        .from('st_budgets')
+        .select('id, converted_to_sale_id, status')
+        .eq('id', budget.id)
+        .maybeSingle();
 
-    const updateData: any = {
-        status: 'active',
+    if (currentBudgetError) throw currentBudgetError;
+    if (!currentBudget) throw new Error('No se encontró el presupuesto.');
+    if (currentBudget.converted_to_sale_id) {
+        throw new Error('Este presupuesto ya fue convertido a venta.');
+    }
+
+    const { data: lastSale, error: lastSaleError } = await supabase
+        .from('st_sales')
+        .select('sale_number')
+        .order('sale_number', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (lastSaleError) throw lastSaleError;
+
+    const nextSaleNumber = Number(lastSale?.sale_number ?? 0) + 1;
+
+    const customerId =
+        customer?.Id_Cliente &&
+        customer.Id_Cliente !== '0' &&
+        !String(customer.Id_Cliente).startsWith('CLAD')
+            ? customer.Id_Cliente
+            : null;
+
+    const saleInsert = {
+        sale_number: nextSaleNumber,
         sold_at: new Date().toISOString(),
         customer_id: customerId,
         shift_id: shiftId || null,
@@ -1450,32 +1476,42 @@ export const convertBudgetToSaleSupabase = async (
         payment_digital: Number(payment?.digital ?? 0),
         payment_credit: Number(payment?.credit ?? 0),
         invoice_type: facturacion || 'N',
-        billing_type: facturacion || 'N',
+        status: 'active',
         customer_name_snapshot: customer?.['Nombre y Apellido'] || 'Consumidor Final',
         customer_document_snapshot: customer?.Documento || null,
-        notes: adjustmentDescription || null,
-        updated_at: new Date().toISOString()
+        notes: adjustmentDescription || null
     };
 
-    const { error: saleError } = await supabase
+    const { data: insertedSale, error: saleError } = await supabase
         .from('st_sales')
-        .update(updateData)
-        .eq('id', budget.id);
+        .insert([saleInsert])
+        .select()
+        .single();
 
     if (saleError) throw saleError;
 
-    // Update items to ensure they match the budget being converted
-    await supabase.from('st_sale_items').delete().eq('sale_id', budget.id);
+    const productCodes = budget.items
+        .map(i => i.product?.cod)
+        .filter(Boolean);
 
-    const productCodes = budget.items.map(i => i.product?.cod).filter(Boolean);
     let productMap = new Map<string, string>();
+
     if (productCodes.length > 0) {
-        const { data: productRows } = await supabase.from('st_products').select('id, cod').in('cod', productCodes);
+        const { data: productRows, error: productError } = await supabase
+            .from('st_products')
+            .select('id, cod')
+            .in('cod', productCodes);
+
+        if (productError) {
+            await supabase.from('st_sales').delete().eq('id', insertedSale.id);
+            throw productError;
+        }
+
         productMap = new Map((productRows || []).map((p: any) => [p.cod, p.id]));
     }
 
     const itemsToInsert = budget.items.map(item => ({
-        sale_id: budget.id,
+        sale_id: insertedSale.id,
         product_id: productMap.get(item.product.cod) || null,
         product_code: item.product.cod || null,
         product_name_snapshot: item.product.Producto || 'Producto',
@@ -1485,13 +1521,78 @@ export const convertBudgetToSaleSupabase = async (
     }));
 
     if (itemsToInsert.length > 0) {
-        const { error: itemsError } = await supabase.from('st_sale_items').insert(itemsToInsert);
-        if (itemsError) throw itemsError;
+        const { error: itemsError } = await supabase
+            .from('st_sale_items')
+            .insert(itemsToInsert);
+
+        if (itemsError) {
+            await supabase.from('st_sales').delete().eq('id', insertedSale.id);
+            throw itemsError;
+        }
     }
+
+    if (customerId && Number(payment?.credit ?? 0) > 0) {
+        const debitMovement = {
+            customer_id: customerId,
+            type: 'Venta',
+            description: 'Venta generada desde presupuesto',
+            debit: Number(payment.credit),
+            credit: 0,
+            original_sale_id: insertedSale.id,
+            shift_id: shiftId || null,
+            items: budget.items ? JSON.stringify(budget.items) : null,
+            factura_info: null,
+            date: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+        };
+
+        const { error: debitError } = await supabase
+            .from('st_account_transactions')
+            .insert([debitMovement]);
+
+        if (debitError) {
+            console.error('[Cuenta Corriente] Error al insertar movimiento de débito:', debitError);
+        }
+    }
+
+    const { error: budgetUpdateError } = await supabase
+        .from('st_budgets')
+        .update({
+            converted_to_sale_id: insertedSale.id,
+            status: 'approved',
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', budget.id);
+
+    if (budgetUpdateError) {
+        await supabase.from('st_sale_items').delete().eq('sale_id', insertedSale.id);
+        await supabase.from('st_sales').delete().eq('id', insertedSale.id);
+        throw budgetUpdateError;
+    }
+
+    return insertedSale;
 };
 
-export const convertBudgetToSale = async (budget: Budget, payment: any, shiftId: string, facturacion: string, customer: any, total: number, adjustmentAmount: number, adjustmentDescription: string): Promise<void> => {
-    return convertBudgetToSaleSupabase(budget, payment, shiftId, facturacion, customer, total, adjustmentAmount, adjustmentDescription);
+export const convertBudgetToSale = async (
+    budget: Budget,
+    payment: any,
+    shiftId: string,
+    facturacion: string,
+    customer: any,
+    total: number,
+    adjustmentAmount: number,
+    adjustmentDescription: string
+): Promise<any> => {
+    return convertBudgetToSaleSupabase(
+        budget,
+        payment,
+        shiftId,
+        facturacion,
+        customer,
+        total,
+        adjustmentAmount,
+        adjustmentDescription
+    );
 };
 
 export const recordStockEntrySupabase = async (items: StockEntryItem[], _userId: string): Promise<any> => {

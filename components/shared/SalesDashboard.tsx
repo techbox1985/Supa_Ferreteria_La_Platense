@@ -3,9 +3,16 @@ import { Sale, Product, Customer, CartItem, CreditNote, AccountTransaction, Budg
 
 // Local type for sales with document_type
 type SaleWithDocumentType = Sale & { document_type: string; customer: NonNullable<Sale['customer']> };
+
 import * as api from '../../services/api';
 import { Icon } from '../ui/Icon';
-import { generateReceiptHtml, generateCreditNoteHtml, generateRemitoHtml, generateInvoiceHtml, generateBudgetHtml } from '../pos/Receipt';
+import {
+  generateReceiptHtml,
+  generateCreditNoteHtml,
+  generateRemitoHtml,
+  generateInvoiceHtml,
+  generateBudgetHtml,
+} from '../pos/Receipt';
 import { CreditNoteModal } from '../customers/CreditNoteModal';
 import { StatCard } from '../dashboard/StatCard';
 import { StatDetailModal } from '../dashboard/StatDetailModal';
@@ -21,7 +28,10 @@ import { BillingModal } from './BillingModal';
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
-const openHtmlInNewWindow = (html: string, features = 'width=900,height=700,scrollbars=yes,resizable=yes') => {
+const openHtmlInNewWindow = (
+  html: string,
+  features = 'width=900,height=700,scrollbars=yes,resizable=yes'
+) => {
   const win = window.open('', '_blank', features);
   if (win) {
     win.document.open();
@@ -260,7 +270,7 @@ export const SalesDashboard: React.FC<
     isOpen: false,
     budget: null,
   });
-
+const [isConvertingBudget, setIsConvertingBudget] = useState(false);
   const { activeShift } = useContext(AuthContext);
   const { addToast } = useToast();
 
@@ -283,7 +293,6 @@ export const SalesDashboard: React.FC<
 
   const stats = useMemo(() => {
     const completedSales = salesData.filter(sale => sale.status !== 'annulled');
-
     const totalRevenue = completedSales.reduce((sum, sale) => sum + (sale.total - (sale.returnedTotal || 0)), 0);
 
     const totalProductsSold = completedSales.reduce((sum, sale) => {
@@ -353,9 +362,20 @@ export const SalesDashboard: React.FC<
       isOpen: true,
       title: `Detalle de Ingresos ${statTitlePrefix}`,
       columns: [
-        { header: 'Fecha/Hora', accessor: (s: Sale) => new Date(s.date).toLocaleString('es-AR'), className: 'whitespace-nowrap' },
-        { header: 'Cliente', accessor: (s: Sale) => s.customer?.['Nombre y Apellido'] || 'Consumidor Final' },
-        { header: 'Total', accessor: (s: Sale) => formatCurrency(s.total - (s.returnedTotal || 0)), className: 'text-right font-medium' },
+        {
+          header: 'Fecha/Hora',
+          accessor: (s: Sale) => new Date(s.date).toLocaleString('es-AR'),
+          className: 'whitespace-nowrap',
+        },
+        {
+          header: 'Cliente',
+          accessor: (s: Sale) => s.customer?.['Nombre y Apellido'] || 'Consumidor Final',
+        },
+        {
+          header: 'Total',
+          accessor: (s: Sale) => formatCurrency(s.total - (s.returnedTotal || 0)),
+          className: 'text-right font-medium',
+        },
       ],
       data: completedSales,
       summary: <p>Total: {formatCurrency(stats.totalRevenue)}</p>,
@@ -370,7 +390,11 @@ export const SalesDashboard: React.FC<
       columns: [
         { header: 'Fecha/Hora', accessor: (s: Sale) => new Date(s.date).toLocaleString('es-AR') },
         { header: 'Cliente', accessor: (s: Sale) => s.customer?.['Nombre y Apellido'] || 'Consumidor Final' },
-        { header: 'Monto Efectivo', accessor: (s: Sale) => formatCurrency(s.payment.cash), className: 'text-right font-medium' },
+        {
+          header: 'Monto Efectivo',
+          accessor: (s: Sale) => formatCurrency(s.payment.cash),
+          className: 'text-right font-medium',
+        },
       ],
       data: cashSales,
       summary: <p>Total Efectivo: {formatCurrency(stats.totalCash)}</p>,
@@ -385,7 +409,11 @@ export const SalesDashboard: React.FC<
       columns: [
         { header: 'Fecha/Hora', accessor: (s: Sale) => new Date(s.date).toLocaleString('es-AR') },
         { header: 'Cliente', accessor: (s: Sale) => s.customer?.['Nombre y Apellido'] || 'Consumidor Final' },
-        { header: 'Monto Digital', accessor: (s: Sale) => formatCurrency(s.payment.digital), className: 'text-right font-medium' },
+        {
+          header: 'Monto Digital',
+          accessor: (s: Sale) => formatCurrency(s.payment.digital),
+          className: 'text-right font-medium',
+        },
       ],
       data: digitalSales,
       summary: <p>Total Digital: {formatCurrency(stats.totalDigital)}</p>,
@@ -400,7 +428,11 @@ export const SalesDashboard: React.FC<
       columns: [
         { header: 'Fecha/Hora', accessor: (s: Sale) => new Date(s.date).toLocaleString('es-AR') },
         { header: 'Cliente', accessor: (s: Sale) => s.customer?.['Nombre y Apellido'] || 'Consumidor Final' },
-        { header: 'Monto a Crédito', accessor: (s: Sale) => formatCurrency(s.payment.credit), className: 'text-right font-medium' },
+        {
+          header: 'Monto a Crédito',
+          accessor: (s: Sale) => formatCurrency(s.payment.credit),
+          className: 'text-right font-medium',
+        },
       ],
       data: creditSales,
       summary: <p>Total a Crédito: {formatCurrency(stats.totalCredit)}</p>,
@@ -479,9 +511,10 @@ export const SalesDashboard: React.FC<
       }
 
       const printStyles = getPrintStyles();
-      const ticketHtml = sale.facturaInfo && sale.facturaInfo.cae
-        ? generateInvoiceHtml(sale, printStyles)
-        : generateReceiptHtml(sale, printStyles);
+      const ticketHtml =
+        sale.facturaInfo && sale.facturaInfo.cae
+          ? generateInvoiceHtml(sale, printStyles)
+          : generateReceiptHtml(sale, printStyles);
 
       const ticketWindow = window.open('', '_blank', 'width=350,height=650,scrollbars=yes,resizable=yes');
       if (ticketWindow) {
@@ -494,13 +527,11 @@ export const SalesDashboard: React.FC<
     [addToast]
   );
 
-
-  // ÚNICA definición válida: asegura customer no nulo y tipa Budget
   const handleViewBudget = useCallback((sale: SaleWithDocumentType) => {
     if (!sale.customer) {
       throw new Error('El presupuesto no tiene cliente asignado.');
     }
-    // Adaptar a Budget para impresión
+
     const printableBudget: Budget = {
       id: sale.id,
       date: sale.date,
@@ -512,6 +543,7 @@ export const SalesDashboard: React.FC<
       subtotal: sale.subtotal,
       adjustmentAmount: sale.adjustmentAmount,
     };
+
     const html = generateBudgetHtml(printableBudget);
     openHtmlInNewWindow(html);
   }, []);
@@ -524,6 +556,7 @@ export const SalesDashboard: React.FC<
   const handleOpenSendModal = useCallback(
     (sale: Sale) => {
       setSendModalState({ isOpen: true, sale });
+
       const originalCustomerIsValid = whatsAppCustomers.some(c => c.Id_Cliente === sale.customer?.Id_Cliente);
 
       if (originalCustomerIsValid && sale.customer) {
@@ -732,6 +765,60 @@ export const SalesDashboard: React.FC<
     refreshData();
   }, [addToast, refreshData]);
 
+  const handleOpenBudgetToSaleModal = useCallback((budget: Sale) => {
+    setBudgetToSaleModal({ isOpen: true, budget });
+  }, []);
+  const handleConvertBudgetToSale = useCallback(async () => {
+    if (!budgetToSaleModal.budget) return;
+
+    const budget = budgetToSaleModal.budget as SaleWithDocumentType;
+
+    if ((budget as any).converted_to_sale_id) {
+        addToast('Este presupuesto ya fue convertido a venta.', 'error');
+        return;
+    }
+
+    setIsConvertingBudget(true);
+
+    try {
+        await api.convertBudgetToSale(
+            {
+    id: budget.id,
+    date: budget.date,
+    customer: budget.customer,
+    items: budget.items,
+    total: budget.total,
+    status: 'pending',
+    shiftId: budget.shiftId || '',
+    subtotal: budget.subtotal,
+    adjustmentAmount: budget.adjustmentAmount
+},
+            {
+                cash: 0,
+                digital: 0,
+                credit: 0,
+                echeqs: []
+            },
+            activeShift?.ID_Turno || '',
+            'N',
+            budget.customer,
+            budget.total,
+            budget.adjustmentAmount || 0,
+            ''
+        );
+
+        addToast('Presupuesto convertido a venta correctamente.', 'success');
+        setBudgetToSaleModal({ isOpen: false, budget: null });
+        refreshData();
+    } catch (error: any) {
+        console.error('Error al convertir presupuesto:', error);
+        addToast(error?.message || 'Error al convertir presupuesto a venta.', 'error');
+    } finally {
+        setIsConvertingBudget(false);
+    }
+}, [budgetToSaleModal, activeShift, addToast, refreshData]);
+
+  
   return (
     <div className="p-2 space-y-3 md:space-y-4">
       {showStats && (
@@ -1000,15 +1087,27 @@ export const SalesDashboard: React.FC<
               </div>
             </div>
 
-            <div className="flex justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => setBudgetToSaleModal({ isOpen: false, budget: null })}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700"
-              >
-                Cerrar
-              </button>
-            </div>
+            <div className="flex justify-end pt-2 space-x-2">
+    <button
+        type="button"
+        onClick={() => setBudgetToSaleModal({ isOpen: false, budget: null })}
+        className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300"
+        disabled={isConvertingBudget}
+    >
+        Cancelar
+    </button>
+    <button
+        type="button"
+        onClick={handleConvertBudgetToSale}
+        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700"
+        disabled={isConvertingBudget || !!(budgetToSaleModal.budget as any)?.converted_to_sale_id}
+    >
+        {isConvertingBudget ? 'Convirtiendo...' : 'Convertir a Venta'}
+    </button>
+</div>
+{(budgetToSaleModal.budget as any)?.converted_to_sale_id && (
+    <div className="text-red-600 mt-2">Este presupuesto ya fue convertido a venta.</div>
+)}
           </div>
         </Modal>
       )}
@@ -1069,7 +1168,7 @@ export const SalesDashboard: React.FC<
                 <>
                   <button
                     onClick={() => {
-                      setBudgetToSaleModal({ isOpen: true, budget: selectedItemForActions.item as Sale });
+                      handleOpenBudgetToSaleModal(selectedItemForActions.item as Sale);
                       setSelectedItemForActions(null);
                     }}
                     className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
