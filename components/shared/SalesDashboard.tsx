@@ -1,5 +1,8 @@
 import React, { useState, useMemo, useContext, useCallback, useEffect } from 'react';
-import { Sale, Product, Customer, CartItem, CreditNote, AccountTransaction } from '../../types';
+import { Sale, Product, Customer, CartItem, CreditNote, AccountTransaction, Budget } from '../../types';
+
+// Local type for sales with document_type
+type SaleWithDocumentType = Sale & { document_type: string; customer: NonNullable<Sale['customer']> };
 import * as api from '../../services/api';
 import { Icon } from '../ui/Icon';
 import { generateReceiptHtml, generateCreditNoteHtml, generateRemitoHtml, generateInvoiceHtml, generateBudgetHtml } from '../pos/Receipt';
@@ -491,8 +494,25 @@ export const SalesDashboard: React.FC<
     [addToast]
   );
 
-  const handleViewBudget = useCallback((budgetSale: Sale) => {
-    const html = generateBudgetHtml(budgetSale);
+
+  // ÚNICA definición válida: asegura customer no nulo y tipa Budget
+  const handleViewBudget = useCallback((sale: SaleWithDocumentType) => {
+    if (!sale.customer) {
+      throw new Error('El presupuesto no tiene cliente asignado.');
+    }
+    // Adaptar a Budget para impresión
+    const printableBudget: Budget = {
+      id: sale.id,
+      date: sale.date,
+      customer: sale.customer,
+      items: sale.items,
+      total: sale.total,
+      status: 'pending',
+      shiftId: (sale as any).shiftId || '',
+      subtotal: sale.subtotal,
+      adjustmentAmount: sale.adjustmentAmount,
+    };
+    const html = generateBudgetHtml(printableBudget);
     openHtmlInNewWindow(html);
   }, []);
 
@@ -1006,7 +1026,7 @@ export const SalesDashboard: React.FC<
               <div>
                 <h3 className="font-bold text-gray-900">
                   {selectedItemForActions.type === 'sale' &&
-                  (selectedItemForActions.item as Sale).document_type === 'budget'
+                  (selectedItemForActions.item as SaleWithDocumentType).document_type === 'budget'
                     ? 'Acciones de Presupuesto'
                     : selectedItemForActions.type === 'sale'
                     ? 'Acciones de Venta'
@@ -1045,7 +1065,7 @@ export const SalesDashboard: React.FC<
 
             <div className="p-2 grid grid-cols-1 gap-1 max-h-[60vh] overflow-y-auto">
               {selectedItemForActions.type === 'sale' &&
-              (selectedItemForActions.item as Sale).document_type === 'budget' ? (
+              (selectedItemForActions.item as SaleWithDocumentType).document_type === 'budget' ? (
                 <>
                   <button
                     onClick={() => {
@@ -1060,7 +1080,7 @@ export const SalesDashboard: React.FC<
 
                   <button
                     onClick={() => {
-                      handleViewBudget(selectedItemForActions.item as Sale);
+                      handleViewBudget(selectedItemForActions.item as SaleWithDocumentType);
                       setSelectedItemForActions(null);
                     }}
                     className="flex items-center space-x-3 w-full p-3 text-left hover:bg-indigo-50 text-indigo-700 rounded-xl transition-colors"
