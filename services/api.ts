@@ -1052,7 +1052,12 @@ export const getBudgetsSupabase = async (): Promise<Budget[]> => {
         customer: {
             Id_Cliente: b.customer_id || '',
             'Nombre y Apellido': b.customer_name_snapshot || 'Consumidor Final',
+            Whatsapp: '',
+            'Tipo.Documento': '',
             Documento: b.customer_document_snapshot || '',
+            Condicion_IVA: 'Consumidor Final',
+            Deuda: 0,
+            Pagos: 0
         },
         items: (b.st_budget_items || []).map((item: any) => ({
             product: {
