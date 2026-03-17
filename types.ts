@@ -1,4 +1,3 @@
-
 // FIX: Replaced the entire file content which contained API logic and a circular import.
 // This file now correctly defines and exports all shared types for the application.
 
@@ -63,7 +62,13 @@ export interface Customer {
   Whatsapp: string;
   'Tipo.Documento': string;
   Documento: string;
-  Condicion_IVA: 'Responsable Inscripto' | 'Consumidor Final' | 'Responsable Monotributo' | 'Sujeto Exento' | 'Sujeto no Categorizado' | 'IVA No Alcanzado';
+  Condicion_IVA:
+    | 'Responsable Inscripto'
+    | 'Consumidor Final'
+    | 'Responsable Monotributo'
+    | 'Sujeto Exento'
+    | 'Sujeto no Categorizado'
+    | 'IVA No Alcanzado';
   Deuda: number;
   Pagos: number;
   'Fecha Creacion'?: string;
@@ -134,6 +139,7 @@ export interface Sale {
   };
   paymentCondition?: string;
   isPendingSync?: boolean;
+  document_type?: 'sale' | 'budget';
 }
 
 export interface Expense {
@@ -171,15 +177,15 @@ export interface Shift {
 }
 
 export interface Budget {
-    id: string;
-    date: Date;
-    customer: Customer;
-    items: CartItem[];
-    total: number;
-    status: 'pending' | 'approved' | 'rejected';
-    shiftId: string;
-    subtotal?: number;
-    adjustmentAmount?: number;
+  id: string;
+  date: Date;
+  customer: Customer;
+  items: CartItem[];
+  total: number;
+  status: 'pending' | 'approved' | 'rejected';
+  shiftId: string;
+  subtotal?: number;
+  adjustmentAmount?: number;
 }
 
 export interface StockEntryItem {
@@ -250,7 +256,13 @@ export interface Supplier {
   ID_Proveedor: string;
   Nombre: string;
   CUIT?: string;
-  Condicion_IVA?: 'Responsable Inscripto' | 'Consumidor Final' | 'Responsable Monotributo' | 'Sujeto Exento' | 'Sujeto no Categorizado' | 'IVA No Alcanzado';
+  Condicion_IVA?:
+    | 'Responsable Inscripto'
+    | 'Consumidor Final'
+    | 'Responsable Monotributo'
+    | 'Sujeto Exento'
+    | 'Sujeto no Categorizado'
+    | 'IVA No Alcanzado';
   Email?: string;
   Telefono?: string;
   Contacto?: string;
