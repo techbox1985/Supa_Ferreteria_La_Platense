@@ -28,8 +28,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const [products, setProducts] = useState<Product[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
+const [, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
   const [providerFilter, setProviderFilter] = useState('All');
