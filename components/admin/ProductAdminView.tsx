@@ -1,15 +1,3 @@
-  // --- Optimización de renderizado de filas ---
-  const INITIAL_VISIBLE = 100;
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
-
-  // Resetear visibleCount al cambiar filtros o búsqueda
-  useEffect(() => {
-    setVisibleCount(INITIAL_VISIBLE);
-  }, [searchTerm, categoryFilter, providerFilter, onlineFilter, activeFilter]);
-
-  // Determinar productos a mostrar
-  const isSearching = searchTerm.trim().length > 0;
-  const productsToShow = isSearching ? filteredProducts : filteredProducts.slice(0, visibleCount);
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Supplier } from '../../types';
 import { isDeleted } from '../../utils/productFilters';
@@ -237,7 +225,13 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const handleToggleStatus = (product: Product, field: 'Activo' | 'Online') => {
     const newValue = !product[field];
     const fieldName = field === 'Activo' ? 'estado' : 'visibilidad online';
-    const newStatus = newValue ? (field === 'Activo' ? 'Activo' : 'Sí') : field === 'Activo' ? 'Inactivo' : 'No';
+    const newStatus = newValue
+      ? field === 'Activo'
+        ? 'Activo'
+        : 'Sí'
+      : field === 'Activo'
+      ? 'Inactivo'
+      : 'No';
 
     const action = async () => {
       setIsProcessingAction(true);
@@ -417,7 +411,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
             </thead>
 
             <tbody className="bg-white divide-y divide-gray-200">
-              {productsToShow.map((product) => {
+              {filteredProducts.map((product: Product) => {
                 const hasPhoto =
                   typeof (product as any).FOTOGRAFIA === 'string' &&
                   (product as any).FOTOGRAFIA.trim() !== '';
@@ -436,8 +430,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                           alt={product.Producto}
                           className="w-16 h-16 object-cover rounded-md"
                           onError={(e) => {
-                            const img = e.currentTarget;
-                            img.style.display = 'none';
+                            e.currentTarget.style.display = 'none';
                           }}
                         />
                       ) : (
@@ -530,22 +523,6 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                 );
               })}
             </tbody>
-            {/* Botón para ver más productos si no hay búsqueda y quedan más por mostrar */}
-            {!isSearching && visibleCount < filteredProducts.length && (
-              <tfoot>
-                <tr>
-                  <td colSpan={9} className="py-4 text-center">
-                    <button
-                      type="button"
-                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-gray-700 font-medium border border-gray-300 shadow-sm transition-colors"
-                      onClick={() => setVisibleCount((v) => Math.min(v + INITIAL_VISIBLE, filteredProducts.length))}
-                    >
-                      Ver más productos
-                    </button>
-                  </td>
-                </tr>
-              </tfoot>
-            )}
           </table>
         </div>
       </div>
