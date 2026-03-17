@@ -38,11 +38,14 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     });
 
     const [sellerFilter, setSellerFilter] = useState('All');
+    // Nuevo filtro de tipo de documento: 'all' | 'sale' | 'budget'
+    const [docTypeFilter, setDocTypeFilter] = useState<'all' | 'sale' | 'budget'>('all');
     
     const shiftUserMap = useMemo(() => {
         return new Map(shifts.map(shift => [shift.ID_Turno, shift.ID_Usuario]));
     }, [shifts]);
 
+    // Filtrado por fecha y vendedor
     const salesInDateRange = useMemo(() => {
         console.log('[HIST] Filtering sales. Total processedSales:', processedSales.length);
         console.log('[HIST] Date Range:', startDate, 'to', endDate);
@@ -77,10 +80,22 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
         return filtered;
     }, [processedSales, startDate, endDate, sellerFilter, shiftUserMap]);
 
+    // Filtrado por tipo de documento (venta/presupuesto)
+    const filteredByDocType = useMemo(() => {
+        if (docTypeFilter === 'all') return salesInDateRange;
+        if (docTypeFilter === 'sale') {
+            return salesInDateRange.filter(sale => sale.document_type !== 'budget');
+        }
+        if (docTypeFilter === 'budget') {
+            return salesInDateRange.filter(sale => sale.document_type === 'budget');
+        }
+        return salesInDateRange;
+    }, [salesInDateRange, docTypeFilter]);
+
 
      if (isLoading) {
         return (
-            <div className="flex-grow flex items-center justify-center h-[calc(100vh-80px)]">
+            <div className="grow flex items-center justify-center h-[calc(100vh-80px)]">
                 <div className="text-center">
                     <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-12 h-12 text-blue-500 animate-spin mx-auto"/>
                     <p className="mt-2 text-gray-600">Cargando historial y estadísticas...</p>
@@ -91,9 +106,34 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     
     // Filtros y buscador reales integrados visualmente
     const [searchTerm, setSearchTerm] = useState('');
+    // Control segmentado visual para tipo de documento
+    const docTypeSegmented = (
+        <div className="flex space-x-2 mb-2">
+            <button
+                className={`px-4 py-1 rounded-full border text-sm font-medium transition-colors ${docTypeFilter === 'all' ? 'bg-blue-600 text-white border-blue-600 shadow' : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50'}`}
+                onClick={() => setDocTypeFilter('all')}
+            >
+                Todos
+            </button>
+            <button
+                className={`px-4 py-1 rounded-full border text-sm font-medium transition-colors ${docTypeFilter === 'sale' ? 'bg-green-600 text-white border-green-600 shadow' : 'bg-white text-gray-700 border-gray-300 hover:bg-green-50'}`}
+                onClick={() => setDocTypeFilter('sale')}
+            >
+                Ventas
+            </button>
+            <button
+                className={`px-4 py-1 rounded-full border text-sm font-medium transition-colors ${docTypeFilter === 'budget' ? 'bg-blue-500 text-white border-blue-500 shadow' : 'bg-white text-gray-700 border-gray-300 hover:bg-blue-50'}`}
+                onClick={() => setDocTypeFilter('budget')}
+            >
+                Presupuestos
+            </button>
+        </div>
+    );
+
     const filtersAndSearch = (
         <div className="bg-white p-2 md:p-4 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-2 md:gap-4 mt-2 md:mt-4">
-            <div className="flex-grow">
+            <div className="w-full md:w-auto md:mr-4">{docTypeSegmented}</div>
+            <div className="grow">
                 <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">Desde</label>
                 <input 
                     type="date" 
@@ -103,7 +143,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
             </div>
-            <div className="flex-grow">
+            <div className="grow">
                 <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">Hasta</label>
                 <input 
                     type="date" 
@@ -113,7 +153,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
             </div>
-            <div className="flex-grow">
+            <div className="grow">
                 <label htmlFor="seller-filter" className="block text-sm font-medium text-gray-700">Vendedor</label>
                 <select 
                     id="seller-filter"
@@ -131,7 +171,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                 </select>
             </div>
             {/* Buscador real */}
-            <div className="flex-grow md:max-w-xs relative mt-4 md:mt-0">
+            <div className="grow md:max-w-xs relative mt-4 md:mt-0">
                 <label htmlFor="search-term" className="block text-sm font-medium text-gray-700">Buscar</label>
                 <div className="relative mt-1">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -155,9 +195,8 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
         <div className="h-full p-2 space-y-3 md:space-y-4">
             <SalesDashboard
                 title=""
-                salesData={salesInDateRange}
+                salesData={filteredByDocType}
                 customers={customers}
-                // products eliminado: no requerido por SalesDashboard
                 refreshData={refreshData}
                 isLoading={isLoading}
                 headerChildren={filtersAndSearch}
@@ -167,7 +206,6 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                 searchTerm={searchTerm}
                 stickyStats={true}
                 stickyFilters={true}
-                // onEditSale eliminado: no corresponde
             />
         </div>
     );

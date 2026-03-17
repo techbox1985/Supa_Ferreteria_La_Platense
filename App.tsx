@@ -67,6 +67,7 @@ const AppContent: React.FC = () => {
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
     const [isSyncQueueOpen, setIsSyncQueueOpen] = useState(false);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     // Estado del Carrito para POS (persistente al cambiar de vista)
     const [cart, setCart] = useState<CartItem[]>([]);
@@ -79,45 +80,100 @@ const AppContent: React.FC = () => {
     });
 
     const fetchData = useCallback(async () => {
+        const isFirstLoad = products.length === 0 && customers.length === 0 && categories.length === 0;
+
+        if (isFirstLoad) {
+            setIsLoading(true);
+        }
+
         setIsRefreshing(true);
+
         try {
-            const fetchedProducts = await api.getProducts();
-            setProducts(fetchedProducts.filter((p) => !isDeleted(p.Eliminado)));
+            // Etapa 1: datos críticos para que el POS aparezca rápido
+            const [
+                fetchedProducts,
+                fetchedCustomers,
+                fetchedBudgets,
+                fetchedCategoriesData,
+            ] = await Promise.all([
+                api.getProducts(),
+                api.getCustomers(),
+                api.getBudgetsSupabase(),
+                api.getCategoriesSupabase(),
+            ]);
 
-            const fetchedCustomers = await api.getCustomers();
-            setCustomers(fetchedCustomers);
+            setProducts((fetchedProducts || []).filter((p) => !isDeleted(p.Eliminado)));
+            setCustomers(fetchedCustomers || []);
+            setRawBudgets(fetchedBudgets || []);
+            setCategories(
+                (fetchedCategoriesData || [])
+                    .map((c: any) => c.name)
+                    .filter(Boolean)
+            );
 
-            const fetchedSales = await api.getSales();
-            setRawSales(fetchedSales);
-
-            const fetchedBudgets = await api.getBudgetsSupabase();
-            setRawBudgets(fetchedBudgets);
-
-            const fetchedExpenses = await api.getExpenses();
-            setExpenses(fetchedExpenses);
-
-            const fetchedShifts = await api.getShifts();
-            setShifts(fetchedShifts);
-
-            const fetchedUsers = await api.getUsers();
-            setAllUsers(fetchedUsers);
-
-            const fetchedSuppliers = await api.getSuppliers();
-            setSuppliers(fetchedSuppliers);
-
-            const fetchedCategoriesData = await api.getCategoriesSupabase();
-            setCategories((fetchedCategoriesData || []).map((c: any) => c.name).filter(Boolean));
-
-            const fetchedAccountTransactions = await api.getAccountTransactions();
-            setAccountTransactions(fetchedAccountTransactions);
-        } catch (error) {
-            console.error('Error fetching data:', error);
-            addToast('Error al cargar los datos. Verifique su conexión.', 'error');
-        } finally {
+            // Apenas están los datos críticos, liberamos la pantalla principal
             setIsLoading(false);
+
+            // Etapa 2: datos no críticos para el primer render del POS
+            const [
+                salesResult,
+                expensesResult,
+                shiftsResult,
+                usersResult,
+                suppliersResult,
+                accountTransactionsResult,
+            ] = await Promise.allSettled([
+                api.getSales(),
+                api.getExpenses(),
+                api.getShifts(),
+                api.getUsers(),
+                api.getSuppliers(),
+                api.getAccountTransactions(),
+            ]);
+
+            if (salesResult.status === 'fulfilled') {
+                setRawSales(salesResult.value || []);
+            } else {
+                console.error('Error fetching sales:', salesResult.reason);
+            }
+
+            if (expensesResult.status === 'fulfilled') {
+                setExpenses(expensesResult.value || []);
+            } else {
+                console.error('Error fetching expenses:', expensesResult.reason);
+            }
+
+            if (shiftsResult.status === 'fulfilled') {
+                setShifts(shiftsResult.value || []);
+            } else {
+                console.error('Error fetching shifts:', shiftsResult.reason);
+            }
+
+            if (usersResult.status === 'fulfilled') {
+                setAllUsers(usersResult.value || []);
+            } else {
+                console.error('Error fetching users:', usersResult.reason);
+            }
+
+            if (suppliersResult.status === 'fulfilled') {
+                setSuppliers(suppliersResult.value || []);
+            } else {
+                console.error('Error fetching suppliers:', suppliersResult.reason);
+            }
+
+            if (accountTransactionsResult.status === 'fulfilled') {
+                setAccountTransactions(accountTransactionsResult.value || []);
+            } else {
+                console.error('Error fetching account transactions:', accountTransactionsResult.reason);
+            }
+        } catch (error) {
+            console.error('Error fetching critical data:', error);
+            addToast('Error al cargar los datos principales. Verifique su conexión.', 'error');
+            setIsLoading(false);
+        } finally {
             setIsRefreshing(false);
         }
-    }, [addToast]);
+    }, [addToast, products.length, customers.length, categories.length]);
 
     useEffect(() => {
         if (currentUser) {
@@ -129,15 +185,15 @@ const AppContent: React.FC = () => {
     useEffect(() => {
         const handleOnline = () => setIsOnline(true);
         const handleOffline = () => setIsOnline(false);
+
         window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
+
         return () => {
             window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
     }, []);
-
-    const [isSyncing, setIsSyncing] = useState(false);
 
     // Monitoreo de cola de sincronización
     const updatePendingSyncCount = useCallback(async () => {
@@ -153,6 +209,7 @@ const AppContent: React.FC = () => {
 
     const syncQueue = useCallback(async () => {
         if (isSyncing) return;
+
         const queue = await offlineService.getQueue();
         if (queue.length === 0) return;
 
@@ -163,6 +220,7 @@ const AppContent: React.FC = () => {
             if (req.status === 'error' && req.retryCount && req.retryCount > 0) {
                 const waitTime = Math.min(1000 * Math.pow(2, req.retryCount), 60000);
                 const timeSinceLastAttempt = Date.now() - (req.timestamp || 0);
+
                 if (timeSinceLastAttempt < waitTime) {
                     console.debug(
                         `[SYNC_BACKOFF] Saltando ${req.id} (esperando ${Math.round((waitTime - timeSinceLastAttempt) / 1000)}s)`
@@ -194,14 +252,20 @@ const AppContent: React.FC = () => {
     const customersWithCalculatedDebt = useMemo(() => {
         const safeCustomers = Array.isArray(customers) ? customers : [];
         const safeAccountTransactions = Array.isArray(accountTransactions) ? accountTransactions : [];
+
         if (safeCustomers.length === 0 && safeAccountTransactions.length === 0) return [];
 
-        const transactionsByCustomer = new Map();
+        const transactionsByCustomer = new Map<string, any[]>();
+
         for (const t of safeAccountTransactions) {
             const customerId = t.customer_id ? String(t.customer_id).trim() : '';
             if (!customerId) continue;
-            if (!transactionsByCustomer.has(customerId)) transactionsByCustomer.set(customerId, []);
-            transactionsByCustomer.get(customerId).push(t);
+
+            if (!transactionsByCustomer.has(customerId)) {
+                transactionsByCustomer.set(customerId, []);
+            }
+
+            transactionsByCustomer.get(customerId)!.push(t);
         }
 
         return safeCustomers.map((customer) => {
@@ -251,6 +315,7 @@ const AppContent: React.FC = () => {
             .reduce((acc: (Sale & { document_type?: string })[], saleRow) => {
                 const saleId = saleRow.ID_Venta || saleRow['ID Venta'] || saleRow.IDVenta || saleRow.id;
                 if (!saleId || processedSaleIds.has(saleId)) return acc;
+
                 processedSaleIds.add(saleId);
 
                 let items: CartItem[] = [];
@@ -296,6 +361,7 @@ const AppContent: React.FC = () => {
 
                 const rawCustomerId = saleRow.ID_Cliente || saleRow['ID Cliente'] || saleRow.IDCliente || saleRow.Id_Cliente;
                 const customerId = rawCustomerId ? String(rawCustomerId).trim() : '0';
+
                 const saleCustomer: Customer = customersMap.get(customerId) || {
                     Id_Cliente: customerId,
                     'Nombre y Apellido':
@@ -342,7 +408,7 @@ const AppContent: React.FC = () => {
                                 saleRow['Pago Cuenta Corriente'] ||
                                 saleRow.PagoCuentaCorriente
                         ),
-                        echeqs: echeqs,
+                        echeqs,
                     },
                     items,
                     itemCount:
@@ -372,8 +438,7 @@ const AppContent: React.FC = () => {
                 ? budget.items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0)
                 : 0,
             subtotal: typeof budget.subtotal === 'number' ? budget.subtotal : Number(budget.total ?? 0),
-            adjustmentAmount:
-                typeof budget.adjustmentAmount === 'number' ? budget.adjustmentAmount : 0,
+            adjustmentAmount: typeof budget.adjustmentAmount === 'number' ? budget.adjustmentAmount : 0,
             adjustmentDescription: '',
             total: Number(budget.total ?? 0),
             payment: { cash: 0, digital: 0, credit: 0, echeqs: [] },
@@ -394,25 +459,33 @@ const AppContent: React.FC = () => {
     const handleAddToCart = useCallback((product: Product) => {
         setCart((prev: CartItem[]) => {
             const existing = prev.find((i: CartItem) => i.product.cod === product.cod);
+
             if (existing) {
                 return prev.map((i: CartItem) =>
                     i.product.cod === product.cod ? { ...i, quantity: i.quantity + 1 } : i
                 );
             }
-            let priceToUse: number = 0;
+
+            let priceToUse = 0;
+
             if (typeof product['Precio de Oferta'] === 'number' && product['Precio de Oferta'] > 0) {
                 priceToUse = product['Precio de Oferta'];
             } else if (typeof product['Precio Final'] === 'number') {
                 priceToUse = product['Precio Final'];
             }
+
             return [...prev, { product, quantity: 1, price: priceToUse }];
         });
+
         addToast(`Agregado: ${product.Producto}`, 'success');
     }, [addToast]);
 
     const handleUpdateCartQuantity = useCallback((productId: string, newQuantity: number) => {
         setCart((prev: CartItem[]) => {
-            if (newQuantity <= 0) return prev.filter((i: CartItem) => i.product.cod !== productId);
+            if (newQuantity <= 0) {
+                return prev.filter((i: CartItem) => i.product.cod !== productId);
+            }
+
             return prev.map((i: CartItem) =>
                 i.product.cod === productId ? { ...i, quantity: newQuantity } : i
             );
@@ -452,11 +525,13 @@ const AppContent: React.FC = () => {
             'Ultima.Actualizacion': '',
             'Venta.PV': 0,
         };
+
         const cartItem: CartItem = {
             product: commonProduct,
             quantity: 1,
             price: 0,
         };
+
         setCart((prevCart: CartItem[]) => [...prevCart, cartItem]);
         addToast('Producto vario añadido. Edite el nombre y precio.', 'info');
     }, [addToast]);
@@ -466,14 +541,18 @@ const AppContent: React.FC = () => {
             prevCart.map((item: CartItem) => {
                 if (item.product.cod === productId && item.product.cod.startsWith('COMMON_')) {
                     const newItem = { ...item };
+
                     if (details.name !== undefined) {
                         newItem.product = { ...newItem.product, Producto: details.name };
                     }
+
                     if (details.price !== undefined && !isNaN(details.price)) {
                         newItem.price = details.price;
                     }
+
                     return newItem;
                 }
+
                 return item;
             })
         );
@@ -508,20 +587,24 @@ const AppContent: React.FC = () => {
 
         setRawSales((prev: any[]) => {
             const exists = prev.some((s: any) => (s.ID_Venta || s.id) === sale.id);
+
             if (exists) {
                 return prev.map((s: any) => ((s.ID_Venta || s.id) === sale.id ? rawSaleObject : s));
             }
+
             return [rawSaleObject, ...prev];
         });
+
         console.debug(`[SALE_UI_REFRESH_DONE] ID: ${sale.id}`);
     }, []);
 
-    React.useEffect(() => {
+    useEffect(() => {
         const handler = (e: any) => {
             if (!e.detail) return;
             setSaleBeingEdited(e.detail);
             setCurrentView('pos');
         };
+
         window.addEventListener('edit-sale', handler);
         return () => window.removeEventListener('edit-sale', handler);
     }, []);
@@ -554,6 +637,7 @@ const AppContent: React.FC = () => {
                         onOptimisticAddSale={handleOptimisticAddSale}
                     />
                 );
+
             case 'customers':
                 return (
                     <CustomersView
@@ -564,6 +648,7 @@ const AppContent: React.FC = () => {
                         onViewStatement={(customer) => setCustomerStatementConfig({ isOpen: true, customer })}
                     />
                 );
+
             case 'expenses':
                 return (
                     <ExpensesView
@@ -574,6 +659,7 @@ const AppContent: React.FC = () => {
                         refreshData={fetchData}
                     />
                 );
+
             case 'admin-panel':
                 return (
                     <AdminPanelView
@@ -587,6 +673,7 @@ const AppContent: React.FC = () => {
                         refreshData={fetchData}
                     />
                 );
+
             case 'sales-history':
                 return (
                     <SalesHistoryView
@@ -600,6 +687,7 @@ const AppContent: React.FC = () => {
                         onEditSale={handleEditSale}
                     />
                 );
+
             default:
                 return null;
         }
@@ -616,6 +704,7 @@ const AppContent: React.FC = () => {
                 pendingSyncCount={pendingSyncCount}
                 onOpenSyncQueue={() => setIsSyncQueueOpen(true)}
             />
+
             <main className="flex-grow overflow-y-auto relative">
                 <React.Suspense
                     fallback={

@@ -34,14 +34,14 @@ export const Toast: React.FC<ToastProps> = ({ id, message, type, onDismiss }) =>
   useEffect(() => {
     const timer = setTimeout(() => {
       handleDismiss();
-    }, 5000);
+    }, 2000);
 
     return () => clearTimeout(timer);
   }, [id, onDismiss, handleDismiss]);
 
   return (
     <div
-      className={`max-w-sm w-full ${theme.bg} shadow-lg rounded-lg pointer-events-auto ring-1 ring-black ring-opacity-5 overflow-hidden transition-all duration-300 ease-in-out ${
+      className={`pointer-events-auto min-w-[280px] max-w-[420px] w-full ${theme.bg} shadow-lg rounded-lg ring-1 ring-black ring-opacity-5 overflow-hidden transition-all duration-300 ease-in-out ${
         isFadingOut ? 'opacity-0 translate-x-full' : 'opacity-100 translate-x-0'
       }`}
     >
