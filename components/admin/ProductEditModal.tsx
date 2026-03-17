@@ -270,7 +270,30 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                   </div>
                   <div className="md:col-span-1">
                     <p className="block text-sm font-medium text-center">Vista Previa</p>
-                    <img src={formData.FOTOGRAFIA || 'https://via.placeholder.com/150'} alt="Vista previa" className="mt-1 w-24 h-24 object-cover rounded-md mx-auto border"/>
+                    {formData.FOTOGRAFIA && typeof formData.FOTOGRAFIA === 'string' && formData.FOTOGRAFIA.trim() !== '' ? (
+                      <img
+                        src={formData.FOTOGRAFIA}
+                        alt="Vista previa"
+                        className="mt-1 w-24 h-24 object-cover rounded-md mx-auto border"
+                        onError={e => {
+                          const img = e.target as HTMLImageElement;
+                          img.style.display = 'none';
+                          const fallback = img.nextElementSibling as HTMLElement;
+                          if (fallback) fallback.style.display = 'flex';
+                        }}
+                      />
+                    ) : null}
+                    <div
+                      style={{ display: (!formData.FOTOGRAFIA || typeof formData.FOTOGRAFIA !== 'string' || formData.FOTOGRAFIA.trim() === '') ? 'flex' : 'none' }}
+                      className="mt-1 w-24 h-24 rounded-md bg-gray-100 border flex items-center justify-center text-gray-400 text-xs font-medium mx-auto select-none"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-1 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5.25C3 4.007 4.007 3 5.25 3h13.5C19.993 3 21 4.007 21 5.25v13.5A2.25 2.25 0 0118.75 21H5.25A2.25 2.25 0 013 18.75V5.25z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 17.25l5.25-5.25a2.25 2.25 0 013.182 0l5.318 5.318" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9.75h.008v.008h-.008V9.75z" />
+                      </svg>
+                      Sin imagen
+                    </div>
                   </div>
                 </div>
             </div>
