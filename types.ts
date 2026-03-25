@@ -1,4 +1,4 @@
-﻿// FIX: Replaced the entire file content which contained API logic and a circular import.
+// FIX: Replaced the entire file content which contained API logic and a circular import.
 // This file now correctly defines and exports all shared types for the application.
 
 export interface Product {
@@ -26,6 +26,9 @@ export interface Product {
   'Ultima.Actualizacion'?: string;
   Eliminado?: boolean;
   Eliminado_At?: string;
+  supplier_id?: string;
+  auto_price?: boolean;
+  markup_pct?: number;
   // Nuevos campos opcionales
   Marca?: string;
   Modelo_Compatible?: string;
@@ -260,6 +263,9 @@ export interface SyncRequest {
 export interface Supplier {
   ID_Proveedor: string;
   Nombre: string;
+  id?: string;
+  name?: string;
+  is_active?: boolean;
   CUIT?: string;
   Condicion_IVA?:
     | 'Responsable Inscripto'
@@ -276,3 +282,16 @@ export interface Supplier {
   Fecha_Creacion?: string;
 }
 
+export interface SupplierCostImportRow {
+  cod: string;
+  cost_price: number;
+  line?: number;
+}
+
+export interface SupplierCostImportSummary {
+  totalRows: number;
+  found: number;
+  updated: number;
+  notFound: number;
+  ignored: number;
+}

@@ -83,6 +83,8 @@ import {
     Sale,
     Shift,
     StockEntryItem,
+    SupplierCostImportRow,
+    SupplierCostImportSummary,
     Supplier,
     User
 } from '../types';
@@ -105,6 +107,10 @@ const viteEnv = (import.meta as ImportMeta & {
 const SUPABASE_URL = viteEnv.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = viteEnv.VITE_SUPABASE_ANON_KEY;
 
+const calculateFinalPriceFromCost = (costPrice: number, markupPct: number): number => {
+    return Number((costPrice * (1 + markupPct / 100)).toFixed(2));
+};
+
 let supabase: ReturnType<typeof createClient<Database>> | null = null;
 
 if (SUPABASE_URL && SUPABASE_ANON_KEY) {
@@ -124,6 +130,14 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
     if (categoriesError) throw categoriesError;
     const categories = Array.isArray(categoriesData) ? categoriesData : [];
 
+    // 1.1 Cargar proveedores para resolver nombre y markup por supplier_id
+    const { data: suppliersData, error: suppliersError } = await supabase
+        .from('st_suppliers')
+        .select('id, name, markup_pct');
+
+    if (suppliersError) throw suppliersError;
+    const suppliers = Array.isArray(suppliersData) ? suppliersData : [];
+
     // 2. Cargar TODOS los productos mediante paginación automática
     const PAGE_SIZE = 1000;
     let from = 0;
@@ -134,9 +148,12 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'cod',
         'name',
         'category_id',
+        'supplier_id',
         'barcode',
+        'cost_price',
         'list_price',
         'offer_price',
+        'auto_price',
         'current_stock',
         'min_stock',
         'is_active',
@@ -168,15 +185,27 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         categories.map((cat: any) => [cat.id, cat.name])
     );
 
+    const supplierMap = new Map(
+        suppliers.map((supplier: any) => [supplier.id, supplier])
+    );
+
     return rows
         .filter((item: any) => item.is_deleted !== true)
-        .map((item: any) => ({
+        .map((item: any) => {
+            const supplier = supplierMap.get(item.supplier_id);
+
+            return {
             cod: item.cod ?? '',
             Producto: item.name ?? '',
             Categoria: categoryMap.get(item.category_id) || '',
+            Proveedor: supplier?.name ?? '',
             'cod.barras': item.barcode ?? '',
+            'P.Costo': Number(item.cost_price ?? 0),
             Precio: Number(item.list_price ?? 0),
             'Precio de Oferta': Number(item.offer_price ?? 0),
+            supplier_id: item.supplier_id ?? undefined,
+            auto_price: Boolean(item.auto_price ?? false),
+            markup_pct: Number(supplier?.markup_pct ?? 0),
             stockk: Number(item.current_stock ?? 0),
             Minimo: Number(item.min_stock ?? 0),
             Activo: Boolean(item.is_active ?? true),
@@ -185,7 +214,8 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             Eliminado: Boolean(item.is_deleted ?? false),
             'Ultima.Actualizacion': item.legacy_last_update ?? '',
             'Precio Final': Number(item.final_price ?? 0)
-        } as any));
+        } as any;
+        });
 };
 
 export const getCategoriesSupabase = async (): Promise<any[]> => {
@@ -204,6 +234,99 @@ export const getSuppliersSupabase = async (): Promise<any[]> => {
         .select('*');
     if (error) throw error;
     return data || [];
+};
+
+export const importSupplierCostsSupabase = async (
+    supplierId: string,
+    rows: SupplierCostImportRow[]
+): Promise<SupplierCostImportSummary> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!supplierId) throw new Error('Debe seleccionar un proveedor');
+
+    const summary: SupplierCostImportSummary = {
+        totalRows: rows.length,
+        found: 0,
+        updated: 0,
+        notFound: 0,
+        ignored: 0,
+    };
+
+    const seenCodes = new Set<string>();
+    const normalizedRows: SupplierCostImportRow[] = [];
+
+    for (const row of rows) {
+        const cod = String(row.cod || '').trim();
+        const cost = Number(row.cost_price);
+
+        if (!cod || !Number.isFinite(cost)) {
+            summary.ignored += 1;
+            continue;
+        }
+
+        if (seenCodes.has(cod)) {
+            summary.ignored += 1;
+            continue;
+        }
+
+        seenCodes.add(cod);
+        normalizedRows.push({ ...row, cod, cost_price: cost });
+    }
+
+    if (normalizedRows.length === 0) {
+        return summary;
+    }
+
+    const codes = normalizedRows.map((r) => r.cod);
+
+    const { data: existingProducts, error: fetchError } = await supabase
+        .from('st_products')
+        .select('id, cod, auto_price')
+        .eq('supplier_id', supplierId)
+        .eq('is_deleted', false)
+        .in('cod', codes);
+
+    if (fetchError) throw fetchError;
+
+    const productByCode = new Map(
+        (existingProducts || []).map((p: any) => [String(p.cod), p])
+    );
+
+    const { data: supplierData, error: supplierError } = await supabase
+        .from('st_suppliers')
+        .select('markup_pct')
+        .eq('id', supplierId)
+        .maybeSingle();
+
+    if (supplierError) throw supplierError;
+    const supplierMarkupPct = Number(supplierData?.markup_pct ?? 0);
+
+    for (const row of normalizedRows) {
+        const product = productByCode.get(row.cod);
+        if (!product) {
+            summary.notFound += 1;
+            continue;
+        }
+
+        summary.found += 1;
+
+        const updatePayload: Record<string, any> = {
+            cost_price: row.cost_price,
+        };
+
+        if (product.auto_price === true) {
+            updatePayload.final_price = calculateFinalPriceFromCost(row.cost_price, supplierMarkupPct);
+        }
+
+        const { error: updateError } = await supabase
+            .from('st_products')
+            .update(updatePayload)
+            .eq('id', product.id);
+
+        if (updateError) throw updateError;
+        summary.updated += 1;
+    }
+
+    return summary;
 };
 
 export const addSupplierSupabase = async (supplierData: any): Promise<any> => {
