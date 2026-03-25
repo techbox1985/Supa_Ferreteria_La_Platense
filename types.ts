@@ -1,4 +1,4 @@
-// FIX: Replaced the entire file content which contained API logic and a circular import.
+﻿// FIX: Replaced the entire file content which contained API logic and a circular import.
 // This file now correctly defines and exports all shared types for the application.
 
 export interface Product {
@@ -178,14 +178,19 @@ export interface Shift {
 
 export interface Budget {
   id: string;
+  budget_number?: number;
   date: Date;
   customer: Customer;
   items: CartItem[];
-  total: number;
-  status: 'pending' | 'approved' | 'rejected';
-  shiftId: string;
   subtotal?: number;
   adjustmentAmount?: number;
+  adjustment_amount?: number;
+  total: number;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  notes?: string | null;
+  created_at?: string;
+  converted_to_sale_id?: string | null;
+  shiftId: string;
 }
 
 export interface StockEntryItem {
@@ -270,3 +275,4 @@ export interface Supplier {
   Activo: 'SI' | 'NO';
   Fecha_Creacion?: string;
 }
+
