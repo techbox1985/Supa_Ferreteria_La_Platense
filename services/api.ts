@@ -133,7 +133,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
     // 1.1 Cargar proveedores para resolver nombre y markup por supplier_id
     const { data: suppliersData, error: suppliersError } = await supabase
         .from('st_suppliers')
-        .select('id, name, markup_pct');
+        .select('id, nombre, markup_pct');
 
     if (suppliersError) throw suppliersError;
     const suppliers = Array.isArray(suppliersData) ? suppliersData : [];
@@ -198,7 +198,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             cod: item.cod ?? '',
             Producto: item.name ?? '',
             Categoria: categoryMap.get(item.category_id) || '',
-            Proveedor: supplier?.name ?? '',
+            Proveedor: supplier?.nombre ?? supplier?.name ?? '',
             'cod.barras': item.barcode ?? '',
             'P.Costo': Number(item.cost_price ?? 0),
             Precio: Number(item.list_price ?? 0),
@@ -333,7 +333,7 @@ export const addSupplierSupabase = async (supplierData: any): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     
     const mapping = {
-        name: supplierData.Nombre,
+        nombre: supplierData.Nombre,
         cuit: supplierData.CUIT,
         iva_condition: supplierData.Condicion_IVA,
         email: supplierData.Email,
@@ -360,7 +360,7 @@ export const updateSupplierSupabase = async (supplierData: any): Promise<any> =>
     if (!id) throw new Error('ID de proveedor no proporcionado');
 
     const mapping: any = {};
-    if (supplierData.Nombre !== undefined) mapping.name = supplierData.Nombre;
+    if (supplierData.Nombre !== undefined) mapping.nombre = supplierData.Nombre;
     if (supplierData.CUIT !== undefined) mapping.cuit = supplierData.CUIT;
     if (supplierData.Condicion_IVA !== undefined) mapping.iva_condition = supplierData.Condicion_IVA;
     if (supplierData.Email !== undefined) mapping.email = supplierData.Email;
