@@ -64,21 +64,46 @@ const [, setIsLoading] = useState(true);
   const refreshProducts = async () => {
     setIsLoading(true);
     try {
-      const [p, s, c] = await Promise.all([
+      const [p, s, c, categoryDataLegacy] = await Promise.all([
         api.getProductsSupabase(),
         api.getSuppliersSupabase(),
         api.getCategoriesSupabase(),
+        api.getCategoriesData(),
       ]);
 
       setProducts(p);
       setSuppliers(s);
-      setCategories(c);
+      const validCategories = Array.isArray(c)
+        ? c.filter((cat: any) => typeof cat?.name === 'string' && cat.name.trim() !== '')
+        : [];
+      setCategories(validCategories);
 
       const structuredData: { [key: string]: string[] } = {};
-      c.forEach((cat: any) => {
-        const name = cat.name.toUpperCase();
+      
+      // PASO A: Inicializar todas las categorías desde Supabase
+      validCategories.forEach((cat: any) => {
+        const name = cat.name.trim().toUpperCase();
         if (!structuredData[name]) structuredData[name] = [];
       });
+      
+      // PASO B: Rellenar subcategorías desde datos legacy
+      if (Array.isArray(categoryDataLegacy)) {
+        categoryDataLegacy.forEach((item: any) => {
+          if (!item || typeof item !== 'object') return;
+
+          const categoria = typeof item.categoria === 'string' ? item.categoria : '';
+          const subCategoria = typeof item.subCategoria === 'string' ? item.subCategoria : '';
+          const catKey = categoria.trim().toUpperCase();
+          const subCat = subCategoria.trim();
+          
+          if (catKey && subCat && subCat !== '-' && Object.prototype.hasOwnProperty.call(structuredData, catKey)) {
+            if (!structuredData[catKey].includes(subCat)) {
+              structuredData[catKey].push(subCat);
+            }
+          }
+        });
+      }
+      
       setCategoriesData(structuredData);
     } catch (error) {
       console.error('Error fetching Supabase data:', error);
