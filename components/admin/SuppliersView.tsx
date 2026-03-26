@@ -1,8 +1,9 @@
-import React, { useState, useMemo } from 'react';
-import { Supplier } from '../../types';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { Supplier, SupplierAccountSummary } from '../../types';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { SupplierFormModal } from './SupplierFormModal';
+import { SupplierCuentaCorrienteModal } from './SupplierCuentaCorrienteModal';
 import { useToast } from '../../contexts/ToastContext';
 
 interface SuppliersViewProps {
@@ -11,11 +12,35 @@ interface SuppliersViewProps {
     isLoading: boolean;
 }
 
+const formatCurrency = (n: number) =>
+    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 }).format(n);
+
 export const SuppliersView: React.FC<SuppliersViewProps> = ({ allSuppliers, refreshSuppliers, isLoading }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [isFormOpen, setFormOpen] = useState(false);
     const [supplierToEdit, setSupplierToEdit] = useState<Supplier | null>(null);
+    const [ccSupplier, setCcSupplier] = useState<Supplier | null>(null);
+    const [accountSummaries, setAccountSummaries] = useState<Map<string, SupplierAccountSummary>>(new Map());
+    const [isSummaryLoading, setIsSummaryLoading] = useState(false);
     const { addToast } = useToast();
+
+    const loadAccountSummaries = useCallback(async () => {
+        setIsSummaryLoading(true);
+        try {
+            const summaries = await api.getSupplierAccountSummaries();
+            const map = new Map<string, SupplierAccountSummary>();
+            summaries.forEach(s => map.set(s.supplier_id, s));
+            setAccountSummaries(map);
+        } catch {
+            // Non-critical — CC data unavailable, table still works
+        } finally {
+            setIsSummaryLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        loadAccountSummaries();
+    }, [loadAccountSummaries]);
 
     const filteredSuppliers = useMemo(() => {
         return allSuppliers.filter(s =>
@@ -51,6 +76,10 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ allSuppliers, refr
         }
     };
 
+    const handlePaymentRecorded = useCallback(() => {
+        loadAccountSummaries();
+    }, [loadAccountSummaries]);
+
     return (
         <div className="p-6 space-y-6">
             <div className="flex justify-between items-center">
@@ -72,30 +101,56 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ allSuppliers, refr
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nombre</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">CUIT</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Teléfono</th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Facturado</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Pagado</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Saldo</th>
                                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
                                 <th className="relative px-6 py-3"></th>
                             </tr>
                         </thead>
                          <tbody className="bg-white divide-y divide-gray-200">
-                            {filteredSuppliers.map(s => (
-                                <tr key={s.ID_Proveedor} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{s.Nombre}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{s.CUIT}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{s.Telefono}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm">{s.Email}</td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${s.Activo === 'SI' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                                            {s.Activo === 'SI' ? 'Activo' : 'Inactivo'}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                         <button onClick={() => handleEdit(s)} className="text-blue-600 hover:text-blue-800" title="Editar Proveedor">
-                                            <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {filteredSuppliers.map(s => {
+                                const summary = accountSummaries.get(s.ID_Proveedor);
+                                return (
+                                    <tr key={s.ID_Proveedor} className="hover:bg-gray-50">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{s.Nombre}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{s.CUIT}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm">{s.Telefono}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">
+                                            {isSummaryLoading ? '…' : (summary ? formatCurrency(summary.total_facturado) : '—')}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-green-700">
+                                            {isSummaryLoading ? '…' : (summary ? formatCurrency(summary.total_pagado) : '—')}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold">
+                                            {isSummaryLoading ? '…' : (
+                                                summary
+                                                    ? <span className={summary.saldo_pendiente > 0 ? 'text-red-700' : 'text-gray-600'}>{formatCurrency(summary.saldo_pendiente)}</span>
+                                                    : <span className="text-gray-400">—</span>
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-center">
+                                            <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${s.Activo === 'SI' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                                {s.Activo === 'SI' ? 'Activo' : 'Inactivo'}
+                                            </span>
+                                        </td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                            <div className="flex items-center justify-end gap-3">
+                                                <button
+                                                    onClick={() => setCcSupplier(s)}
+                                                    className="text-green-600 hover:text-green-800 text-xs font-semibold underline"
+                                                    title="Ver Cuenta Corriente"
+                                                >
+                                                    CC
+                                                </button>
+                                                <button onClick={() => handleEdit(s)} className="text-blue-600 hover:text-blue-800" title="Editar Proveedor">
+                                                    <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                          </tbody>
                     </table>
                      )}
@@ -107,6 +162,14 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ allSuppliers, refr
                 onSave={handleSaveSupplier}
                 supplierToEdit={supplierToEdit}
             />
+            {ccSupplier && (
+                <SupplierCuentaCorrienteModal
+                    isOpen={!!ccSupplier}
+                    onClose={() => setCcSupplier(null)}
+                    supplier={ccSupplier}
+                    onPaymentRecorded={handlePaymentRecorded}
+                />
+            )}
         </div>
     );
 };

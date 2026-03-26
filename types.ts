@@ -311,3 +311,57 @@ export interface SupplierInvoiceItem {
   quantity: number;
   cost_price: number;
 }
+
+export interface SupplierInvoiceHistory {
+  id: string;
+  supplier_id: string;
+  supplier_name: string;
+  invoice_number: string;
+  total_amount: number;
+  paid: boolean;
+  created_at: string;
+  item_count: number;
+}
+
+export interface SupplierInvoiceDetailItem {
+  invoice_id: string;
+  product_id: string;
+  product_name: string;
+  product_code?: string;
+  quantity: number;
+  cost_price: number;
+}
+
+export interface SupplierInvoiceDetail {
+  invoice: SupplierInvoiceHistory;
+  items: SupplierInvoiceDetailItem[];
+}
+
+export interface SupplierAccountSummary {
+  supplier_id: string;
+  supplier_nombre: string;
+  total_facturado: number;
+  total_pagado: number;
+  saldo_pendiente: number;
+}
+
+export interface SupplierInvoiceBalance {
+  id: string;
+  supplier_id: string;
+  invoice_number: string;
+  total_amount: number;
+  total_pagado: number;
+  saldo_pendiente: number;
+  estado_pago: string;
+  created_at: string;
+}
+
+export interface SupplierPayment {
+  id?: string;
+  supplier_id: string;
+  invoice_id?: string | null;
+  amount: number;
+  payment_date: string;
+  payment_method: string;
+  notes?: string;
+}

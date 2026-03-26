@@ -83,10 +83,16 @@ import {
     Sale,
     Shift,
     StockEntryItem,
+    SupplierInvoiceDetail,
+    SupplierInvoiceDetailItem,
+    SupplierInvoiceHistory,
     SupplierInvoice,
     SupplierInvoiceItem,
     SupplierCostImportRow,
     SupplierCostImportSummary,
+    SupplierAccountSummary,
+    SupplierInvoiceBalance,
+    SupplierPayment,
     Supplier,
     User
 } from '../types';
@@ -1847,6 +1853,136 @@ export const getProductIdsByCodes = async (codes: string[]): Promise<Record<stri
     }, {});
 };
 
+export const getSupplierInvoicesHistorySupabase = async (): Promise<SupplierInvoiceHistory[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data: invoices, error: invoicesError } = await supabase
+        .from('supplier_invoices')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+    if (invoicesError) throw invoicesError;
+
+    const invoiceRows = Array.isArray(invoices) ? invoices : [];
+    if (invoiceRows.length === 0) return [];
+
+    const supplierIds = Array.from(new Set(invoiceRows.map((i: any) => String(i.supplier_id || '')).filter(Boolean)));
+    const invoiceIds = invoiceRows.map((i: any) => String(i.id || '')).filter(Boolean);
+
+    const { data: suppliers } = await supabase
+        .from('st_suppliers')
+        .select('id, nombre')
+        .in('id', supplierIds);
+
+    const supplierNameMap = new Map<string, string>(
+        (suppliers || []).map((s: any) => [String(s.id), String(s.nombre || 'Proveedor sin nombre')])
+    );
+
+    const { data: invoiceItems } = await supabase
+        .from('supplier_invoice_items')
+        .select('invoice_id')
+        .in('invoice_id', invoiceIds);
+
+    const itemCountMap = (invoiceItems || []).reduce((acc: Record<string, number>, item: any) => {
+        const key = String(item.invoice_id || '');
+        if (!key) return acc;
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+    }, {});
+
+    return invoiceRows.map((invoice: any) => ({
+        id: String(invoice.id || ''),
+        supplier_id: String(invoice.supplier_id || ''),
+        supplier_name: supplierNameMap.get(String(invoice.supplier_id || '')) || 'Proveedor sin nombre',
+        invoice_number: String(invoice.invoice_number || ''),
+        total_amount: Number(invoice.total_amount || 0),
+        paid: Boolean(invoice.paid),
+        created_at: String(invoice.created_at || ''),
+        item_count: Number(itemCountMap[String(invoice.id || '')] || 0),
+    }));
+};
+
+export const getSupplierInvoiceDetailSupabase = async (invoiceId: string): Promise<SupplierInvoiceDetail> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!invoiceId) throw new Error('ID de compra no proporcionado');
+
+    const { data: invoice, error: invoiceError } = await supabase
+        .from('supplier_invoices')
+        .select('*')
+        .eq('id', invoiceId)
+        .single();
+
+    if (invoiceError) throw invoiceError;
+
+    const { data: supplier } = await supabase
+        .from('st_suppliers')
+        .select('id, nombre')
+        .eq('id', invoice.supplier_id)
+        .maybeSingle();
+
+    const { data: rawItems, error: itemsError } = await supabase
+        .from('supplier_invoice_items')
+        .select('*')
+        .eq('invoice_id', invoiceId);
+
+    if (itemsError) throw itemsError;
+
+    const items = Array.isArray(rawItems) ? rawItems : [];
+    const productIds = Array.from(new Set(items.map((i: any) => String(i.product_id || '')).filter(Boolean)));
+
+    const { data: products } = await supabase
+        .from('st_products')
+        .select('id, cod, name')
+        .in('id', productIds);
+
+    const productMap = new Map<string, any>((products || []).map((p: any) => [String(p.id), p]));
+
+    const detailItems: SupplierInvoiceDetailItem[] = items.map((item: any) => {
+        const product = productMap.get(String(item.product_id || ''));
+        return {
+            invoice_id: String(item.invoice_id || ''),
+            product_id: String(item.product_id || ''),
+            product_name: String(product?.name || item.product_id || 'Producto'),
+            product_code: String(product?.cod || ''),
+            quantity: Number(item.quantity || 0),
+            cost_price: Number(item.cost_price || 0),
+        };
+    });
+
+    return {
+        invoice: {
+            id: String(invoice.id || ''),
+            supplier_id: String(invoice.supplier_id || ''),
+            supplier_name: String(supplier?.nombre || 'Proveedor sin nombre'),
+            invoice_number: String(invoice.invoice_number || ''),
+            total_amount: Number(invoice.total_amount || 0),
+            paid: Boolean(invoice.paid),
+            created_at: String(invoice.created_at || ''),
+            item_count: detailItems.length,
+        },
+        items: detailItems,
+    };
+};
+
+export const deleteSupplierInvoiceSupabase = async (invoiceId: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!invoiceId) throw new Error('ID de compra no proporcionado');
+
+    const { error: itemsError } = await supabase
+        .from('supplier_invoice_items')
+        .delete()
+        .eq('invoice_id', invoiceId);
+
+    if (itemsError) throw itemsError;
+
+    const { error: invoiceError } = await supabase
+        .from('supplier_invoices')
+        .delete()
+        .eq('id', invoiceId);
+
+    if (invoiceError) throw invoiceError;
+};
+
 export const getAllUsersForAdmin = async (): Promise<User[]> => {
     return getUsersSupabase(false);
 };
@@ -1914,7 +2050,7 @@ export const getSuppliers = async (): Promise<Supplier[]> => {
         })
         .map((item: any) => ({
             ID_Proveedor: String(item.id || item.ID_Proveedor || ''),
-            Nombre: item.name || item.Nombre || '',
+            Nombre: item.nombre || item.name || item.Nombre || '',
             CUIT: item.cuit || item.CUIT || '',
             Condicion_IVA: item.iva_condition || item.Condicion_IVA || 'Responsable Inscripto',
             Email: item.email || item.Email || '',
@@ -1930,7 +2066,7 @@ export const addSupplier = async (data: any): Promise<Supplier> => {
     const item = await addSupplierSupabase(data);
     return {
         ID_Proveedor: String(item.id),
-        Nombre: item.name,
+        Nombre: item.nombre || item.name || '',
         CUIT: item.cuit,
         Condicion_IVA: item.iva_condition,
         Email: item.email,
@@ -1980,3 +2116,147 @@ export function calculateCustomerBalance(transactions: { debit?: number; credit?
     payments: credit
   };
 }
+
+// =============================================================================
+// --- CUENTA CORRIENTE DE PROVEEDORES ---
+// =============================================================================
+
+export const getSupplierAccountSummaries = async (): Promise<SupplierAccountSummary[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const { data, error } = await supabase
+        .from('supplier_account_summary_vw')
+        .select('*');
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+        supplier_id: String(row.supplier_id || ''),
+        supplier_nombre: String(row.supplier_nombre || row.nombre || ''),
+        total_facturado: Number(row.total_facturado || 0),
+        total_pagado: Number(row.total_pagado || 0),
+        saldo_pendiente: Number(row.saldo_pendiente || 0),
+    }));
+};
+
+export const getSupplierAccountSummary = async (supplierId: string): Promise<SupplierAccountSummary | null> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const { data, error } = await supabase
+        .from('supplier_account_summary_vw')
+        .select('*')
+        .eq('supplier_id', supplierId)
+        .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+        supplier_id: String(data.supplier_id || ''),
+        supplier_nombre: String(data.supplier_nombre || data.nombre || ''),
+        total_facturado: Number(data.total_facturado || 0),
+        total_pagado: Number(data.total_pagado || 0),
+        saldo_pendiente: Number(data.saldo_pendiente || 0),
+    };
+};
+
+export const getSupplierInvoiceBalances = async (supplierId: string): Promise<SupplierInvoiceBalance[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const { data, error } = await supabase
+        .from('supplier_invoice_balance_vw')
+        .select('*')
+        .eq('supplier_id', supplierId)
+        .order('created_at', { ascending: false });
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+        id: String(row.id || ''),
+        supplier_id: String(row.supplier_id || ''),
+        invoice_number: String(row.invoice_number || ''),
+        total_amount: Number(row.total_amount || 0),
+        total_pagado: Number(row.total_pagado || 0),
+        saldo_pendiente: Number(row.saldo_pendiente || 0),
+        estado_pago: String(row.estado_pago || ''),
+        created_at: String(row.created_at || ''),
+    }));
+};
+
+export const recordSupplierPayment = async (payment: SupplierPayment): Promise<SupplierPayment> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('supplier_payments')
+        .insert([{
+            supplier_id: payment.supplier_id,
+            invoice_id: payment.invoice_id || null,
+            amount: payment.amount,
+            payment_date: payment.payment_date,
+            payment_method: payment.payment_method,
+            notes: payment.notes || null,
+        }])
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data as SupplierPayment;
+};
+
+export const getSupplierPayments = async (supplierId: string): Promise<any[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('supplier_payments')
+        .select('id, supplier_id, invoice_id, amount, payment_date, payment_method, notes, created_at, supplier_invoices(invoice_number)')
+        .eq('supplier_id', supplierId)
+        .order('payment_date', { ascending: false })
+        .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    return (data || []).map((row: any) => ({
+        id: String(row.id || ''),
+        supplier_id: String(row.supplier_id || ''),
+        invoice_id: row.invoice_id ? String(row.invoice_id) : null,
+        invoice_number: row?.supplier_invoices?.invoice_number || null,
+        amount: Number(row.amount || 0),
+        payment_date: String(row.payment_date || row.created_at || ''),
+        payment_method: String(row.payment_method || ''),
+        notes: String(row.notes || ''),
+        created_at: String(row.created_at || ''),
+    }));
+};
+
+export const updateSupplierPayment = async (
+    paymentId: string,
+    updates: {
+        amount: number;
+        payment_date: string;
+        payment_method: string;
+        notes?: string;
+        invoice_id?: string | null;
+    }
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const normalizedInvoiceId =
+        typeof updates.invoice_id === 'string' && updates.invoice_id.trim() === ''
+            ? null
+            : updates.invoice_id ?? null;
+
+    const { error } = await supabase
+        .from('supplier_payments')
+        .update({
+            amount: updates.amount,
+            payment_date: updates.payment_date,
+            payment_method: updates.payment_method,
+            notes: updates.notes || null,
+            invoice_id: normalizedInvoiceId,
+        })
+        .eq('id', paymentId);
+
+    if (error) throw error;
+};
+
+export const deleteSupplierPayment = async (paymentId: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { error } = await supabase
+        .from('supplier_payments')
+        .delete()
+        .eq('id', paymentId);
+
+    if (error) throw error;
+};
