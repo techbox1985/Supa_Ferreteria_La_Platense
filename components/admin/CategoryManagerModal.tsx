@@ -34,20 +34,41 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({ isOp
     const fetchData = async () => {
         setIsLoading(true);
         try {
-            const rawData = await api.getCategoriesData();
             const structuredData: { [key: string]: string[] } = {};
-            rawData.forEach(item => {
-                // FIX: Added a more robust guard to filter out invalid or empty category names.
-                if (!item.categoria || typeof item.categoria !== 'string' || item.categoria.trim() === '') {
+            const [categories, categoriesDataRaw] = await Promise.all([
+                api.getCategoriesSupabase(),
+                api.getCategoriesData(),
+            ]);
+            const normalizedCategories = Array.isArray(categories) ? categories : [];
+            const normalizedCategoriesData = Array.isArray(categoriesDataRaw) ? categoriesDataRaw : [];
+
+            normalizedCategories.forEach((item: any) => {
+                const categoryName = typeof item?.name === 'string' ? item.name.trim() : '';
+                if (!categoryName) {
                     return;
                 }
-                if (!structuredData[item.categoria]) {
-                    structuredData[item.categoria] = [];
-                }
-                if (item.subCategoria && item.subCategoria !== '-') {
-                    structuredData[item.categoria].push(item.subCategoria);
+                if (!structuredData[categoryName]) {
+                    structuredData[categoryName] = [];
                 }
             });
+
+            normalizedCategoriesData.forEach((item: any) => {
+                const categoria = typeof item?.categoria === 'string' ? item.categoria.trim() : '';
+                const subCategoria = typeof item?.subCategoria === 'string' ? item.subCategoria.trim() : '';
+
+                if (!categoria || !subCategoria) {
+                    return;
+                }
+
+                if (!Object.prototype.hasOwnProperty.call(structuredData, categoria)) {
+                    return;
+                }
+
+                if (!structuredData[categoria].includes(subCategoria)) {
+                    structuredData[categoria].push(subCategoria);
+                }
+            });
+
             for (const cat in structuredData) {
                 structuredData[cat].sort((a, b) => a.localeCompare(b));
             }

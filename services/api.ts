@@ -5,8 +5,10 @@ export const updateProductSupabase = async (productData: any): Promise<any> => {
     const mapping: any = { ...productData };
     // Remover campos que no existen en la tabla si es necesario
     delete mapping.Categoria;
+    delete mapping['Sub Categoria'];
     delete mapping.Proveedor;
     // Mapear campos conocidos
+    mapping.sub_category = productData['Sub Categoria'] || null;
     if (productData.category_id) mapping.category_id = productData.category_id;
     if (productData.supplier_id) mapping.supplier_id = productData.supplier_id;
     if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
@@ -31,7 +33,9 @@ export const addProductSupabase = async (productData: any): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     const mapping: any = { ...productData };
     delete mapping.Categoria;
+    delete mapping['Sub Categoria'];
     delete mapping.Proveedor;
+    mapping.sub_category = productData['Sub Categoria'] || null;
     if (productData.category_id) mapping.category_id = productData.category_id;
     if (productData.supplier_id) mapping.supplier_id = productData.supplier_id;
     if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
@@ -156,6 +160,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'cod',
         'name',
         'category_id',
+        'sub_category',
         'supplier_id',
         'barcode',
         'cost_price',
@@ -206,6 +211,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             cod: item.cod ?? '',
             Producto: item.name ?? '',
             Categoria: categoryMap.get(item.category_id) || '',
+            'Sub Categoria': item.sub_category ?? '',
             Proveedor: supplier?.nombre ?? supplier?.name ?? '',
             'cod.barras': item.barcode ?? '',
             'P.Costo': Number(item.cost_price ?? 0),
@@ -2016,8 +2022,44 @@ export const massUpdatePrices = async (data: any): Promise<any> => {
 };
 
 export const getCategoriesData = async (): Promise<any[]> => {
-    const res = await postToScript('getCategoriesData', {}, { allowQueue: false });
-    return res?.data || [];
+    if (!supabase) return [];
+
+    try {
+        const { data, error } = await supabase
+            .from('st_subcategories')
+            .select('name, st_categories(name)');
+
+        if (error) {
+            console.error('Error loading subcategories from Supabase:', error);
+            return [];
+        }
+
+        return (data || [])
+            .map((row: any) => {
+                const categoryRel = row?.st_categories;
+                const categoryName = Array.isArray(categoryRel)
+                    ? categoryRel[0]?.name
+                    : categoryRel?.name;
+                const subCategoryName = row?.name;
+
+                if (typeof categoryName !== 'string' || typeof subCategoryName !== 'string') {
+                    return null;
+                }
+
+                const categoria = categoryName.trim();
+                const subCategoria = subCategoryName.trim();
+
+                if (!categoria || !subCategoria) {
+                    return null;
+                }
+
+                return { categoria, subCategoria };
+            })
+            .filter((item): item is { categoria: string; subCategoria: string } => item !== null);
+    } catch (error) {
+        console.error('Unexpected error loading subcategories from Supabase:', error);
+        return [];
+    }
 };
 
 export const addCategory = async (name: string): Promise<any> => {
@@ -2025,7 +2067,51 @@ export const addCategory = async (name: string): Promise<any> => {
 };
 
 export const addSubCategory = async (category: string, name: string): Promise<any> => {
-    return postToScript('addSubCategory', { category, name });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const categoryName = String(category || '').trim();
+    const subCategoryName = String(name || '').trim();
+
+    if (!categoryName || !subCategoryName) {
+        throw new Error('Categoría y subcategoría son obligatorias.');
+    }
+
+    try {
+        const { data: categoryRow, error: categoryError } = await supabase
+            .from('st_categories')
+            .select('id, name')
+            .ilike('name', categoryName)
+            .limit(1)
+            .maybeSingle();
+
+        if (categoryError) throw categoryError;
+        if (!categoryRow?.id) throw new Error(`No se encontró la categoría '${categoryName}'.`);
+
+        const { data: existingSub, error: existingError } = await supabase
+            .from('st_subcategories')
+            .select('id')
+            .eq('category_id', categoryRow.id)
+            .ilike('name', subCategoryName)
+            .limit(1)
+            .maybeSingle();
+
+        if (existingError) throw existingError;
+        if (existingSub?.id) {
+            throw new Error(`La subcategoría '${subCategoryName}' ya existe en '${categoryName}'.`);
+        }
+
+        const { data, error } = await supabase
+            .from('st_subcategories')
+            .insert([{ category_id: categoryRow.id, name: subCategoryName }])
+            .select()
+            .maybeSingle();
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('Error adding subcategory in Supabase:', error);
+        throw error instanceof Error ? error : new Error('No se pudo crear la subcategoría.');
+    }
 };
 
 export const renameCategory = async (oldName: string, newName: string): Promise<any> => {
@@ -2033,7 +2119,71 @@ export const renameCategory = async (oldName: string, newName: string): Promise<
 };
 
 export const renameSubCategory = async (category: string, oldName: string, newName: string): Promise<any> => {
-    return postToScript('renameSubCategory', { category, oldName, newName });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const categoryName = String(category || '').trim();
+    const previousName = String(oldName || '').trim();
+    const nextName = String(newName || '').trim();
+
+    if (!categoryName || !previousName || !nextName) {
+        throw new Error('Categoría, nombre actual y nombre nuevo son obligatorios.');
+    }
+
+    try {
+        const { data: categoryRow, error: categoryError } = await supabase
+            .from('st_categories')
+            .select('id, name')
+            .ilike('name', categoryName)
+            .limit(1)
+            .maybeSingle();
+
+        if (categoryError) throw categoryError;
+        if (!categoryRow?.id) throw new Error(`No se encontró la categoría '${categoryName}'.`);
+
+        const { data: currentSub, error: currentError } = await supabase
+            .from('st_subcategories')
+            .select('id, name')
+            .eq('category_id', categoryRow.id)
+            .ilike('name', previousName)
+            .limit(1)
+            .maybeSingle();
+
+        if (currentError) throw currentError;
+        if (!currentSub?.id) {
+            throw new Error(`No se encontró la subcategoría '${previousName}' en '${categoryName}'.`);
+        }
+
+        if (previousName.toLowerCase() === nextName.toLowerCase()) {
+            return currentSub;
+        }
+
+        const { data: duplicatedSub, error: duplicateError } = await supabase
+            .from('st_subcategories')
+            .select('id')
+            .eq('category_id', categoryRow.id)
+            .ilike('name', nextName)
+            .neq('id', currentSub.id)
+            .limit(1)
+            .maybeSingle();
+
+        if (duplicateError) throw duplicateError;
+        if (duplicatedSub?.id) {
+            throw new Error(`La subcategoría '${nextName}' ya existe en '${categoryName}'.`);
+        }
+
+        const { data, error } = await supabase
+            .from('st_subcategories')
+            .update({ name: nextName })
+            .eq('id', currentSub.id)
+            .select()
+            .maybeSingle();
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('Error renaming subcategory in Supabase:', error);
+        throw error instanceof Error ? error : new Error('No se pudo renombrar la subcategoría.');
+    }
 };
 
 export const deleteCategory = async (name: string): Promise<any> => {
@@ -2041,7 +2191,52 @@ export const deleteCategory = async (name: string): Promise<any> => {
 };
 
 export const deleteSubCategory = async (category: string, name: string): Promise<any> => {
-    return postToScript('deleteSubCategory', { category, name });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const categoryName = String(category || '').trim();
+    const subCategoryName = String(name || '').trim();
+
+    if (!categoryName || !subCategoryName) {
+        throw new Error('Categoría y subcategoría son obligatorias.');
+    }
+
+    try {
+        const { data: categoryRow, error: categoryError } = await supabase
+            .from('st_categories')
+            .select('id, name')
+            .ilike('name', categoryName)
+            .limit(1)
+            .maybeSingle();
+
+        if (categoryError) throw categoryError;
+        if (!categoryRow?.id) throw new Error(`No se encontró la categoría '${categoryName}'.`);
+
+        const { data: currentSub, error: currentError } = await supabase
+            .from('st_subcategories')
+            .select('id, name')
+            .eq('category_id', categoryRow.id)
+            .ilike('name', subCategoryName)
+            .limit(1)
+            .maybeSingle();
+
+        if (currentError) throw currentError;
+        if (!currentSub?.id) {
+            throw new Error(`No se encontró la subcategoría '${subCategoryName}' en '${categoryName}'.`);
+        }
+
+        const { data, error } = await supabase
+            .from('st_subcategories')
+            .delete()
+            .eq('id', currentSub.id)
+            .select()
+            .maybeSingle();
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('Error deleting subcategory in Supabase:', error);
+        throw error instanceof Error ? error : new Error('No se pudo eliminar la subcategoría.');
+    }
 };
 
 export const getSuppliers = async (): Promise<Supplier[]> => {

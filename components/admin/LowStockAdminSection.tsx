@@ -25,8 +25,20 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
 
   // Aplicar filtro de proveedor
   const filteredLowStock = useMemo(() => {
-    if (providerFilter === 'All') return allLowStockProducts;
-    return allLowStockProducts.filter(p => p.Proveedor === providerFilter);
+    const filtered = providerFilter === 'All'
+      ? allLowStockProducts
+      : allLowStockProducts.filter(p => p.Proveedor === providerFilter);
+
+    return [...filtered].sort((a, b) => {
+      const aStock = a.stockk ?? 0;
+      const bStock = b.stockk ?? 0;
+
+      if (aStock !== bStock) {
+        return aStock - bStock;
+      }
+
+      return String(a.Producto || '').localeCompare(String(b.Producto || ''));
+    });
   }, [allLowStockProducts, providerFilter]);
 
   const activeProviders = useMemo(() => {
@@ -115,42 +127,40 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        {filteredLowStock.length > 0 ? filteredLowStock.map(p => {
-          const stock = p.stockk ?? 0;
-          const min = p.Minimo ?? 0;
-          return (
-            <div key={p.cod} className={`bg-white p-4 rounded-xl border shadow-sm flex flex-col justify-between transition-all hover:shadow-md ${stock <= 0 ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'}`}>
-              <div>
-                <div className="flex justify-between items-start mb-2">
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${stock <= 0 ? 'bg-red-200 text-red-800' : 'bg-orange-200 text-orange-800'}`}>
-                    {stock <= 0 ? 'Sin stock' : 'Bajo stock'}
-                  </span>
-                  <span className="text-[10px] text-gray-400 font-mono">#{p.cod}</span>
-                </div>
-                <h3 className="text-sm font-bold text-gray-800 line-clamp-2 leading-tight" title={p.Producto}>
-                  {p.Producto}
-                </h3>
-                <p className="text-[11px] text-gray-500 mt-1 truncate">{p.Proveedor || 'Sin proveedor'}</p>
-              </div>
-              <div className="mt-4 flex items-end justify-between border-t border-white/50 pt-2">
-                <div>
-                  <p className="text-[10px] text-gray-500 uppercase tracking-tighter">Stock Actual</p>
-                  <p className={`text-xl font-black ${stock <= 0 ? 'text-red-600' : 'text-orange-600'}`}>{stock}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-tighter">Mínimo</p>
-                  <p className="text-sm font-bold text-gray-700">{min}</p>
-                </div>
-              </div>
-            </div>
-          );
-        }) : (
-          <div className="col-span-full py-12 text-center bg-white rounded-xl border border-dashed">
-            <Icon path="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" className="w-12 h-12 text-green-400 mx-auto mb-2" />
-            <p className="text-gray-500 font-medium">No hay productos críticos para mostrar.</p>
-          </div>
-        )}
+      <div className="bg-white shadow-md rounded-lg overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Producto</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proveedor</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Stock mínimo</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Stock actual</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {filteredLowStock.length > 0 ? filteredLowStock.map((p) => {
+                const stock = p.stockk ?? 0;
+                const min = p.Minimo ?? 0;
+
+                return (
+                  <tr key={p.cod} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.Producto}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.Proveedor || 'Sin proveedor'}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-700">{min}</td>
+                    <td className={`px-6 py-4 whitespace-nowrap text-center text-sm font-bold ${stock <= 0 ? 'text-red-600' : 'text-orange-600'}`}>{stock}</td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td colSpan={4} className="text-center py-10 text-gray-500">
+                    No hay productos críticos para mostrar.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <Modal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} title="Exportar a Excel" size="sm">
