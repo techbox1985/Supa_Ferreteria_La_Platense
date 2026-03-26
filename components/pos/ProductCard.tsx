@@ -41,7 +41,7 @@ const parseDate = (dateString: string | null | undefined): Date | null => {
     return null;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, onAddToCart, onViewDetails, allowOutOfStock = false, imageHeightClass = 'h-48' }) => {
+export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, onAddToCart, onViewDetails, allowOutOfStock = false, imageHeightClass = 'h-32' }) => {
   const stock = product.stockk ?? 0;
   const minimo = product.Minimo ?? 0;
   const canBeAdded = product.Activo && (allowOutOfStock || stock > 0);
@@ -78,7 +78,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
 
 
   return (
-    <div className={`bg-white rounded-2xl shadow-soft border border-slate-200/60 overflow-hidden flex flex-col transition-all duration-300 p-3 sm:p-4 ${!canBeAdded ? 'opacity-60' : 'hover:scale-[1.02] hover:shadow-premium'} ${isLowOnStock ? 'border-2 border-orange-400' : ''}`}>
+    <div className={`bg-white rounded-2xl shadow-soft border border-slate-200/60 overflow-hidden flex flex-col transition-all duration-300 p-2 ${!canBeAdded ? 'opacity-60' : 'hover:scale-[1.02] hover:shadow-premium'} ${isLowOnStock ? 'border-2 border-orange-400' : ''}`}>
       <div className="relative">
         <img
           src={product.FOTOGRAFIA || 'https://picsum.photos/400'}
@@ -110,8 +110,8 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
             <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607zM10.5 7.5v6m3-3h-6" className="w-5 h-5" />
         </button>
       </div>
-      <div className="p-5 flex flex-col flex-grow">
-        <h3 className="text-base font-bold text-slate-800 h-12 line-clamp-2 leading-tight" title={product.Producto}>{product.Producto}</h3>
+      <div className="p-3 flex flex-col flex-grow">
+        <h3 className="font-bold text-slate-800 line-clamp-2 leading-tight text-sm break-words" title={product.Producto}>{product.Producto}</h3>
         <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{product.Categoria}</p>
         
         <div className="flex-grow"></div>
@@ -124,14 +124,14 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
               <div>
                 {isOnSale ? (
                   <div>
-                    <p className="text-2xl font-black text-red-600 leading-none">${product['Precio de Oferta']!.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                    <p className="text-lg font-black text-red-600 leading-none">${product['Precio de Oferta']!.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                     {typeof originalPrice === 'number' && !isNaN(originalPrice) && (
                       <del className="text-xs font-bold text-slate-400 ml-0.5">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</del>
                     )}
                   </div>
                 ) : (
                   (typeof originalPrice === 'number' && !isNaN(originalPrice) && (
-                    <p className="text-2xl font-black text-slate-900 leading-none">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                    <p className="text-lg font-black text-slate-900 leading-none">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                   ))
                 )}
                 {isPriceUpdatedOnline ? (

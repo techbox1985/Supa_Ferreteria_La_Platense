@@ -298,7 +298,7 @@ const categoryOptions = useMemo(() => {
   const fiscalA4Url = saleForPrintModal?.facturaInfo?.url;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 h-[calc(100vh-80px)] relative">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 p-3 h-[calc(100vh-80px)] relative">
       {saleBeingEdited && (
         <div className="col-span-full mb-4">
           <div className="bg-blue-100 border border-blue-300 text-blue-800 rounded-lg px-4 py-2 flex items-center gap-2">
@@ -310,7 +310,7 @@ const categoryOptions = useMemo(() => {
         </div>
       )}
       {/* Products Section */}
-      <div className="lg:col-span-2 bg-gray-50 rounded-xl p-6 flex flex-col">
+      <div className="lg:col-span-2 bg-gray-50 rounded-xl p-3 flex flex-col">
         <div className="mb-6">
           <div className="flex items-center justify-between gap-4 mb-4">
             <h2 className="text-2xl font-bold text-gray-800">Productos</h2>
@@ -367,7 +367,7 @@ const categoryOptions = useMemo(() => {
             </div>
           </div>
         ) : (
-          <div className="flex-grow overflow-y-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6 pr-2 -mr-4">
+          <div className="flex-grow overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 pr-2 -mr-4">
               {filteredProducts.map(product => (
                 <ProductCard
                   key={product.cod}

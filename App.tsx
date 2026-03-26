@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useContext } from 're
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { ToastProvider, useToast } from './contexts/ToastContext';
 import Header from './components/layout/Header';
+import { Sidebar } from './components/layout/Sidebar';
 import { LoginScreen } from './components/auth/LoginScreen';
 const POSView = React.lazy(() => import('./components/pos/POSView'));
 const CustomersView = React.lazy(() => import('./components/customers/CustomersView'));
@@ -45,7 +46,12 @@ const AppContent: React.FC = () => {
     const { currentUser } = useContext(AuthContext);
     const { addToast } = useToast();
 
-    type View = 'pos' | 'customers' | 'budgets' | 'expenses' | 'admin-panel' | 'sales-history';
+    type View =
+        | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history'
+        | 'low-stock'
+        | 'admin-products' | 'admin-quick-edit' | 'admin-stock-entry' | 'admin-suppliers'
+        | 'admin-users' | 'admin-shifts' | 'admin-monthly-billing' | 'admin-top-products'
+        | 'admin-top-customers' | 'admin-printing';
     const [currentView, setCurrentView] = useState<View>('pos');
 
     // Estados de Datos
@@ -615,6 +621,22 @@ const AppContent: React.FC = () => {
     };
 
     const renderView = () => {
+        if (currentView.startsWith('admin-') || currentView === 'low-stock') {
+            const subView = currentView === 'low-stock' ? 'low-stock-admin' : currentView.slice(6);
+            return (
+                <AdminPanelView
+                    products={products}
+                    customers={customersWithCalculatedDebt}
+                    suppliers={suppliers}
+                    allUsers={allUsers}
+                    processedSales={processedSales}
+                    shifts={shifts}
+                    isLoading={isLoading}
+                    refreshData={fetchData}
+                    currentSubView={subView}
+                />
+            );
+        }
         switch (currentView) {
             case 'pos':
                 return (
@@ -660,20 +682,6 @@ const AppContent: React.FC = () => {
                     />
                 );
 
-            case 'admin-panel':
-                return (
-                    <AdminPanelView
-                        products={products}
-                        customers={customersWithCalculatedDebt}
-                        suppliers={suppliers}
-                        allUsers={allUsers}
-                        processedSales={processedSales}
-                        shifts={shifts}
-                        isLoading={isLoading}
-                        refreshData={fetchData}
-                    />
-                );
-
             case 'sales-history':
                 return (
                     <SalesHistoryView
@@ -696,8 +704,6 @@ const AppContent: React.FC = () => {
     return (
         <div className="flex flex-col h-screen bg-slate-50 font-sans">
             <Header
-                currentView={currentView}
-                onNavigate={(view: View) => setCurrentView(view)}
                 onRefresh={fetchData}
                 isRefreshing={isRefreshing}
                 isOnline={isOnline}
@@ -705,7 +711,13 @@ const AppContent: React.FC = () => {
                 onOpenSyncQueue={() => setIsSyncQueueOpen(true)}
             />
 
-            <main className="flex-grow overflow-y-auto relative">
+            <div className="flex flex-1 overflow-hidden">
+                <Sidebar
+                    currentView={currentView}
+                    onNavigate={(view) => setCurrentView(view)}
+                    isAdmin={currentUser?.Rol === 'Admin'}
+                />
+                <main className="flex-grow overflow-y-auto relative">
                 <React.Suspense
                     fallback={
                         <div className="flex items-center justify-center h-full w-full min-h-[200px]">
@@ -726,7 +738,8 @@ const AppContent: React.FC = () => {
                 >
                     {renderView()}
                 </React.Suspense>
-            </main>
+                </main>
+            </div>
 
             {customerStatementConfig.isOpen &&
                 customerStatementConfig.customer &&

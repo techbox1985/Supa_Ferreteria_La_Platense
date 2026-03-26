@@ -1,9 +1,10 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Sale } from '../../types';
 import { StatCard } from '../dashboard/StatCard';
 import { Icon } from '../ui/Icon';
 import { BillingModal } from '../shared/BillingModal';
 import { useToast } from '../../contexts/ToastContext';
+import * as api from '../../services/api';
 
 interface MonthlyBillingViewProps {
     processedSales: Sale[];
@@ -25,6 +26,8 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
         return tomorrow.toISOString().split('T')[0];
     });
     const [saleToBill, setSaleToBill] = useState<Sale | null>(null);
+    const [isBulkBilling, setIsBulkBilling] = useState(false);
+    const [selectedSaleIds, setSelectedSaleIds] = useState<string[]>([]);
     const { addToast } = useToast();
 
     const filteredSales = useMemo(() => {
@@ -58,6 +61,19 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
 
         return { totalDigitalIncome, totalBilled, pendingToBill };
     }, [filteredSales]);
+
+    const pendingSales = useMemo(() => filteredSales.filter(s => !s.facturaInfo), [filteredSales]);
+    const selectedPendingCount = useMemo(
+        () => selectedSaleIds.filter(id => pendingSales.some(sale => sale.id === id)).length,
+        [pendingSales, selectedSaleIds]
+    );
+    const areAllPendingSelected = pendingSales.length > 0 && selectedPendingCount === pendingSales.length;
+
+    useEffect(() => {
+        // Keep selection consistent with currently visible pending sales.
+        const pendingIds = new Set(pendingSales.map(sale => sale.id));
+        setSelectedSaleIds(prev => prev.filter(id => pendingIds.has(id)));
+    }, [pendingSales]);
     
     const handleBillingSuccess = useCallback(() => {
         setSaleToBill(null);
@@ -65,9 +81,95 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
         refreshData();
     }, [addToast, refreshData]);
 
+    const handleToggleSaleSelection = useCallback((saleId: string) => {
+        setSelectedSaleIds(prev => (prev.includes(saleId) ? prev.filter(id => id !== saleId) : [...prev, saleId]));
+    }, []);
+
+    const handleToggleAllPendingSelection = useCallback(() => {
+        if (areAllPendingSelected) {
+            setSelectedSaleIds([]);
+            return;
+        }
+        setSelectedSaleIds(pendingSales.map(sale => sale.id));
+    }, [areAllPendingSelected, pendingSales]);
+
+    const handleBulkBilling = useCallback(async () => {
+        if (isBulkBilling || selectedPendingCount === 0) return;
+
+        const selectedPendingSales = pendingSales.filter(sale => selectedSaleIds.includes(sale.id));
+        if (selectedPendingSales.length === 0) return;
+
+        setIsBulkBilling(true);
+        let successful = 0;
+        let failed = 0;
+
+        for (const sale of selectedPendingSales) {
+            try {
+                const apiResponse = await api.generateElectronicInvoice(sale);
+                if (apiResponse.status !== 'facturado' || !apiResponse.data) {
+                    failed += 1;
+                    continue;
+                }
+
+                const invoiceData = apiResponse.data;
+                const { cae, nro, vtoCae, qrData } = invoiceData;
+                const a4Url = invoiceData.comprobante_pdf_url || invoiceData.url || '';
+                const ticketUrl = invoiceData.comprobante_ticket_url;
+
+                if (!cae || !nro || cae === 'DEV_MODE_NO_CAE') {
+                    failed += 1;
+                    continue;
+                }
+
+                const effectiveType = apiResponse.data?.effectiveType || sale.facturacion;
+                await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url, ticketUrl, effectiveType);
+                successful += 1;
+            } catch {
+                failed += 1;
+            }
+        }
+
+        if (successful > 0 && failed === 0) {
+            addToast(`Facturación masiva completada: ${successful} venta(s) facturada(s).`, 'success');
+        } else if (successful > 0 && failed > 0) {
+            addToast(`Facturación masiva finalizada: ${successful} exitosa(s), ${failed} fallida(s).`, 'info');
+        } else {
+            addToast(`Facturación masiva sin éxitos: ${failed} fallida(s).`, 'error');
+        }
+
+        await refreshData();
+        setSelectedSaleIds([]);
+        setIsBulkBilling(false);
+    }, [addToast, isBulkBilling, pendingSales, refreshData, selectedPendingCount, selectedSaleIds]);
+
     return (
         <div className="p-6 space-y-6">
-            <h1 className="text-3xl font-bold text-gray-800">Facturación por Período</h1>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <h1 className="text-3xl font-bold text-gray-800">Facturación por Período</h1>
+                {pendingSales.length > 0 && (
+                    <button
+                        type="button"
+                        onClick={handleBulkBilling}
+                        disabled={isBulkBilling || selectedPendingCount === 0}
+                        className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                    >
+                        {isBulkBilling ? (
+                            <>
+                                <Icon
+                                    path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z"
+                                    className="w-4 h-4 animate-spin"
+                                />
+                                <span>Facturando...</span>
+                            </>
+                        ) : (
+                            <>
+                                <Icon path="M18 3H9v18M9 12h6" className="w-4 h-4" />
+                                <span>Facturar seleccionadas ({selectedPendingCount})</span>
+                            </>
+                        )}
+                    </button>
+                )}
+            </div>
 
             {/* Filters */}
             <div className="bg-white p-4 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-4">
@@ -121,6 +223,16 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50 sticky top-0">
                             <tr>
+                                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                                    <input
+                                        type="checkbox"
+                                        checked={areAllPendingSelected}
+                                        onChange={handleToggleAllPendingSelection}
+                                        disabled={pendingSales.length === 0 || isBulkBilling}
+                                        title="Seleccionar todas las pendientes visibles"
+                                        className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                                    />
+                                </th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Venta</th>
@@ -132,6 +244,20 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                         <tbody className="bg-white divide-y divide-gray-200">
                             {filteredSales.length > 0 ? filteredSales.map(sale => (
                                 <tr key={sale.id}>
+                                    <td className="px-4 py-4 text-center">
+                                        {!sale.facturaInfo ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedSaleIds.includes(sale.id)}
+                                                onChange={() => handleToggleSaleSelection(sale.id)}
+                                                disabled={isBulkBilling}
+                                                title="Seleccionar venta para facturación masiva"
+                                                className="h-4 w-4 rounded border-gray-300 text-blue-600"
+                                            />
+                                        ) : (
+                                            <span className="text-gray-300">-</span>
+                                        )}
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(sale.date).toLocaleDateString('es-AR')}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{sale.customer?.['Nombre y Apellido'] || 'Consumidor Final'}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right">{formatCurrency(sale.total)}</td>
@@ -175,7 +301,7 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                                 </tr>
                             )) : (
                                 <tr>
-                                    <td colSpan={6} className="text-center py-10 text-gray-500">
+                                    <td colSpan={7} className="text-center py-10 text-gray-500">
                                         No hay ventas con pagos digitales en el período seleccionado.
                                     </td>
                                 </tr>

@@ -354,18 +354,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   }, [change]);
 
   return (
-    <Modal isOpen={isOpen} onClose={isProcessing ? () => {} : onClose} title={isBudgetMode ? 'Presupuestar' : (saleBeingEdited ? 'Editar Venta' : 'Finalizar Venta')} size="4xl">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="space-y-6">
-          <div className="bg-gray-50 p-4 rounded-lg flex justify-between items-center border border-gray-200">
-            <span className="text-xl font-bold text-gray-800">Total a Pagar</span>
-            <span className="text-3xl font-bold text-blue-600">{formatCurrency(total)}</span>
-          </div>
-
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-gray-800">Ajustes de Total</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-green-50 p-4 rounded-lg border border-green-200 space-y-2">
+    <Modal isOpen={isOpen} onClose={isProcessing ? () => {} : onClose} title={
+      <div className="flex items-center justify-between w-full">
+        <span className="text-xl font-bold">{isBudgetMode ? 'Presupuestar' : (saleBeingEdited ? 'Editar Venta' : 'Finalizar Venta')}</span>
+        <div className="flex items-center gap-3 bg-blue-50 px-4 py-2 rounded-lg border border-blue-200">
+          <span className="text-sm font-medium text-gray-600">Total:</span>
+          <span className="text-2xl font-bold text-blue-600">{formatCurrency(total)}</span>
+        </div>
+      </div>
+    } size="2xl">
+      <div className="max-h-[90vh] overflow-hidden">
+        <div className="overflow-y-auto max-h-[65vh] pr-1">
+          <div className={`grid gap-3 ${isBudgetMode ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'}`}>
+        <div className="space-y-2">
+            <h3 className="text-base font-semibold text-gray-800">Ajustes de Total</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-green-50 p-2 rounded-lg border border-green-200 space-y-2">
                 <label className="block text-sm font-medium text-green-800">Descuento</label>
                 <div className="flex items-center space-x-2">
                   <div className="relative flex-grow">
@@ -374,7 +378,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       inputMode="decimal"
                       value={discountPercent}
                       onChange={(e) => setDiscountPercent(e.target.value)}
-                      className="w-full border-green-300 rounded-md shadow-sm text-sm pl-2 pr-6"
+                      className="w-full h-8 border-green-300 rounded-md shadow-sm text-sm pl-2 pr-6"
                     />
                     <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-gray-500 text-sm">%</span>
                   </div>
@@ -384,13 +388,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       inputMode="decimal"
                       value={discountAmount}
                       onChange={(e) => setDiscountAmount(e.target.value)}
-                      className="w-full border-green-300 rounded-md shadow-sm text-sm pl-6 pr-2"
+                      className="w-full h-8 border-green-300 rounded-md shadow-sm text-sm pl-6 pr-2"
                     />
                     <span className="absolute inset-y-0 left-0 flex items-center pl-2 text-gray-500 text-sm">$</span>
                   </div>
                 </div>
               </div>
-              <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-2">
+              <div className="bg-red-50 p-2 rounded-lg border border-red-200 space-y-2">
                 <label className="block text-sm font-medium text-red-800">Recargo</label>
                 <div className="flex items-center space-x-2">
                   <div className="relative flex-grow">
@@ -399,7 +403,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       inputMode="decimal"
                       value={recargoPercent}
                       onChange={(e) => setRecargoPercent(e.target.value)}
-                      className="w-full border-red-300 rounded-md shadow-sm text-sm pl-2 pr-6"
+                      className="w-full h-8 border-red-300 rounded-md shadow-sm text-sm pl-2 pr-6"
                     />
                     <span className="absolute inset-y-0 right-0 flex items-center pr-2 text-gray-500 text-sm">%</span>
                   </div>
@@ -409,7 +413,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                       inputMode="decimal"
                       value={recargoAmount}
                       onChange={(e) => setRecargoAmount(e.target.value)}
-                      className="w-full border-red-300 rounded-md shadow-sm text-sm pl-6 pr-2"
+                      className="w-full h-8 border-red-300 rounded-md shadow-sm text-sm pl-6 pr-2"
                     />
                     <span className="absolute inset-y-0 left-0 flex items-center pl-2 text-gray-500 text-sm">$</span>
                   </div>
@@ -418,9 +422,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </div>
           </div>
 
-          <div className="space-y-3">
-            <h3 className="text-lg font-semibold text-gray-800">Detalles del Pago</h3>
-            <div className="grid grid-cols-2 gap-4">
+          {!isBudgetMode && (
+          <>
+          <div>
+            <h3 className="text-base font-semibold text-gray-800">Detalles del Pago</h3>
+            <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Efectivo</label>
                 <div className="relative mt-1">
@@ -430,7 +436,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     inputMode="decimal"
                     value={cash}
                     onChange={(e) => setCash(e.target.value)}
-                    className="w-full text-lg border-gray-300 rounded-md py-1.5 pl-6"
+                    className="w-full text-sm border-gray-300 rounded-md py-2 pl-6"
                     disabled={isProcessing}
                   />
                 </div>
@@ -444,7 +450,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     inputMode="decimal"
                     value={digital}
                     onChange={(e) => setDigital(e.target.value)}
-                    className="w-full text-lg border-gray-300 rounded-md py-1.5 pl-6"
+                    className="w-full text-sm border-gray-300 rounded-md py-2 pl-6"
                     disabled={isProcessing}
                   />
                 </div>
@@ -458,7 +464,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     inputMode="decimal"
                     value={credit}
                     onChange={(e) => setCredit(e.target.value)}
-                    className="w-full text-lg border-gray-300 rounded-md py-1.5 pl-6 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                    className="w-full text-sm border-gray-300 rounded-md py-2 pl-6 disabled:bg-gray-100 disabled:cursor-not-allowed"
                     disabled={isProcessing || !isCtaCteEnabled}
                   />
                 </div>
@@ -504,11 +510,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <span className={`font-bold ${change < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(displayedChangeAmount)}</span>
             </div>
           </div>
-        </div>
+          </>
+          )}
 
-        <div className="space-y-6 flex flex-col">
+        <div className="space-y-2 flex flex-col">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Cliente</label>
             <div className="flex items-center space-x-2">
               <div className="flex-grow">
                 <SearchableSelect
@@ -537,7 +544,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             )}
           </div>
 
-          <div className="space-y-3 pt-4 border-t">
+            {!isBudgetMode && (
+            <div className="space-y-2 pt-2 border-t">
             <label className="flex items-center space-x-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -550,8 +558,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </label>
 
             {generateInvoice && (
-              <div className="bg-blue-50 p-4 rounded-lg space-y-4 border border-blue-200">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-blue-50 p-2 rounded-lg space-y-3 border border-blue-200">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-sm font-medium text-gray-700">Condición ante el IVA</label>
                     <select
@@ -618,16 +626,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               </div>
             )}
           </div>
+          )}
 
           <div className="flex-grow"></div>
 
           {error && <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm font-bold border border-red-200">{error}</div>}
 
-          <div className="pt-4 border-t flex flex-col space-y-3">
+          <div className="sticky bottom-0 bg-white pt-2 border-t flex flex-col space-y-2">
             <button
               onClick={handleFinalize}
               disabled={isProcessing}
-              className={`w-full ${isBudgetMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} text-white py-3 rounded-lg text-lg font-semibold flex items-center justify-center space-x-2 disabled:bg-gray-400`}
+              className={`w-full ${isBudgetMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-600 hover:bg-green-700'} text-white py-3 rounded-lg text-base font-semibold shadow-md flex items-center justify-center space-x-2 disabled:bg-gray-400`}
             >
               {isProcessing ? (
                 <Icon
@@ -644,6 +653,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             </button>
           </div>
         </div>
+      </div>
+      </div>
       </div>
     </Modal>
   );

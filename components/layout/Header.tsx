@@ -3,36 +3,13 @@ import React, { useContext } from 'react';
 import { Icon } from '../ui/Icon';
 import { AuthContext } from '../../contexts/AuthContext';
 
-type View = 'pos' | 'customers' | 'budgets' | 'expenses' | 'admin-panel' | 'sales-history';
-
 interface HeaderProps {
-  currentView: View;
-  onNavigate: (view: View) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
   isOnline: boolean;
   pendingSyncCount: number;
   onOpenSyncQueue: () => void;
 }
-
-const NavButton: React.FC<{
-  label: string;
-  iconPath: string;
-  isActive: boolean;
-  onClick: () => void;
-}> = ({ label, iconPath, isActive, onClick }) => (
-  <button
-    onClick={onClick}
-    className={`flex items-center space-x-2 px-4 py-2.5 rounded-xl transition-all duration-300 ${
-      isActive
-        ? 'bg-primary-900 text-white shadow-soft scale-105'
-        : 'text-slate-600 hover:bg-slate-100 hover:text-primary-800'
-    }`}
-  >
-    <Icon path={iconPath} className={`w-5 h-5 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-    <span className="font-semibold text-sm">{label}</span>
-  </button>
-);
 
 const OfflineIndicator: React.FC<{ isOnline: boolean; pendingCount: number }> = ({ isOnline, pendingCount }) => {
     const status = isOnline ? 
@@ -49,7 +26,7 @@ const OfflineIndicator: React.FC<{ isOnline: boolean; pendingCount: number }> = 
 };
 
 
-const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isRefreshing, isOnline, pendingSyncCount, onOpenSyncQueue }) => {
+const Header: React.FC<HeaderProps> = ({ onRefresh, isRefreshing, isOnline, pendingSyncCount, onOpenSyncQueue }) => {
   const { currentUser, activeShift, openCloseShiftModal, logout } = useContext(AuthContext);
   const isAdmin = currentUser?.Rol === 'Admin';
 
@@ -82,49 +59,6 @@ const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isR
           <OfflineIndicator isOnline={isOnline} pendingCount={pendingSyncCount} />
         </button>
         </div>
-        {/* Bloque Central */}
-        <nav className="flex-1 min-w-0 flex justify-center">
-          <div className="flex items-center space-x-1 bg-slate-50/50 p-1 rounded-2xl border border-slate-200/50 overflow-x-auto max-w-3xl w-full justify-center scrollbar-thin scrollbar-thumb-slate-300">
-        <NavButton
-          label="POS"
-          iconPath="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l.383-1.437M7.5 14.25L5.106 5.165A2.25 2.25 0 002.894 3H2.25"
-          isActive={currentView === 'pos'}
-          onClick={() => onNavigate('pos')}
-        />
-
-        <NavButton
-          label="Historial"
-          iconPath="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-          isActive={currentView === 'sales-history'}
-          onClick={() => onNavigate('sales-history')}
-        />
-         <NavButton
-          label="Gastos"
-          iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
-          isActive={currentView === 'expenses'}
-          onClick={() => onNavigate('expenses')}
-        />
-        <NavButton
-          label="Clientes"
-          iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
-          isActive={currentView === 'customers'}
-          onClick={() => onNavigate('customers')}
-        />
-
-        {/* Admin Only Buttons */}
-        {isAdmin && (
-            <>
-                <div className="h-6 border-l border-slate-300 mx-1"></div>
-                <NavButton
-                    label="Admin"
-                    iconPath="M10.343 3.94c.09-.542.56-1.008 1.11-1.212l2.148-.859A1.875 1.875 0 0115.75 3.51V4.5a1.875 1.875 0 01-1.256 1.766l-2.148.858c-.55.204-1.02.67-1.11 1.212l-.322 1.933a1.875 1.875 0 001.256 2.234l2.148.859a1.875 1.875 0 002.09-.286l.001-.001 1.006-1.006a1.875 1.875 0 012.652 2.652l-1.006 1.006a1.875 1.875 0 00.286 2.09l.859 2.148A1.875 1.875 0 0119.5 20.25h-1.001a1.875 1.875 0 01-1.766-1.256l-.859-2.148a1.875 1.875 0 00-2.234-1.256l-1.933-.322c-.542-.09-1.008-.56-1.212-1.11l-.859-2.148A1.875 1.875 0 014.5 15.75V14.75a1.875 1.875 0 011.256-1.766l2.148-.858c.55-.204 1.02-.67 1.11-1.212l.322-1.933a1.875 1.875 0 00-1.256-2.234L4.744 5.992A1.875 1.875 0 002.653 6.28l-.001.001-1.006 1.006a1.875 1.875 0 01-2.652-2.652l1.006-1.006a1.875 1.875 0 00-.286-2.09l-.859-2.148A1.875 1.875 0 014.5 3.75h1.001a1.875 1.875 0 011.766 1.256l.859 2.148a1.875 1.875 0 002.234 1.256l1.933.322z"
-                    isActive={currentView === 'admin-panel'}
-                    onClick={() => onNavigate('admin-panel')}
-                />
-            </>
-        )}
-          </div>
-        </nav>
         {/* Bloque Derecho */}
         {currentUser && (
           <div className="flex items-center space-x-4 sm:space-x-6 mt-2 sm:mt-0 flex-shrink-0 min-w-0">
