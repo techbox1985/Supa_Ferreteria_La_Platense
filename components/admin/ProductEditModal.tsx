@@ -27,6 +27,7 @@ const newProductInitialState: Partial<Product> = {
     'Sub Categoria': '',
     Descripcion: '',
     Proveedor: '',
+  auto_price: false,
     'P.Costo': undefined,
     Precio: undefined,
     'Precio de Oferta': undefined,
@@ -135,6 +136,10 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
     return Number(formData.Precio || 0);
   }, [formData.Precio]);
 
+  const autoPriceDescription = formData.auto_price
+    ? 'El precio final se calcula automaticamente segun costo + margen del proveedor'
+    : 'El precio final se gestiona manualmente';
+
   const displayableSubCategories = useMemo(() => {
     if (!formData.Categoria || !categoriesData) {
         return [];
@@ -162,7 +167,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
         return;
     }
 
-    if (name === 'Online' || name === 'Activo' || name === 'Fragil' || name === 'Embalaje_Especial' || name === 'Permitir_Venta_Sin_Stock' || name === 'Destacado') {
+    if (name === 'Online' || name === 'Activo' || name === 'Fragil' || name === 'Embalaje_Especial' || name === 'Permitir_Venta_Sin_Stock' || name === 'Destacado' || name === 'auto_price') {
       if (value === '') {
         setFormData(prev => ({ ...prev, [name]: undefined }));
       } else {
@@ -320,6 +325,28 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <input type="text" value={`$${precioFinal.toLocaleString('es-AR')}`} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 font-bold" readOnly />
                 </div>
             </div>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                <div>
+                    <label className="block text-sm font-medium">Modo de Pricing</label>
+                    <select
+                      name="auto_price"
+                      value={formData.auto_price === undefined ? 'false' : String(!!formData.auto_price)}
+                      onChange={handleChange}
+                      className="mt-1 block w-full border-gray-300 rounded-md"
+                      disabled={isSaving}
+                    >
+                      <option value="true">Automatico</option>
+                      <option value="false">Manual</option>
+                    </select>
+                </div>
+                <div className={`rounded-lg border p-3 text-sm ${formData.auto_price ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
+                    <p className="font-medium">{formData.auto_price ? 'AUTOMATICO' : 'MANUAL'}</p>
+                    <p className="mt-1">{autoPriceDescription}</p>
+                    <p className="mt-2 text-xs">
+                      Proveedor asociado: <span className="font-semibold">{formData.Proveedor || 'Sin proveedor asignado'}</span>
+                    </p>
+                </div>
+            </div>
         </fieldset>
         
         {/* --- STOCK --- */}
@@ -385,6 +412,9 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                         <option value="">Seleccionar Proveedor</option>
                         {providers.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
+                    <p className="mt-1 text-xs text-gray-500">
+                     {formData.Proveedor || 'Sin proveedor asociado'}
+                    </p>
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Estado</label>

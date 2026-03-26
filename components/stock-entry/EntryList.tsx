@@ -25,6 +25,9 @@ interface EntryListItemProps {
 const EntryListItem: React.FC<EntryListItemProps> = ({ item, onUpdateQuantity, onUpdateCostPrice, onUpdateSalePrice, onRemoveItem }) => {
     const cost = item.costPrice;
     const salePrice = item.salePrice;
+  const isAutoPrice = item.product.auto_price === true;
+  const markupPct = Number.isFinite(Number(item.product.markup_pct)) ? Number(item.product.markup_pct) : 40;
+  const autoFinalPricePreview = Number((cost * (1 + (markupPct / 100))).toFixed(2));
     const margin = cost > 0 ? ((salePrice - cost) / cost) * 100 : salePrice > 0 ? Infinity : 0;
     const marginColor = margin >= 0 ? 'text-green-600' : 'text-red-600';
 
@@ -83,10 +86,22 @@ const EntryListItem: React.FC<EntryListItemProps> = ({ item, onUpdateQuantity, o
                         type="text" inputMode="decimal"
                         aria-label={`Nuevo precio de venta para ${item.product.Producto}`}
                         value={item.salePrice}
-                        onChange={(e) => onUpdateSalePrice(item.product.cod, parseFloat(e.target.value.replace(',', '.')) || 0)}
-                        className="w-full text-center border border-gray-300 rounded-md py-1.5 pl-4"
+                  onChange={(e) => {
+                    if (isAutoPrice) return;
+                    onUpdateSalePrice(item.product.cod, parseFloat(e.target.value.replace(',', '.')) || 0);
+                  }}
+                  disabled={isAutoPrice}
+                  className={`w-full text-center border border-gray-300 rounded-md py-1.5 pl-4 ${isAutoPrice ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
                     />
                 </div>
+              {isAutoPrice && (
+                <div className="mt-1 space-y-0.5">
+                  <p className="text-[11px] text-amber-700">Precio se calcula automáticamente según proveedor</p>
+                  <p className="text-[11px] text-gray-600">
+                    Preview Precio Final: <span className="font-semibold">${autoFinalPricePreview.toLocaleString('es-AR')}</span>
+                  </p>
+                </div>
+              )}
             </div>
             {/* Margen */}
             <div className="text-center">

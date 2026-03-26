@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useContext, useCallback } from 'react';
-import { Product, StockEntryItem } from '../../types';
+import React, { useState, useMemo, useContext, useCallback, useEffect } from 'react';
+import { Product, StockEntryItem, SupplierInvoiceItem } from '../../types';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { AuthContext } from '../../contexts/AuthContext';
@@ -20,9 +20,33 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isConfirming, setIsConfirming] = useState(false);
   const [productForDetail, setProductForDetail] = useState<Product | null>(null);
+  const [supplierOptions, setSupplierOptions] = useState<{ id: string; name: string }[]>([]);
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [isPaid, setIsPaid] = useState(false);
   
   const { currentUser } = useContext(AuthContext);
   const { addToast } = useToast();
+
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const suppliers = await api.getSuppliersSupabase();
+        const options = (suppliers || [])
+          .filter((item: any) => item?.is_deleted !== true)
+          .map((item: any) => ({
+            id: String(item.id || ''),
+            name: String(item.nombre || item.name || item.Nombre || 'Proveedor sin nombre'),
+          }))
+          .filter((item: { id: string; name: string }) => item.id.length > 0);
+        setSupplierOptions(options);
+      } catch (error) {
+        console.error('Failed to load suppliers for stock entry', error);
+      }
+    };
+
+    loadSuppliers();
+  }, []);
 
   const categories = useMemo(() => ['All', ...new Set(products.map(p => p.Categoria).filter(Boolean).sort())], [products]);
 
@@ -97,6 +121,17 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
       addToast('La lista de ingreso está vacía.', 'info');
       return;
     }
+
+    if (!selectedSupplierId) {
+      addToast('Debe seleccionar un proveedor.', 'error');
+      return;
+    }
+
+    if (!invoiceNumber.trim()) {
+      addToast('Debe ingresar el número de factura.', 'error');
+      return;
+    }
+
     if (!currentUser) {
       addToast('Debe estar logueado para realizar esta acción.', 'error');
       return;
@@ -121,6 +156,32 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
     
     setIsConfirming(true);
     try {
+      const totalAmount = itemsToSend.reduce((sum, item) => sum + Number(item.costPrice) * Number(item.quantity), 0);
+
+      const invoice = await api.createSupplierInvoice({
+        supplier_id: selectedSupplierId,
+        invoice_number: invoiceNumber.trim(),
+        total_amount: Number(totalAmount),
+        paid: isPaid,
+      });
+
+      const codeToIdMap = await api.getProductIdsByCodes(itemsToSend.map((item) => item.product.cod));
+      const invoiceItems: SupplierInvoiceItem[] = itemsToSend.map((item) => {
+        const productId = codeToIdMap[item.product.cod];
+        if (!productId) {
+          throw new Error(`No se encontró product_id para el código ${item.product.cod}`);
+        }
+
+        return {
+          invoice_id: String(invoice.id),
+          product_id: productId,
+          quantity: Number(item.quantity),
+          cost_price: Number(item.costPrice),
+        };
+      });
+
+      await api.createSupplierInvoiceItems(invoiceItems);
+
       const result = await api.recordStockEntry(itemsToSend, currentUser.ID_Usuario);
       const updatedCount = result.updatedCostCount || 0;
       let message = 'Ingreso de stock registrado con éxito.';
@@ -129,6 +190,9 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
       }
       addToast(message, 'success');
       handleClearList();
+      setSelectedSupplierId('');
+      setInvoiceNumber('');
+      setIsPaid(false);
       refreshData();
     } catch (error) {
       console.error("Failed to record stock entry", error);
@@ -137,7 +201,7 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
     } finally {
       setIsConfirming(false);
     }
-  }, [entryList, currentUser, addToast, refreshData, handleClearList]);
+  }, [entryList, selectedSupplierId, invoiceNumber, currentUser, addToast, isPaid, refreshData, handleClearList]);
 
 
   return (
@@ -186,6 +250,61 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
       </div>
 
       <div className="lg:col-span-1">
+        <div className="bg-white rounded-xl shadow-lg p-4 mb-4 border border-gray-200 space-y-3">
+          <h3 className="text-lg font-semibold text-gray-800">Datos de Compra</h3>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Proveedor *</label>
+            <select
+              value={selectedSupplierId}
+              onChange={(e) => setSelectedSupplierId(e.target.value)}
+              className="mt-1 block w-full border-gray-300 rounded-md"
+            >
+              <option value="">Seleccionar proveedor...</option>
+              {supplierOptions.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Número de Factura *</label>
+            <input
+              type="text"
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+              className="mt-1 block w-full border-gray-300 rounded-md"
+              placeholder="Ej: A-0001-00001234"
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-md border border-gray-200 p-3 bg-gray-50">
+            <div>
+              <p className="text-sm font-medium text-gray-700">Factura pagada</p>
+              <p className="text-xs text-gray-500">Si no está pagada, queda como deuda</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsPaid((prev) => !prev)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isPaid ? 'bg-green-600' : 'bg-gray-300'}`}
+              aria-pressed={isPaid}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isPaid ? 'translate-x-6' : 'translate-x-1'}`}
+              />
+            </button>
+          </div>
+
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+            <p className="text-xs text-blue-700">Total de la compra</p>
+            <p className="text-xl font-bold text-blue-900">
+              ${entryList.reduce((sum, item) => sum + Number(item.costPrice) * Number(item.quantity), 0).toLocaleString('es-AR')}
+            </p>
+          </div>
+        </div>
+
         <EntryList
           entryList={entryList}
           onUpdateQuantity={handleUpdateQuantity}

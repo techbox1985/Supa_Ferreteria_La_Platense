@@ -295,3 +295,19 @@ export interface SupplierCostImportSummary {
   notFound: number;
   ignored: number;
 }
+
+export interface SupplierInvoice {
+  id?: string;
+  supplier_id: string;
+  invoice_number: string;
+  total_amount: number;
+  paid: boolean;
+  created_at?: string;
+}
+
+export interface SupplierInvoiceItem {
+  invoice_id: string;
+  product_id: string;
+  quantity: number;
+  cost_price: number;
+}

@@ -83,6 +83,8 @@ import {
     Sale,
     Shift,
     StockEntryItem,
+    SupplierInvoice,
+    SupplierInvoiceItem,
     SupplierCostImportRow,
     SupplierCostImportSummary,
     Supplier,
@@ -1724,12 +1726,39 @@ export const recordStockEntrySupabase = async (items: StockEntryItem[], _userId:
     const productCodes = items.map(i => i.product.cod);
     const { data: products, error: fetchError } = await supabase
         .from('st_products')
-        .select('*')
+        .select('cod, income_count, current_stock, supplier_id, auto_price')
         .in('cod', productCodes);
 
     if (fetchError) throw fetchError;
 
     const productMap = new Map((products || []).map((p: any) => [p.cod, p]));
+    const supplierIds = Array.from(
+        new Set(
+            (products || [])
+                .map((p: any) => p.supplier_id)
+                .filter((id: any) => !!id)
+                .map((id: any) => String(id))
+        )
+    );
+
+    const supplierMarkupMap = new Map<string, number>();
+    if (supplierIds.length > 0) {
+        const { data: suppliers, error: suppliersError } = await supabase
+            .from('st_suppliers')
+            .select('id, markup_pct')
+            .in('id', supplierIds);
+
+        if (suppliersError) throw suppliersError;
+
+        for (const supplier of suppliers || []) {
+            const markup = Number((supplier as any)?.markup_pct);
+            supplierMarkupMap.set(
+                String((supplier as any)?.id || ''),
+                Number.isFinite(markup) ? markup : 40
+            );
+        }
+    }
+
     let updatedCostCount = 0;
 
     for (const item of items) {
@@ -1746,6 +1775,12 @@ export const recordStockEntrySupabase = async (items: StockEntryItem[], _userId:
             list_price: Number(item.salePrice),
             updated_at: new Date()
         };
+
+        if (dbProduct.auto_price === true) {
+            const supplierId = dbProduct.supplier_id ? String(dbProduct.supplier_id) : '';
+            const markupPct = supplierMarkupMap.get(supplierId) ?? 40;
+            updateData.final_price = calculateFinalPriceFromCost(Number(item.costPrice), markupPct);
+        }
 
         if (item.reactivate) {
             updateData.is_active = true;
@@ -1765,6 +1800,51 @@ export const recordStockEntrySupabase = async (items: StockEntryItem[], _userId:
 
 export const recordStockEntry = async (items: StockEntryItem[], userId: string): Promise<any> => {
     return recordStockEntrySupabase(items, userId);
+};
+
+export const createSupplierInvoice = async (invoice: SupplierInvoice) => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('supplier_invoices')
+        .insert([invoice])
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
+};
+
+export const createSupplierInvoiceItems = async (items: SupplierInvoiceItem[]) => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { error } = await supabase
+        .from('supplier_invoice_items')
+        .insert(items);
+
+    if (error) throw error;
+};
+
+export const getProductIdsByCodes = async (codes: string[]): Promise<Record<string, string>> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const normalizedCodes = Array.from(new Set((codes || []).map((c) => String(c || '').trim()).filter(Boolean)));
+    if (normalizedCodes.length === 0) return {};
+
+    const { data, error } = await supabase
+        .from('st_products')
+        .select('id, cod')
+        .in('cod', normalizedCodes);
+
+    if (error) throw error;
+
+    const rows = Array.isArray(data) ? data : [];
+    return rows.reduce((acc: Record<string, string>, row: any) => {
+        const cod = String(row.cod || '').trim();
+        const id = String(row.id || '').trim();
+        if (cod && id) acc[cod] = id;
+        return acc;
+    }, {});
 };
 
 export const getAllUsersForAdmin = async (): Promise<User[]> => {

@@ -399,6 +399,7 @@ const [, setIsLoading] = useState(true);
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">P. Costo</th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">P. Venta</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Pricing</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stock</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Mínimo</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
@@ -473,6 +474,16 @@ const [, setIsLoading] = useState(true);
 
                     <td className="px-4 py-3 text-sm text-right font-bold">
                       {formatCurrency((product as any)['Precio Final'] || 0)}
+                    </td>
+
+                    <td className="px-4 py-3 text-center">
+                      <span
+                        className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          product.auto_price ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {product.auto_price ? 'AUTOMATICO' : 'MANUAL'}
+                      </span>
                     </td>
 
                     <td className="px-4 py-3 text-sm text-center font-semibold">
