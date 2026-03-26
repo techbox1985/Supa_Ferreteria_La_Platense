@@ -22,6 +22,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
         handleOpenShift, 
         handleCloseShiftAndLogout 
     } = useContext(AuthContext);
+
+    const isAdmin = currentUser?.Rol === 'Admin';
     
     const [users, setUsers] = useState<User[]>([]);
     const [selectedUserId, setSelectedUserId] = useState('');
@@ -86,6 +88,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
         }
     };
     
+    if (currentUser && isAdmin) {
+        return <>{children}</>;
+    }
+
     if (currentUser && activeShift) {
         return (
             <>

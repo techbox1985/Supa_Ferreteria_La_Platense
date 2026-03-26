@@ -151,6 +151,7 @@ export interface Expense {
   FechaRaw?: string;
   Monto: number;
   Detalle: string;
+  Tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros';
   Efectivo: number;
   Digital: number;
   shiftId?: string;

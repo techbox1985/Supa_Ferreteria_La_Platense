@@ -6,14 +6,17 @@ import { Expense } from '../../types';
 interface ExpenseFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (data: { id_gastos?: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital' }) => Promise<void>;
+  onSave: (data: { id_gastos?: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros' }) => Promise<void>;
   expenseToEdit?: Expense | null;
 }
+
+const EXPENSE_TYPES: Array<'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'> = ['Fijos', 'Impuestos', 'Sueldos', 'Proveedores', 'Otros'];
 
 export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onClose, onSave, expenseToEdit }) => {
   const [detail, setDetail] = useState('');
   const [amount, setAmount] = useState('');
   const [paymentType, setPaymentType] = useState<'Efectivo' | 'Digital'>('Efectivo');
+  const [tipo, setTipo] = useState<'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'>('Otros');
   const [isSaving, setIsSaving] = useState(false);
   
   const isEditing = !!expenseToEdit;
@@ -24,10 +27,12 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
         setDetail(expenseToEdit.Detalle);
         setAmount(String(expenseToEdit.Monto).replace('.', ',')); // Format for es-AR input
         setPaymentType(expenseToEdit.Efectivo > 0 ? 'Efectivo' : 'Digital');
+        setTipo(expenseToEdit.Tipo || 'Otros');
       } else {
         setDetail('');
         setAmount('');
         setPaymentType('Efectivo');
+        setTipo('Otros');
       }
       setIsSaving(false);
     }
@@ -48,6 +53,7 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
             detalle: detail,
             monto: numericAmount,
             paymentType,
+          tipo,
         });
     } catch(error) {
         // Parent handles toast, we just need to re-enable the form
@@ -71,6 +77,21 @@ export const ExpenseFormModal: React.FC<ExpenseFormModalProps> = ({ isOpen, onCl
             autoFocus
             disabled={isSaving}
           />
+        </div>
+
+        <div>
+          <label htmlFor="tipo" className="block text-sm font-medium text-gray-700">Tipo de Gasto</label>
+          <select
+            id="tipo"
+            value={tipo}
+            onChange={(e) => setTipo(e.target.value as 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros')}
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            disabled={isSaving}
+          >
+            {EXPENSE_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
         </div>
         
         <div>

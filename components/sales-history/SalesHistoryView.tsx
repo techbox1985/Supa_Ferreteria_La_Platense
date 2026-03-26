@@ -1,10 +1,8 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Sale, Product, Customer, User, Shift, Budget } from '../../types';
+import React, { useState, useMemo } from 'react';
+import { Sale, Product, Customer, User, Shift } from '../../types';
 import { Icon } from '../ui/Icon';
 import { SalesDashboard } from '../shared/SalesDashboard';
-import { BudgetToSaleModal } from './BudgetToSaleModal';
-import * as api from '../../services/api';
 
 
 interface SalesHistoryViewProps {
@@ -19,15 +17,6 @@ interface SalesHistoryViewProps {
 }
 
 const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, onEditSale }) => {
-    // Presupuestos
-    const [budgets, setBudgets] = useState<Budget[]>([]);
-    const [loadingBudgets, setLoadingBudgets] = useState(false);
-    const [selectedBudget, setSelectedBudget] = useState<Budget | null>(null);
-
-    useEffect(() => {
-        setLoadingBudgets(true);
-        api.getBudgets().then(setBudgets).finally(() => setLoadingBudgets(false));
-    }, []);
     // Helper para obtener YYYY-MM-DD en hora local
     const getLocalDateString = (date: Date) => {
         const year = date.getFullYear();
@@ -206,53 +195,6 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     };
     return (
         <div className="h-full p-2 space-y-3 md:space-y-4">
-            {/* Bloque de Presupuestos */}
-            <div className="bg-white rounded-lg shadow-md p-4 mb-4">
-                <h2 className="text-lg font-bold mb-2 flex items-center gap-2">
-                    <Icon path="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" className="w-5 h-5 text-blue-600" />
-                    Presupuestos
-                </h2>
-                {loadingBudgets ? (
-                    <div className="text-gray-500 py-4">Cargando presupuestos...</div>
-                ) : budgets.length === 0 ? (
-                    <div className="text-gray-500 py-4">No hay presupuestos registrados.</div>
-                ) : (
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full text-sm border">
-                            <thead>
-                                <tr className="bg-slate-100">
-                                    <th className="px-2 py-1 border">ID</th>
-                                    <th className="px-2 py-1 border">Cliente</th>
-                                    <th className="px-2 py-1 border">Fecha</th>
-                                    <th className="px-2 py-1 border">Total</th>
-                                    <th className="px-2 py-1 border">Estado</th>
-                                    <th className="px-2 py-1 border"></th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {budgets.map(b => (
-                                    <tr key={b.id} className="border-b hover:bg-blue-50">
-                                        <td className="px-2 py-1 font-mono">{b.id.slice(0, 8)}</td>
-                                        <td className="px-2 py-1">{b.customer?.['Nombre y Apellido'] || 'Consumidor Final'}</td>
-                                        <td className="px-2 py-1">{new Date(b.date).toLocaleDateString('es-AR')}</td>
-                                        <td className="px-2 py-1 text-right">${b.total?.toLocaleString('es-AR')}</td>
-                                        <td className="px-2 py-1">{b.status}</td>
-                                        <td className="px-2 py-1 text-right">
-                                            <button
-                                                className="px-3 py-1 rounded bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"
-                                                onClick={() => setSelectedBudget(b)}
-                                            >
-                                                Convertir a venta
-                                            </button>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
-            </div>
-
             {/* Historial de Ventas */}
             <SalesDashboard
                 title=""
@@ -268,14 +210,6 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                 stickyStats={true}
                 stickyFilters={true}
                 onEditSale={handleEditSale}
-            />
-
-            {/* Modal de conversión */}
-            <BudgetToSaleModal
-                isOpen={!!selectedBudget}
-                budget={selectedBudget}
-                onClose={() => setSelectedBudget(null)}
-                onConfirm={() => { setSelectedBudget(null); }}
             />
         </div>
     );

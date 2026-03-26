@@ -127,7 +127,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
         }
     };
 
-    const handleSaveExpense = async (data: { id_gastos?: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital' }) => {
+    const handleSaveExpense = async (data: { id_gastos?: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros' }) => {
         try {
             if (data.id_gastos) {
                                 if (typeof data.id_gastos === 'string' && data.id_gastos.length > 0) {
@@ -136,14 +136,16 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
                                 }
                 addToast('Gasto actualizado.', 'success');
             } else {
-                if (!activeShift) throw new Error("No hay turno activo");
-                await api.addExpense({ ...data, shiftId: activeShift.ID_Turno });
+                const isSeller = currentUser?.Rol === 'Vendedor';
+                if (isSeller && !activeShift) throw new Error("No hay turno activo");
+                await api.addExpense({ ...data, shiftId: isSeller ? activeShift?.ID_Turno : undefined });
                 addToast('Gasto registrado.', 'success');
             }
             refreshData();
             setFormOpen(false);
         } catch (error) {
-            addToast('Error al guardar.', 'error');
+            const message = error instanceof Error ? error.message : 'Error al guardar.';
+            addToast(`Error al guardar: ${message}`, 'error');
         }
     };
     
@@ -207,8 +209,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
                                     </td>
                                     <td className="px-6 py-4 text-sm text-gray-900">{expense.Detalle}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${expense.Efectivo > 0 ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'}`}>
-                                            {expense.Efectivo > 0 ? 'Efectivo' : 'Digital'}
+                                        <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
+                                            {expense.Tipo || 'Otros'}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-red-600">{formatCurrency(expense.Monto)}</td>

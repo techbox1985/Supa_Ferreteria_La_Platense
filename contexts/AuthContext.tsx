@@ -38,21 +38,19 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
                 throw new Error("PIN incorrecto");
             }
             
-            // Buscar turno activo en Supabase (Ignoramos el de legacy)
-            const fetchedShift = await api.getActiveShiftSupabase(user.ID_Usuario);
+            if (user.Rol === 'Vendedor') {
+                const fetchedShift = await api.getActiveShiftSupabase(user.ID_Usuario);
 
-            if (fetchedShift) {
-                setActiveShift(fetchedShift);
-            } else {
-                // Si no hay turno y es Admin, abrir automáticamente con 0
-                if (user.Rol === 'Admin') {
-                    const newShift = await api.openShiftSupabase(user.ID_Usuario, 0);
-                    setActiveShift(newShift);
+                if (fetchedShift) {
+                    setActiveShift(fetchedShift);
                 } else {
-                    // Si es Vendedor, pedir monto de apertura
                     setActiveShift(null);
                     openOpenShiftModal();
                 }
+            } else {
+                // Admin no participa del flujo de caja
+                setActiveShift(null);
+                setShiftModalState({ type: 'closed' });
             }
 
             // Seteamos el usuario al final para evitar parpadeos y asegurar que el estado del turno esté listo

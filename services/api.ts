@@ -754,22 +754,24 @@ export const getExpensesSupabase = async (): Promise<Expense[]> => {
         FechaRaw: item.spent_at,
         Monto: Number(item.amount),
         Detalle: item.detail,
+        Tipo: item.category || item.tipo || item.type || 'Otros',
         Efectivo: Number(item.payment_cash || 0),
         Digital: Number(item.payment_digital || 0),
         shiftId: item.shift_id
     } as Expense));
 };
 
-export const addExpenseSupabase = async (expenseData: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; shiftId: string; }): Promise<any> => {
+export const addExpenseSupabase = async (expenseData: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; shiftId?: string; spentAt?: string; }): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     
     const { data, error } = await supabase
         .from('st_expenses')
         .insert([{
-            shift_id: expenseData.shiftId,
-            spent_at: new Date(),
+            shift_id: expenseData.shiftId || null,
+            spent_at: expenseData.spentAt || new Date().toISOString(),
             amount: expenseData.monto,
             detail: expenseData.detalle,
+            category: expenseData.tipo || 'Otros',
             payment_cash: expenseData.paymentType === 'Efectivo' ? expenseData.monto : 0,
             payment_digital: expenseData.paymentType === 'Digital' ? expenseData.monto : 0,
             legacy_expense_id: null
@@ -780,7 +782,7 @@ export const addExpenseSupabase = async (expenseData: { detalle: string; monto: 
     return data[0];
 };
 
-export const updateExpenseSupabase = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital' }): Promise<any> => {
+export const updateExpenseSupabase = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros' }): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     
     const { data, error } = await supabase
@@ -788,6 +790,7 @@ export const updateExpenseSupabase = async (expenseData: { id_gastos: string; de
         .update({
             amount: expenseData.monto,
             detail: expenseData.detalle,
+            category: expenseData.tipo || 'Otros',
             payment_cash: expenseData.paymentType === 'Efectivo' ? expenseData.monto : 0,
             payment_digital: expenseData.paymentType === 'Digital' ? expenseData.monto : 0,
             updated_at: new Date()
@@ -1293,11 +1296,11 @@ export const getExpenses = async (): Promise<Expense[]> => {
     return getExpensesSupabase();
 };
 
-export const addExpense = async (data: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; shiftId: string; }): Promise<void> => {
+export const addExpense = async (data: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; shiftId?: string; }): Promise<void> => {
     await addExpenseSupabase(data);
 };
 
-export const updateExpense = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital' }): Promise<void> => {
+export const updateExpense = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros' }): Promise<void> => {
     await updateExpenseSupabase(expenseData);
 };
 
@@ -2191,6 +2194,29 @@ export const recordSupplierPayment = async (payment: SupplierPayment): Promise<S
         .single();
 
     if (error) throw error;
+
+    try {
+        const { data: supplierData } = await supabase
+            .from('st_suppliers')
+            .select('nombre')
+            .eq('id', payment.supplier_id)
+            .maybeSingle();
+
+        const supplierName = String(supplierData?.nombre || payment.supplier_id || '').trim();
+        const normalizedMethod = String(payment.payment_method || '').toLowerCase();
+        const paymentType: 'Efectivo' | 'Digital' = normalizedMethod.includes('efectivo') ? 'Efectivo' : 'Digital';
+
+        await addExpenseSupabase({
+            detalle: 'Pago a proveedor ' + supplierName,
+            monto: Number(payment.amount || 0),
+            paymentType,
+            tipo: 'Proveedores',
+            spentAt: payment.payment_date,
+        });
+    } catch (expenseError) {
+        console.error('[SupplierPayment] Pago registrado pero no se pudo crear gasto automático:', expenseError);
+    }
+
     return data as SupplierPayment;
 };
 

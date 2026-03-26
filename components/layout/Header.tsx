@@ -50,7 +50,7 @@ const OfflineIndicator: React.FC<{ isOnline: boolean; pendingCount: number }> = 
 
 
 const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isRefreshing, isOnline, pendingSyncCount, onOpenSyncQueue }) => {
-  const { currentUser, activeShift, openCloseShiftModal } = useContext(AuthContext);
+  const { currentUser, activeShift, openCloseShiftModal, logout } = useContext(AuthContext);
   const isAdmin = currentUser?.Rol === 'Admin';
 
   return (
@@ -126,20 +126,34 @@ const Header: React.FC<HeaderProps> = ({ currentView, onNavigate, onRefresh, isR
           </div>
         </nav>
         {/* Bloque Derecho */}
-        {currentUser && activeShift && (
+        {currentUser && (
           <div className="flex items-center space-x-4 sm:space-x-6 mt-2 sm:mt-0 flex-shrink-0 min-w-0">
             <div className="text-right border-r border-slate-200 pr-4">
               <p className="font-bold text-slate-800 text-sm">{currentUser.Nombre}</p>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Caja Abierta</p>
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                {isAdmin ? 'Admin' : (activeShift ? 'Caja Abierta' : 'Sin Caja')}
+              </p>
             </div>
-            <button
-              onClick={openCloseShiftModal}
-              className="bg-red-50 text-red-600 px-4 py-2.5 rounded-xl hover:bg-red-600 hover:text-white transition-all duration-300 flex items-center space-x-2 font-bold text-sm shadow-sm"
-              title="Cerrar Caja y Salir"
-            >
-              <Icon path="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" className="w-5 h-5" />
-              <span>Cerrar Caja</span>
-            </button>
+            {isAdmin ? (
+              <button
+                onClick={logout}
+                className="bg-slate-100 text-slate-700 px-4 py-2.5 rounded-xl hover:bg-slate-700 hover:text-white transition-all duration-300 flex items-center space-x-2 font-bold text-sm shadow-sm"
+                title="Salir"
+              >
+                <Icon path="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" className="w-5 h-5" />
+                <span>Salir</span>
+              </button>
+            ) : (
+              <button
+                onClick={openCloseShiftModal}
+                disabled={!activeShift}
+                className="bg-red-50 text-red-600 px-4 py-2.5 rounded-xl hover:bg-red-600 hover:text-white transition-all duration-300 flex items-center space-x-2 font-bold text-sm shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Cerrar Caja y Salir"
+              >
+                <Icon path="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" className="w-5 h-5" />
+                <span>Cerrar Caja</span>
+              </button>
+            )}
           </div>
         )}
       </div>
