@@ -290,6 +290,9 @@ export interface SupplierCostImportRow {
 }
 
 export interface SupplierCostImportSummary {
+  existingSupplierProducts: number;
+  foundInFile: number;
+  notFoundInFile: number;
   totalRows: number;
   found: number;
   updated: number;

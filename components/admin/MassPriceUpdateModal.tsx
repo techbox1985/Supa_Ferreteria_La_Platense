@@ -422,12 +422,21 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             </div>
 
             {importSummary && (
-              <div className="bg-gray-50 rounded-md p-4 text-sm space-y-1">
-                <p><strong>Total filas:</strong> {importSummary.totalRows}</p>
-                <p><strong>Productos encontrados:</strong> {importSummary.found}</p>
-                <p><strong>Productos actualizados:</strong> {importSummary.updated}</p>
-                <p><strong>No encontrados:</strong> {importSummary.notFound}</p>
-                <p><strong>Ignorados:</strong> {importSummary.ignored}</p>
+              <div className="space-y-3">
+                <div className="bg-gray-50 rounded-md p-4 text-sm space-y-1">
+                  <p className="font-semibold text-gray-800">Resumen principal (base proveedor)</p>
+                  <p><strong>Productos existentes del proveedor:</strong> {importSummary.existingSupplierProducts}</p>
+                  <p><strong>Encontrados en archivo:</strong> {importSummary.foundInFile}</p>
+                  <p><strong>Productos actualizados:</strong> {importSummary.updated}</p>
+                  <p><strong>No encontrados en archivo:</strong> {importSummary.notFoundInFile}</p>
+                </div>
+
+                <div className="bg-blue-50 rounded-md p-4 text-sm space-y-1 text-blue-900">
+                  <p className="font-semibold">Métricas secundarias (archivo)</p>
+                  <p><strong>Total filas:</strong> {importSummary.totalRows}</p>
+                  <p><strong>Códigos del archivo no encontrados en base:</strong> {importSummary.notFound}</p>
+                  <p><strong>Ignorados (inválidas/duplicadas):</strong> {importSummary.ignored}</p>
+                </div>
               </div>
             )}
 

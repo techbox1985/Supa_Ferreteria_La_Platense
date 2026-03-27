@@ -258,6 +258,9 @@ export const importSupplierCostsSupabase = async (
     if (!supplierId) throw new Error('Debe seleccionar un proveedor');
 
     const summary: SupplierCostImportSummary = {
+        existingSupplierProducts: 0,
+        foundInFile: 0,
+        notFoundInFile: 0,
         totalRows: rows.length,
         found: 0,
         updated: 0,
@@ -265,44 +268,63 @@ export const importSupplierCostsSupabase = async (
         ignored: 0,
     };
 
+    const normalizeImportKey = (value: any): string => String(value || '').trim().toLowerCase();
+
     const seenCodes = new Set<string>();
     const normalizedRows: SupplierCostImportRow[] = [];
 
     for (const row of rows) {
-        const cod = String(row.cod || '').trim();
+        const rawCode = String(row.cod || '').trim();
+        const normalizedCode = normalizeImportKey(rawCode);
         const cost = Number(row.cost_price);
 
-        if (!cod || !Number.isFinite(cost)) {
+        if (!normalizedCode || !Number.isFinite(cost)) {
             summary.ignored += 1;
             continue;
         }
 
-        if (seenCodes.has(cod)) {
+        if (seenCodes.has(normalizedCode)) {
             summary.ignored += 1;
             continue;
         }
 
-        seenCodes.add(cod);
-        normalizedRows.push({ ...row, cod, cost_price: cost });
+        seenCodes.add(normalizedCode);
+        normalizedRows.push({ ...row, cod: normalizedCode, cost_price: cost });
     }
+
+    const { data: supplierProductsData, error: supplierProductsError } = await supabase
+        .from('st_products')
+        .select('id, cod, barcode, auto_price')
+        .eq('supplier_id', supplierId)
+        .eq('is_deleted', false);
+
+    if (supplierProductsError) throw supplierProductsError;
+
+    const supplierProducts = supplierProductsData || [];
+    summary.existingSupplierProducts = supplierProducts.length;
+
+    const fileCodeSet = new Set(normalizedRows.map((r) => normalizeImportKey(r.cod)));
+    summary.foundInFile = supplierProducts.reduce((acc: number, p: any) => {
+        const codKey = normalizeImportKey(p.cod);
+        const barcodeKey = normalizeImportKey(p.barcode);
+        return (fileCodeSet.has(codKey) || fileCodeSet.has(barcodeKey)) ? acc + 1 : acc;
+    }, 0);
+    summary.notFoundInFile = Math.max(summary.existingSupplierProducts - summary.foundInFile, 0);
+    summary.found = summary.foundInFile;
 
     if (normalizedRows.length === 0) {
         return summary;
     }
 
-    const codes = normalizedRows.map((r) => r.cod);
-
-    const { data: existingProducts, error: fetchError } = await supabase
-        .from('st_products')
-        .select('id, cod, auto_price')
-        .eq('supplier_id', supplierId)
-        .eq('is_deleted', false)
-        .in('cod', codes);
-
-    if (fetchError) throw fetchError;
-
     const productByCode = new Map(
-        (existingProducts || []).map((p: any) => [String(p.cod), p])
+        supplierProducts
+            .map((p: any) => [normalizeImportKey(p.cod), p] as const)
+            .filter(([key]) => key.length > 0)
+    );
+    const productByBarcode = new Map(
+        supplierProducts
+            .map((p: any) => [normalizeImportKey(p.barcode), p] as const)
+            .filter(([key]) => key.length > 0)
     );
 
     const { data: supplierData, error: supplierError } = await supabase
@@ -315,13 +337,12 @@ export const importSupplierCostsSupabase = async (
     const supplierMarkupPct = Number(supplierData?.markup_pct ?? 0);
 
     for (const row of normalizedRows) {
-        const product = productByCode.get(row.cod);
+        const rowKey = normalizeImportKey(row.cod);
+        const product = productByCode.get(rowKey) || productByBarcode.get(rowKey);
         if (!product) {
             summary.notFound += 1;
             continue;
         }
-
-        summary.found += 1;
 
         const updatePayload: Record<string, any> = {
             cost_price: row.cost_price,
@@ -2481,3 +2502,5 @@ export const deleteSupplierPayment = async (paymentId: string): Promise<void> =>
 
     if (error) throw error;
 };
+
+
