@@ -38,6 +38,8 @@ const parseCostValue = (value: string): number => {
   return Number(raw.replace(',', '.'));
 };
 
+const normalizeImportKey = (value: string): string => String(value || '').trim().toLowerCase();
+
 const parseSupplierImportRows = (raw: string): { rows: { cod: string; cost_price: number; line: number }[]; ignored: number; totalRows: number; errors: string[] } => {
   const lines = raw
     .split(/\r?\n/)
@@ -119,6 +121,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [importText, setImportText] = useState('');
   const [importSummary, setImportSummary] = useState<SupplierCostImportSummary | null>(null);
+  const [notFoundCodeSamples, setNotFoundCodeSamples] = useState<string[]>([]);
 
   const { addToast } = useToast();
 
@@ -156,6 +159,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setSelectedSupplierId('');
       setImportText('');
       setImportSummary(null);
+      setNotFoundCodeSamples([]);
     }
   }, [isOpen]);
 
@@ -214,6 +218,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const handleImportSupplierCosts = async () => {
     setError('');
     setImportSummary(null);
+    setNotFoundCodeSamples([]);
 
     if (!selectedSupplierId) {
       setError('Debe seleccionar un proveedor para importar costos.');
@@ -236,6 +241,31 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       };
 
       setImportSummary(mergedSummary);
+
+      if (mergedSummary.notFound > 0) {
+        try {
+          const allProducts = await api.getProductsSupabase();
+          const supplierProducts = allProducts.filter((product) => String(product.supplier_id || '') === selectedSupplierId);
+
+          const supplierKeys = new Set<string>();
+          supplierProducts.forEach((product) => {
+            const codKey = normalizeImportKey(product.cod);
+            const barcodeKey = normalizeImportKey(product['cod.barras'] || '');
+            if (codKey) supplierKeys.add(codKey);
+            if (barcodeKey) supplierKeys.add(barcodeKey);
+          });
+
+          const uniqueCodes = Array.from(
+            new Set(parsed.rows.map((row) => String(row.cod || '').trim()).filter((code) => code.length > 0))
+          );
+
+          const missingCodes = uniqueCodes.filter((code) => !supplierKeys.has(normalizeImportKey(code)));
+          setNotFoundCodeSamples(missingCodes.slice(0, 8));
+        } catch {
+          setNotFoundCodeSamples([]);
+        }
+      }
+
       addToast('Importación de costos finalizada.', 'success');
       onUpdate();
     } catch (err) {
@@ -422,21 +452,66 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             </div>
 
             {importSummary && (
-              <div className="space-y-3">
-                <div className="bg-gray-50 rounded-md p-4 text-sm space-y-1">
-                  <p className="font-semibold text-gray-800">Resumen principal (base proveedor)</p>
-                  <p><strong>Productos existentes del proveedor:</strong> {importSummary.existingSupplierProducts}</p>
-                  <p><strong>Encontrados en archivo:</strong> {importSummary.foundInFile}</p>
-                  <p><strong>Productos actualizados:</strong> {importSummary.updated}</p>
-                  <p><strong>No encontrados en archivo:</strong> {importSummary.notFoundInFile}</p>
+              <div className="space-y-4">
+                <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <p className="font-semibold text-gray-900 mb-3">Resumen principal (base proveedor)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-slate-600">Productos existentes del proveedor</p>
+                      <p className="text-2xl font-bold text-slate-900">{importSummary.existingSupplierProducts}</p>
+                    </div>
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-blue-700">Encontrados en archivo</p>
+                      <p className="text-2xl font-bold text-blue-900">{importSummary.foundInFile}</p>
+                    </div>
+                    <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-green-700">Actualizados</p>
+                      <p className="text-2xl font-bold text-green-900">{importSummary.updated}</p>
+                    </div>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                      <p className="text-xs uppercase tracking-wide text-amber-700">No encontrados en archivo</p>
+                      <p className="text-2xl font-bold text-amber-900">{importSummary.notFoundInFile}</p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="bg-blue-50 rounded-md p-4 text-sm space-y-1 text-blue-900">
-                  <p className="font-semibold">Métricas secundarias (archivo)</p>
-                  <p><strong>Total filas:</strong> {importSummary.totalRows}</p>
-                  <p><strong>Códigos del archivo no encontrados en base:</strong> {importSummary.notFound}</p>
-                  <p><strong>Ignorados (inválidas/duplicadas):</strong> {importSummary.ignored}</p>
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+                  <p className="font-semibold mb-2">Resumen secundario (archivo)</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="rounded-md bg-white/80 p-2">
+                      <p className="text-xs text-blue-700">Total filas del archivo</p>
+                      <p className="text-lg font-semibold">{importSummary.totalRows}</p>
+                    </div>
+                    <div className="rounded-md bg-white/80 p-2">
+                      <p className="text-xs text-blue-700">Ignorados</p>
+                      <p className="text-lg font-semibold">{importSummary.ignored}</p>
+                    </div>
+                    <div className="rounded-md bg-white/80 p-2">
+                      <p className="text-xs text-blue-700">Códigos del archivo no encontrados en base</p>
+                      <p className="text-lg font-semibold">{importSummary.notFound}</p>
+                    </div>
+                  </div>
                 </div>
+
+                {notFoundCodeSamples.length > 0 && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                    <p className="font-semibold">Ejemplos de códigos del archivo no encontrados en base</p>
+                    <p className="text-xs text-rose-700 mt-1 mb-2">Se muestra una muestra breve para revisión rápida.</p>
+                    <div className="flex flex-wrap gap-2">
+                      {notFoundCodeSamples.map((code) => (
+                        <span key={code} className="px-2 py-1 rounded bg-white border border-rose-200 font-mono text-xs">
+                          {code}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {importSummary.notFound > 0 && notFoundCodeSamples.length === 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                    No se pudo generar una muestra de códigos no encontrados en esta importación, pero el total sigue disponible en el resumen secundario.
+                  </div>
+                )}
               </div>
             )}
 
