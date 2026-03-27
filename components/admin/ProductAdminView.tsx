@@ -440,6 +440,11 @@ const [, setIsLoading] = useState(true);
                 const hasPhoto =
                   typeof (product as any).FOTOGRAFIA === 'string' &&
                   (product as any).FOTOGRAFIA.trim() !== '';
+                const hasOfferPrice = Number((product as any)['Precio de Oferta'] ?? 0) > 0;
+                const pricingBadgeClass = hasOfferPrice
+                  ? 'bg-red-100 text-red-800'
+                  : 'bg-amber-100 text-amber-800';
+                const pricingLabel = hasOfferPrice ? 'MANUAL / OFERTA' : 'AUTOMATICO';
 
                 const isLowStock =
                   !!product.Activo &&
@@ -503,11 +508,9 @@ const [, setIsLoading] = useState(true);
 
                     <td className="px-4 py-3 text-center">
                       <span
-                        className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                          product.auto_price ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
-                        }`}
+                        className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${pricingBadgeClass}`}
                       >
-                        {product.auto_price ? 'AUTOMATICO' : 'MANUAL'}
+                        {pricingLabel}
                       </span>
                     </td>
 
