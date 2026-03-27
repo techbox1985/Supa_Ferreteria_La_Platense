@@ -267,6 +267,9 @@ export interface Supplier {
   id?: string;
   name?: string;
   is_active?: boolean;
+  tax_1_percent?: number;
+  tax_2_percent?: number;
+  tax_3_percent?: number;
   CUIT?: string;
   Condicion_IVA?:
     | 'Responsable Inscripto'

@@ -19,6 +19,9 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
     Telefono: '',
     Contacto: '',
     Direccion: '',
+    tax_1_percent: 0,
+    tax_2_percent: 0,
+    tax_3_percent: 0,
     Activo: 'SI',
   });
   const [isSaving, setIsSaving] = useState(false);
@@ -33,7 +36,7 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
         } else {
           setFormData({
             Nombre: '', CUIT: '', Condicion_IVA: 'Responsable Inscripto', Email: '',
-            Telefono: '', Contacto: '', Direccion: '', Activo: 'SI',
+            Telefono: '', Contacto: '', Direccion: '', tax_1_percent: 0, tax_2_percent: 0, tax_3_percent: 0, Activo: 'SI',
           });
         }
         setIsSaving(false);
@@ -46,6 +49,16 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
+  const handleTaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    if (value.trim() === '') {
+      setFormData(prev => ({ ...prev, [name]: 0 }));
+      return;
+    }
+    const parsed = parseFloat(value.replace(',', '.'));
+    setFormData(prev => ({ ...prev, [name]: Number.isFinite(parsed) ? parsed : 0 }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -56,9 +69,13 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
 
     setIsSaving(true);
     
+    const normalizedTax1 = Number.isFinite(Number(formData.tax_1_percent)) ? Number(formData.tax_1_percent) : 0;
+    const normalizedTax2 = Number.isFinite(Number(formData.tax_2_percent)) ? Number(formData.tax_2_percent) : 0;
+    const normalizedTax3 = Number.isFinite(Number(formData.tax_3_percent)) ? Number(formData.tax_3_percent) : 0;
+
     const dataToSave = isEditing 
-      ? { ...formData, ID_Proveedor: supplierToEdit.ID_Proveedor }
-      : formData;
+      ? { ...formData, tax_1_percent: normalizedTax1, tax_2_percent: normalizedTax2, tax_3_percent: normalizedTax3, ID_Proveedor: supplierToEdit.ID_Proveedor }
+      : { ...formData, tax_1_percent: normalizedTax1, tax_2_percent: normalizedTax2, tax_3_percent: normalizedTax3 };
 
     try {
         await onSave(dataToSave as Supplier | Omit<Supplier, 'ID_Proveedor'>);
@@ -109,6 +126,42 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
             <div className="md:col-span-2">
                 <label className="block text-sm font-medium">Dirección</label>
                 <input type="text" name="Direccion" value={formData.Direccion || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}/>
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Impuesto 1 (%)</label>
+              <input
+                type="number"
+                name="tax_1_percent"
+                step="0.01"
+                value={formData.tax_1_percent ?? 0}
+                onChange={handleTaxChange}
+                className="mt-1 block w-full border-gray-300 rounded-md"
+                disabled={isSaving}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Impuesto 2 (%)</label>
+              <input
+                type="number"
+                name="tax_2_percent"
+                step="0.01"
+                value={formData.tax_2_percent ?? 0}
+                onChange={handleTaxChange}
+                className="mt-1 block w-full border-gray-300 rounded-md"
+                disabled={isSaving}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Impuesto 3 (%)</label>
+              <input
+                type="number"
+                name="tax_3_percent"
+                step="0.01"
+                value={formData.tax_3_percent ?? 0}
+                onChange={handleTaxChange}
+                className="mt-1 block w-full border-gray-300 rounded-md"
+                disabled={isSaving}
+              />
             </div>
             <div>
                 <label className="block text-sm font-medium">Estado</label>

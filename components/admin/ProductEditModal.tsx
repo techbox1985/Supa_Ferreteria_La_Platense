@@ -136,9 +136,21 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
     return Number(formData.Precio || 0);
   }, [formData.Precio]);
 
-  const autoPriceDescription = formData.auto_price
-    ? 'El precio final se calcula automaticamente segun costo + margen del proveedor'
-    : 'El precio final se gestiona manualmente';
+  const selectedSupplier = useMemo(() => {
+    const supplierName = String(formData.Proveedor || '').trim().toLowerCase();
+    if (!supplierName) return null;
+
+    return suppliers.find((s: any) => {
+      const currentName = String(s?.nombre || s?.name || s?.Nombre || '').trim().toLowerCase();
+      return currentName === supplierName;
+    }) || null;
+  }, [formData.Proveedor, suppliers]);
+
+  const supplierTax1 = Number.isFinite(Number(selectedSupplier?.tax_1_percent)) ? Number(selectedSupplier?.tax_1_percent) : 0;
+  const supplierTax2 = Number.isFinite(Number(selectedSupplier?.tax_2_percent)) ? Number(selectedSupplier?.tax_2_percent) : 0;
+  const supplierTax3 = Number.isFinite(Number(selectedSupplier?.tax_3_percent)) ? Number(selectedSupplier?.tax_3_percent) : 0;
+
+  const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
   const displayableSubCategories = useMemo(() => {
     if (!formData.Categoria || !categoriesData) {
@@ -321,30 +333,33 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <input type="text" inputMode="decimal" name="Precio de Oferta" value={formData['Precio de Oferta'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-red-200 rounded-md" disabled={isSaving} />
                 </div>
                  <div>
-                    <label className="block text-sm font-medium text-blue-600">Precio Final (Calculado)</label>
+                    <label className="block text-sm font-medium text-blue-600">Precio Final Vigente</label>
                     <input type="text" value={`$${precioFinal.toLocaleString('es-AR')}`} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 font-bold" readOnly />
                 </div>
             </div>
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                <div>
-                    <label className="block text-sm font-medium">Modo de Pricing</label>
-                    <select
-                      name="auto_price"
-                      value={formData.auto_price === undefined ? 'false' : String(!!formData.auto_price)}
-                      onChange={handleChange}
-                      className="mt-1 block w-full border-gray-300 rounded-md"
-                      disabled={isSaving}
-                    >
-                      <option value="true">Automatico</option>
-                      <option value="false">Manual</option>
-                    </select>
-                </div>
-                <div className={`rounded-lg border p-3 text-sm ${formData.auto_price ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`}>
-                    <p className="font-medium">{formData.auto_price ? 'AUTOMATICO' : 'MANUAL'}</p>
-                    <p className="mt-1">{autoPriceDescription}</p>
-                    <p className="mt-2 text-xs">
-                      Proveedor asociado: <span className="font-semibold">{formData.Proveedor || 'Sin proveedor asignado'}</span>
-                    </p>
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <p className="font-semibold text-slate-800">Pricing por proveedor</p>
+                <p className="mt-1">
+                  En la importacion de costos, el precio final se calcula usando el costo y los porcentajes del proveedor.
+                  En esta pantalla podes editar el precio final manualmente cuando necesites una excepcion puntual.
+                </p>
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Proveedor asociado</p>
+                    <p className="font-medium text-slate-900">{formData.Proveedor || 'Sin proveedor asignado'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 1</p>
+                    <p className="font-medium text-slate-900">{formatPercent(supplierTax1)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 2</p>
+                    <p className="font-medium text-slate-900">{formatPercent(supplierTax2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 3</p>
+                    <p className="font-medium text-slate-900">{formatPercent(supplierTax3)}</p>
+                  </div>
                 </div>
             </div>
         </fieldset>

@@ -124,6 +124,23 @@ const calculateFinalPriceFromCost = (costPrice: number, markupPct: number): numb
     return Number((costPrice * (1 + markupPct / 100)).toFixed(2));
 };
 
+const parsePercentValue = (value: any): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const calculateFinalPriceFromSupplierTaxes = (
+    costPrice: number,
+    tax1Percent: number,
+    tax2Percent: number,
+    tax3Percent: number
+): number => {
+    const t1 = parsePercentValue(tax1Percent);
+    const t2 = parsePercentValue(tax2Percent);
+    const t3 = parsePercentValue(tax3Percent);
+    return Number((costPrice * (1 + t1 / 100) * (1 + t2 / 100) * (1 + t3 / 100)).toFixed(2));
+};
+
 let supabase: ReturnType<typeof createClient<Database>> | null = null;
 
 if (SUPABASE_URL && SUPABASE_ANON_KEY) {
@@ -331,12 +348,14 @@ export const importSupplierCostsSupabase = async (
 
     const { data: supplierData, error: supplierError } = await supabase
         .from('st_suppliers')
-        .select('markup_pct')
+        .select('tax_1_percent, tax_2_percent, tax_3_percent')
         .eq('id', supplierId)
         .maybeSingle();
 
     if (supplierError) throw supplierError;
-    const supplierMarkupPct = Number(supplierData?.markup_pct ?? 0);
+    const supplierTax1Percent = parsePercentValue(supplierData?.tax_1_percent);
+    const supplierTax2Percent = parsePercentValue(supplierData?.tax_2_percent);
+    const supplierTax3Percent = parsePercentValue(supplierData?.tax_3_percent);
 
     for (const row of normalizedRows) {
         const rowKey = normalizeImportKey(row.cod);
@@ -348,12 +367,14 @@ export const importSupplierCostsSupabase = async (
 
         const updatePayload: Record<string, any> = {
             cost_price: row.cost_price,
+            final_price: calculateFinalPriceFromSupplierTaxes(
+                row.cost_price,
+                supplierTax1Percent,
+                supplierTax2Percent,
+                supplierTax3Percent
+            ),
             updated_at: new Date().toISOString(),
         };
-
-        if (product.auto_price === true) {
-            updatePayload.final_price = calculateFinalPriceFromCost(row.cost_price, supplierMarkupPct);
-        }
 
         const { error: updateError } = await supabase
             .from('st_products')
@@ -379,6 +400,9 @@ export const addSupplierSupabase = async (supplierData: any): Promise<any> => {
         contact_person: supplierData.Contacto,
         address: supplierData.Direccion,
         is_active: supplierData.Activo === 'SI',
+        tax_1_percent: parsePercentValue(supplierData.tax_1_percent),
+        tax_2_percent: parsePercentValue(supplierData.tax_2_percent),
+        tax_3_percent: parsePercentValue(supplierData.tax_3_percent),
         is_deleted: false
     };
 
@@ -406,6 +430,9 @@ export const updateSupplierSupabase = async (supplierData: any): Promise<any> =>
     if (supplierData.Contacto !== undefined) mapping.contact_person = supplierData.Contacto;
     if (supplierData.Direccion !== undefined) mapping.address = supplierData.Direccion;
     if (supplierData.Activo !== undefined) mapping.is_active = supplierData.Activo === 'SI';
+    if (supplierData.tax_1_percent !== undefined) mapping.tax_1_percent = parsePercentValue(supplierData.tax_1_percent);
+    if (supplierData.tax_2_percent !== undefined) mapping.tax_2_percent = parsePercentValue(supplierData.tax_2_percent);
+    if (supplierData.tax_3_percent !== undefined) mapping.tax_3_percent = parsePercentValue(supplierData.tax_3_percent);
     if (supplierData.is_deleted !== undefined) mapping.is_deleted = supplierData.is_deleted;
 
     const { data, error } = await supabase
@@ -2273,6 +2300,9 @@ export const getSuppliers = async (): Promise<Supplier[]> => {
         .map((item: any) => ({
             ID_Proveedor: String(item.id || item.ID_Proveedor || ''),
             Nombre: item.nombre || item.name || item.Nombre || '',
+            tax_1_percent: parsePercentValue(item.tax_1_percent),
+            tax_2_percent: parsePercentValue(item.tax_2_percent),
+            tax_3_percent: parsePercentValue(item.tax_3_percent),
             CUIT: item.cuit || item.CUIT || '',
             Condicion_IVA: item.iva_condition || item.Condicion_IVA || 'Responsable Inscripto',
             Email: item.email || item.Email || '',
@@ -2289,6 +2319,9 @@ export const addSupplier = async (data: any): Promise<Supplier> => {
     return {
         ID_Proveedor: String(item.id),
         Nombre: item.nombre || item.name || '',
+        tax_1_percent: parsePercentValue(item.tax_1_percent),
+        tax_2_percent: parsePercentValue(item.tax_2_percent),
+        tax_3_percent: parsePercentValue(item.tax_3_percent),
         CUIT: item.cuit,
         Condicion_IVA: item.iva_condition,
         Email: item.email,
