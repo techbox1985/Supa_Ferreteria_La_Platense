@@ -1,26 +1,33 @@
 // --- PRODUCTOS SUPABASE: Métodos CRUD mínimos para ProductAdminView ---
-export const updateProductSupabase = async (productData: any): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    if (!productData.cod) throw new Error('Falta el código de producto');
-    const mapping: any = { ...productData };
-    // Remover campos que no existen en la tabla si es necesario
-    delete mapping.Categoria;
-    delete mapping['Sub Categoria'];
-    delete mapping.Proveedor;
-    // Mapear campos conocidos
-    mapping.sub_category = productData['Sub Categoria'] || null;
-    if (productData.category_id) mapping.category_id = productData.category_id;
-    if (productData.supplier_id) mapping.supplier_id = productData.supplier_id;
+const buildProductSupabasePayload = (productData: any, options?: { includeUpdatedAt?: boolean }): Record<string, any> => {
+    const mapping: Record<string, any> = {};
+
+    if (productData.cod !== undefined) mapping.cod = productData.cod;
+    if (productData.Producto !== undefined) mapping.name = productData.Producto;
+    if (productData.category_id !== undefined) mapping.category_id = productData.category_id;
+    if (productData['Sub Categoria'] !== undefined) mapping.sub_category = productData['Sub Categoria'] || null;
+    if (productData.supplier_id !== undefined) mapping.supplier_id = productData.supplier_id || null;
+    if (productData['cod.barras'] !== undefined) mapping.barcode = productData['cod.barras'];
     if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
-    if (productData['Precio Final'] !== undefined) mapping.list_price = productData['Precio Final'];
+    if (productData.Precio !== undefined) mapping.list_price = productData.Precio;
+    if (productData['Precio Final'] !== undefined) mapping.final_price = productData['Precio Final'];
     if (productData['Precio de Oferta'] !== undefined) mapping.offer_price = productData['Precio de Oferta'];
+    if (productData.auto_price !== undefined) mapping.auto_price = !!productData.auto_price;
     if (productData.stockk !== undefined) mapping.current_stock = productData.stockk;
     if (productData.Minimo !== undefined) mapping.min_stock = productData.Minimo;
     if (productData.Activo !== undefined) mapping.is_active = !!productData.Activo;
     if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = productData.FOTOGRAFIA;
     if (productData.Imagen !== undefined) mapping.image_url = productData.Imagen;
     if (productData.Eliminado !== undefined) mapping.is_deleted = !!productData.Eliminado;
-    mapping.updated_at = new Date().toISOString();
+    if (options?.includeUpdatedAt) mapping.updated_at = new Date().toISOString();
+
+    return mapping;
+};
+
+export const updateProductSupabase = async (productData: any): Promise<any> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!productData.cod) throw new Error('Falta el código de producto');
+    const mapping = buildProductSupabasePayload(productData, { includeUpdatedAt: true });
     const { data, error } = await supabase
         .from('st_products')
         .update(mapping)
@@ -32,22 +39,7 @@ export const updateProductSupabase = async (productData: any): Promise<any> => {
 
 export const addProductSupabase = async (productData: any): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
-    const mapping: any = { ...productData };
-    delete mapping.Categoria;
-    delete mapping['Sub Categoria'];
-    delete mapping.Proveedor;
-    mapping.sub_category = productData['Sub Categoria'] || null;
-    if (productData.category_id) mapping.category_id = productData.category_id;
-    if (productData.supplier_id) mapping.supplier_id = productData.supplier_id;
-    if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
-    if (productData['Precio Final'] !== undefined) mapping.list_price = productData['Precio Final'];
-    if (productData['Precio de Oferta'] !== undefined) mapping.offer_price = productData['Precio de Oferta'];
-    if (productData.stockk !== undefined) mapping.current_stock = productData.stockk;
-    if (productData.Minimo !== undefined) mapping.min_stock = productData.Minimo;
-    if (productData.Activo !== undefined) mapping.is_active = !!productData.Activo;
-    if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = productData.FOTOGRAFIA;
-    if (productData.Imagen !== undefined) mapping.image_url = productData.Imagen;
-    if (productData.Eliminado !== undefined) mapping.is_deleted = !!productData.Eliminado;
+    const mapping = buildProductSupabasePayload(productData);
     const { data, error } = await supabase
         .from('st_products')
         .insert([mapping])
@@ -129,7 +121,7 @@ const parsePercentValue = (value: any): number => {
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const calculateFinalPriceFromSupplierTaxes = (
+export const calculateFinalPriceFromSupplierTaxes = (
     costPrice: number,
     tax1Percent: number,
     tax2Percent: number,
@@ -185,6 +177,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'list_price',
         'offer_price',
         'auto_price',
+        'income_count',
         'current_stock',
         'min_stock',
         'is_active',
@@ -213,6 +206,28 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
 
     const rows = allProducts;
 
+    // Ventas automáticas por producto: suma de st_sale_items excluyendo ventas anuladas/eliminadas.
+    const { data: saleItemsData, error: saleItemsError } = await supabase
+        .from('st_sale_items')
+        .select('product_code, quantity, st_sales!inner(status)')
+        .not('product_code', 'is', null);
+
+    if (saleItemsError) throw saleItemsError;
+
+    const salesByProductCode = new Map<string, number>();
+    for (const row of saleItemsData || []) {
+        const productCode = String((row as any)?.product_code || '').trim();
+        if (!productCode) continue;
+
+        const status = String((row as any)?.st_sales?.status || '').toLowerCase();
+        if (status === 'annulled' || status === 'deleted') continue;
+
+        const quantity = Number((row as any)?.quantity ?? 0);
+        if (!Number.isFinite(quantity) || quantity <= 0) continue;
+
+        salesByProductCode.set(productCode, (salesByProductCode.get(productCode) || 0) + quantity);
+    }
+
     const categoryMap = new Map(
         categories.map((cat: any) => [cat.id, cat.name])
     );
@@ -225,6 +240,10 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         .filter((item: any) => item.is_deleted !== true)
         .map((item: any) => {
             const supplier = supplierMap.get(item.supplier_id);
+            const currentStock = Number(item.current_stock ?? 0);
+            const ingresos = Number(item.income_count ?? 0);
+            const ventas = Number(salesByProductCode.get(String(item.cod || '').trim()) ?? 0);
+            const stockInicial = currentStock - ingresos + ventas;
 
             return {
             cod: item.cod ?? '',
@@ -239,7 +258,10 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             supplier_id: item.supplier_id ?? undefined,
             auto_price: Boolean(item.auto_price ?? false),
             markup_pct: Number(supplier?.markup_pct ?? 0),
-            stockk: Number(item.current_stock ?? 0),
+            'Stock-Inicial': Number.isFinite(stockInicial) ? stockInicial : 0,
+            Ingresos: Number.isFinite(ingresos) ? ingresos : 0,
+            'Venta.PV': Number.isFinite(ventas) ? ventas : 0,
+            stockk: Number.isFinite(currentStock) ? currentStock : 0,
             Minimo: Number(item.min_stock ?? 0),
             Activo: Boolean(item.is_active ?? true),
             FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',

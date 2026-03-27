@@ -3,9 +3,36 @@ import { Product } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { generateProductDescription } from '../../services/geminiService';
+import { calculateFinalPriceFromSupplierTaxes } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 
 const normalize = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+
+interface CollapsibleSectionProps {
+  title: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}
+
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ title, isOpen, onToggle, children }) => {
+  return (
+    <fieldset className="border p-4 rounded-lg">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="text-lg font-semibold">{title}</span>
+        <Icon
+          path={isOpen ? 'M5.25 15.75L12 9l6.75 6.75' : 'M18.75 8.25L12 15l-6.75-6.75'}
+          className="h-5 w-5 text-gray-600"
+        />
+      </button>
+      {isOpen && <div className="mt-4">{children}</div>}
+    </fieldset>
+  );
+};
 
 interface ProductEditModalProps {
   isOpen: boolean;
@@ -82,6 +109,10 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   const [formData, setFormData] = useState<Partial<Product>>(newProductInitialState);
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(false);
+  const [showEcommerce, setShowEcommerce] = useState(false);
+  const [showLogistics, setShowLogistics] = useState(false);
+  const [showStockOnline, setShowStockOnline] = useState(false);
   const { addToast } = useToast();
   
   const isCreating = !product;
@@ -120,6 +151,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
           'Sub Categoria': matchedSubCategory || (product['Sub Categoria'] || '').trim().toUpperCase(), // Usar la matched o la original normalizada como fallback
         });
       }
+
       setIsSaving(false);
       setIsGeneratingDesc(false);
     }
@@ -132,23 +164,54 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
     return stockInicial + ingresos - ventasAjuste;
   }, [formData['Stock-Inicial'], formData.Ingresos, formData['Venta.PV']]);
 
-  const precioFinal = useMemo(() => {
-    return Number(formData.Precio || 0);
-  }, [formData.Precio]);
+  const stockInicialValue = Number(formData['Stock-Inicial'] || 0);
+  const ingresosAutoValue = Number(formData.Ingresos || 0);
+  const ventasAutoValue = Number(formData['Venta.PV'] || 0);
 
   const selectedSupplier = useMemo(() => {
+    const supplierId = String(formData.supplier_id || '').trim();
     const supplierName = String(formData.Proveedor || '').trim().toLowerCase();
-    if (!supplierName) return null;
+    if (!supplierId && !supplierName) return null;
 
     return suppliers.find((s: any) => {
+      const currentId = String(s?.id || s?.ID_Proveedor || '').trim();
       const currentName = String(s?.nombre || s?.name || s?.Nombre || '').trim().toLowerCase();
-      return currentName === supplierName;
+      return (supplierId && currentId === supplierId) || (supplierName && currentName === supplierName);
     }) || null;
-  }, [formData.Proveedor, suppliers]);
+  }, [formData.Proveedor, formData.supplier_id, suppliers]);
 
   const supplierTax1 = Number.isFinite(Number(selectedSupplier?.tax_1_percent)) ? Number(selectedSupplier?.tax_1_percent) : 0;
   const supplierTax2 = Number.isFinite(Number(selectedSupplier?.tax_2_percent)) ? Number(selectedSupplier?.tax_2_percent) : 0;
   const supplierTax3 = Number.isFinite(Number(selectedSupplier?.tax_3_percent)) ? Number(selectedSupplier?.tax_3_percent) : 0;
+
+  const calculatedSupplierFinalPrice = useMemo(() => {
+    const costValue = Number(formData['P.Costo']);
+    if (!selectedSupplier || !Number.isFinite(costValue)) {
+      return undefined;
+    }
+
+    return calculateFinalPriceFromSupplierTaxes(costValue, supplierTax1, supplierTax2, supplierTax3);
+  }, [formData['P.Costo'], selectedSupplier, supplierTax1, supplierTax2, supplierTax3]);
+
+  // --- NEW: Pricing Priority Logic ---
+  // Priority: Precio de Oferta (if > 0) > Automatic Supplier Price > undefined
+  const precioOferta = Number(formData['Precio de Oferta'] ?? 0);
+  
+  const activeSellPrice = useMemo(() => {
+    // If offer price is present and > 0, use it (manual override)
+    if (precioOferta > 0) {
+      return precioOferta;
+    }
+    // Otherwise use automatic supplier calculated price
+    return calculatedSupplierFinalPrice;
+  }, [precioOferta, calculatedSupplierFinalPrice]);
+
+  const pricingMode = useMemo(() => {
+    if (precioOferta > 0) {
+      return 'MANUAL / OFERTA';
+    }
+    return 'AUTOMÁTICO';
+  }, [precioOferta]);
 
   const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
@@ -232,14 +295,19 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
     setIsSaving(true);
     try {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const { stockk, 'Precio Final': pf, 'Auto?': auto, ...dataToSave } = formData;
+      const { stockk, 'Auto?': auto, ...dataToSave } = formData;
+      // Fuente única para stock: persistimos current_stock usando la fórmula oficial del modal.
+      const savePayload: Partial<Product> & { stockk?: number } = { ...dataToSave, stockk: stockActual };
+        
+      // Ensure Precio Final is set to the computed active selling price
+      savePayload['Precio Final'] = activeSellPrice;
         
         // Lookup de IDs antes de enviar
         const category = categories.find(c => c.name.toUpperCase() === (formData.Categoria || '').toUpperCase());
         const supplier = suppliers.find(s => s.nombre.toUpperCase() === (formData.Proveedor || '').toUpperCase());
 
         await onSave({ 
-          ...dataToSave, 
+          ...savePayload, 
           cod: formData.cod as string,
           category_id: category?.id,
           supplier_id: supplier?.id
@@ -319,34 +387,76 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
         {/* --- PRECIOS --- */}
         <fieldset className="border p-4 rounded-lg">
             <legend className="text-lg font-semibold px-2">Precios</legend>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                 <div>
-                    <label className="block text-sm font-medium">P. Costo (Editable)</label>
-                    <input type="text" inputMode="decimal" name="P.Costo" value={formData['P.Costo'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+            <div className="space-y-6">
+                {/* Row 1: Cost and Base Price */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">P. Costo (Editable)</label>
+                        <input type="text" inputMode="decimal" name="P.Costo" value={formData['P.Costo'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium text-gray-600">Precio Base (Lista) - Referencia</label>
+                        <input type="text" inputMode="decimal" name="Precio" value={formData.Precio || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="Informativo, no afecta el precio final" />
+                        <p className="mt-1 text-xs text-gray-500">Solo informativo, no afecta el precio de venta real.</p>
+                    </div>
                 </div>
-                 <div>
-                    <label className="block text-sm font-medium">Precio Base (Lista)</label>
-                    <input type="text" inputMode="decimal" name="Precio" value={formData.Precio || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+
+                {/* Row 2: Automatic Price (Read-Only) and Offer Price (Manual Override) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
+                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
+                        <label className="block text-sm font-medium text-blue-700">Precio Automático (Sugerido)</label>
+                        <p className="mt-2 text-2xl font-bold text-blue-900">
+                            ${(calculatedSupplierFinalPrice ?? 0).toLocaleString('es-AR')}
+                        </p>
+                        <p className="mt-1 text-xs text-blue-600">
+                            Calculado desde costo + impuestos del proveedor
+                        </p>
+                    </div>
+                    
+                    <div className="bg-amber-50 border border-amber-300 p-3 rounded-lg">
+                        <label className="block text-sm font-medium text-amber-800">Precio de Oferta (Manual Override)</label>
+                        <input type="text" inputMode="decimal" name="Precio de Oferta" value={formData['Precio de Oferta'] || ''} onChange={handleNumericChange} className="mt-2 block w-full border-amber-300 rounded-md text-lg font-semibold text-amber-900" disabled={isSaving} placeholder="Dejar vacío para usar automático" />
+                        <p className="mt-1 text-xs text-amber-700">
+                            Si tiene valor, OVERRIDE el precio automático
+                        </p>
+                    </div>
                 </div>
-                <div className="bg-red-50 p-2 rounded-lg border border-red-200">
-                    <label className="block text-sm font-medium text-red-700">Precio de Oferta (Opcional)</label>
-                    <input type="text" inputMode="decimal" name="Precio de Oferta" value={formData['Precio de Oferta'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-red-200 rounded-md" disabled={isSaving} />
-                </div>
-                 <div>
-                    <label className="block text-sm font-medium text-blue-600">Precio Final Vigente</label>
-                    <input type="text" value={`$${precioFinal.toLocaleString('es-AR')}`} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 font-bold" readOnly />
+
+                {/* Row 3: Active Selling Price (Computed) */}
+                <div className="border-t pt-4">
+                    <div className={`rounded-lg p-4 border-2 ${pricingMode === 'MANUAL / OFERTA' ? 'bg-red-50 border-red-400' : 'bg-green-50 border-green-400'}`}>
+                        <div className="flex justify-between items-start mb-2">
+                            <div>
+                                <label className="block text-sm font-medium">PRECIO FINAL DE VENTA (Se guardará este)</label>
+                                <p className={`mt-2 text-3xl font-bold ${pricingMode === 'MANUAL / OFERTA' ? 'text-red-900' : 'text-green-900'}`}>
+                                    ${(activeSellPrice ?? 0).toLocaleString('es-AR')}
+                                </p>
+                            </div>
+                            <div className={`px-3 py-1 rounded-full text-sm font-semibold ${pricingMode === 'MANUAL / OFERTA' ? 'bg-red-200 text-red-900' : 'bg-green-200 text-green-900'}`}>
+                                {pricingMode}
+                            </div>
+                        </div>
+                        <p className={`text-sm ${pricingMode === 'MANUAL / OFERTA' ? 'text-red-700' : 'text-green-700'}`}>
+                            {pricingMode === 'MANUAL / OFERTA' 
+                                ? `Usando Precio de Oferta manual ($${precioOferta.toLocaleString('es-AR')})`
+                                : `Usando precio automático del proveedor`
+                            }
+                        </p>
+                    </div>
                 </div>
             </div>
-            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <p className="font-semibold text-slate-800">Pricing por proveedor</p>
-                <p className="mt-1">
-                  En la importacion de costos, el precio final se calcula usando el costo y los porcentajes del proveedor.
-                  En esta pantalla podes editar el precio final manualmente cuando necesites una excepcion puntual.
+
+            {/* Supplier Tax Info Section */}
+            <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <p className="font-semibold text-slate-800">📌 Información de Precios por Proveedor</p>
+                <p className="mt-1 text-xs leading-relaxed">
+                  El precio automático se calcula multiplicando el costo por los impuestos del proveedor asociado.
+                  Puedes usar "Precio de Oferta" para establecer un precio diferente cuando necesites una excepción.
                 </p>
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
                   <div>
                     <p className="text-xs uppercase tracking-wide text-slate-500">Proveedor asociado</p>
-                    <p className="font-medium text-slate-900">{formData.Proveedor || 'Sin proveedor asignado'}</p>
+                    <p className="font-medium text-slate-900">{formData.Proveedor || 'Sin asignar'}</p>
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 1</p>
@@ -373,18 +483,18 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <input type="text" inputMode="decimal" name="Stock-Inicial" value={formData['Stock-Inicial'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 
-                {!isCreating && (
-                    <>
-                        <div>
-                            <label className="block text-sm font-medium">Ingresos (Ajuste)</label>
-                            <input type="text" inputMode="decimal" name="Ingresos" value={formData.Ingresos || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium">Ventas (Ajuste)</label>
-                            <input type="text" inputMode="decimal" name="Venta.PV" value={formData['Venta.PV'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
-                        </div>
-                    </>
-                )}
+            {!isCreating && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600">Ingresos (Automático)</label>
+                  <input type="text" inputMode="decimal" name="Ingresos" value={formData.Ingresos || 0} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 text-slate-700" readOnly />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-600">Ventas (Automático)</label>
+                  <input type="text" inputMode="decimal" name="Venta.PV" value={formData['Venta.PV'] || 0} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 text-slate-700" readOnly />
+                </div>
+              </>
+            )}
                 
                 <div>
                     <label className="block text-sm font-medium text-blue-600">Stock Actual (Calculado)</label>
@@ -395,6 +505,15 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <input type="number" name="Minimo" value={formData.Minimo || 0} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
             </div>
+            {!isCreating && (
+              <div className="mt-4 rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                <p className="font-semibold">Fórmula de stock</p>
+                <p className="mt-1">Stock actual = Stock inicial + Ingresos - Ventas</p>
+                <p className="mt-1 font-medium">
+                  {stockInicialValue} + {ingresosAutoValue} - {ventasAutoValue} = {stockActual}
+                </p>
+              </div>
+            )}
         </fieldset>
 
          {/* --- CLASIFICACIÓN --- */}
@@ -451,8 +570,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
         </fieldset>
 
         {/* --- SECCIÓN TÉCNICA --- */}
-        <fieldset className="border p-4 rounded-lg">
-            <legend className="text-lg font-semibold px-2">Información Técnica</legend>
+        <CollapsibleSection title="Información Técnica" isOpen={showTechnical} onToggle={() => setShowTechnical(prev => !prev)}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Marca</label>
@@ -483,11 +601,10 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <textarea name="Notas_Internas" value={formData.Notas_Internas || ''} onChange={handleChange} rows={2} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}></textarea>
                 </div>
             </div>
-        </fieldset>
+            </CollapsibleSection>
 
         {/* --- SECCIÓN E-COMMERCE --- */}
-        <fieldset className="border p-4 rounded-lg">
-            <legend className="text-lg font-semibold px-2">E-commerce</legend>
+            <CollapsibleSection title="E-commerce" isOpen={showEcommerce} onToggle={() => setShowEcommerce(prev => !prev)}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium">Título Web</label>
@@ -534,11 +651,10 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <input type="number" name="Orden_Catalogo" value={formData.Orden_Catalogo || 0} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
             </div>
-        </fieldset>
+            </CollapsibleSection>
 
         {/* --- SECCIÓN LOGÍSTICA --- */}
-        <fieldset className="border p-4 rounded-lg">
-            <legend className="text-lg font-semibold px-2">Logística</legend>
+            <CollapsibleSection title="Logística" isOpen={showLogistics} onToggle={() => setShowLogistics(prev => !prev)}>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium">Clase de Envío</label>
@@ -577,11 +693,10 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     </select>
                 </div>
             </div>
-        </fieldset>
+                </CollapsibleSection>
 
         {/* --- SECCIÓN STOCK ONLINE --- */}
-        <fieldset className="border p-4 rounded-lg">
-            <legend className="text-lg font-semibold px-2">Stock Online</legend>
+                <CollapsibleSection title="Stock Online" isOpen={showStockOnline} onToggle={() => setShowStockOnline(prev => !prev)}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Stock Online</label>
@@ -600,7 +715,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <input type="number" name="Plazo_Reposicion_Dias" value={formData.Plazo_Reposicion_Dias || 0} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
             </div>
-        </fieldset>
+            </CollapsibleSection>
 
         {/* Save/Cancel Buttons */}
         <div className="flex justify-end space-x-3 pt-4 border-t mt-6">
