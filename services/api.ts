@@ -167,6 +167,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
 
     // Solo los campos mínimos necesarios para el POS
     const PRODUCT_FIELDS = [
+        'id',
         'cod',
         'name',
         'category_id',
@@ -177,7 +178,6 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'list_price',
         'offer_price',
         'auto_price',
-        'income_count',
         'current_stock',
         'min_stock',
         'is_active',
@@ -206,26 +206,69 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
 
     const rows = allProducts;
 
-    // Ventas automáticas por producto: suma de st_sale_items excluyendo ventas anuladas/eliminadas.
-    const { data: saleItemsData, error: saleItemsError } = await supabase
-        .from('st_sale_items')
-        .select('product_code, quantity, st_sales!inner(status)')
-        .not('product_code', 'is', null);
-
-    if (saleItemsError) throw saleItemsError;
-
+    const salesByProductId = new Map<string, number>();
     const salesByProductCode = new Map<string, number>();
-    for (const row of saleItemsData || []) {
-        const productCode = String((row as any)?.product_code || '').trim();
-        if (!productCode) continue;
+    try {
+        // Ventas automáticas por producto: suma de st_sale_items excluyendo ventas anuladas/eliminadas.
+        const { data: saleItemsData, error: saleItemsError } = await supabase
+            .from('st_sale_items')
+            .select('product_id, product_code, quantity, st_sales!inner(status)');
 
-        const status = String((row as any)?.st_sales?.status || '').toLowerCase();
-        if (status === 'annulled' || status === 'deleted') continue;
+        if (saleItemsError) throw saleItemsError;
 
-        const quantity = Number((row as any)?.quantity ?? 0);
-        if (!Number.isFinite(quantity) || quantity <= 0) continue;
+        for (const row of saleItemsData || []) {
+            const status = String((row as any)?.st_sales?.status || '').toLowerCase();
+            if (status === 'annulled' || status === 'deleted') continue;
 
-        salesByProductCode.set(productCode, (salesByProductCode.get(productCode) || 0) + quantity);
+            const quantity = Number((row as any)?.quantity ?? 0);
+            if (!Number.isFinite(quantity) || quantity <= 0) continue;
+
+            const productId = String((row as any)?.product_id || '').trim();
+            if (productId) {
+                salesByProductId.set(productId, (salesByProductId.get(productId) || 0) + quantity);
+            }
+
+            const productCode = String((row as any)?.product_code || '').trim();
+            if (productCode) {
+                salesByProductCode.set(productCode, (salesByProductCode.get(productCode) || 0) + quantity);
+            }
+        }
+    } catch (error) {
+        // Fallback seguro: si falla el agregado de ventas, no rompemos la carga de productos.
+        console.warn('[getProductsSupabase] No se pudo agregar ventas reales, se usará 0 temporalmente.', error);
+    }
+
+    // Ingresos automáticos por producto: suma real de compras registradas en supplier_invoice_items.
+    const productIds = rows.map((item: any) => String(item.id || '').trim()).filter(Boolean);
+    const ingresosByProductId = new Map<string, number>();
+
+    if (productIds.length > 0) {
+        try {
+            // Evita URLs excesivas al consultar con .in() sobre muchos IDs.
+            const BATCH_SIZE = 200;
+            for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
+                const batchIds = productIds.slice(i, i + BATCH_SIZE);
+                const { data: supplierInvoiceItems, error: supplierInvoiceItemsError } = await supabase
+                    .from('supplier_invoice_items')
+                    .select('product_id, quantity')
+                    .in('product_id', batchIds);
+
+                if (supplierInvoiceItemsError) throw supplierInvoiceItemsError;
+
+                for (const row of supplierInvoiceItems || []) {
+                    const productId = String((row as any)?.product_id || '').trim();
+                    if (!productId) continue;
+
+                    const quantity = Number((row as any)?.quantity ?? 0);
+                    if (!Number.isFinite(quantity) || quantity <= 0) continue;
+
+                    ingresosByProductId.set(productId, (ingresosByProductId.get(productId) || 0) + quantity);
+                }
+            }
+        } catch (error) {
+            // Fallback seguro: si falla el agregado de ingresos, mantenemos la carga con ingresos=0.
+            console.warn('[getProductsSupabase] No se pudo agregar ingresos reales, se usará 0 temporalmente.', error);
+        }
     }
 
     const categoryMap = new Map(
@@ -241,9 +284,19 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         .map((item: any) => {
             const supplier = supplierMap.get(item.supplier_id);
             const currentStock = Number(item.current_stock ?? 0);
-            const ingresos = Number(item.income_count ?? 0);
-            const ventas = Number(salesByProductCode.get(String(item.cod || '').trim()) ?? 0);
-            const stockInicial = currentStock - ingresos + ventas;
+            const productId = String(item.id || '').trim();
+            const productCode = String(item.cod || '').trim();
+
+            // Fuente real de ingresos: supplier_invoice_items (no usamos income_count legacy para UI automática).
+            const ingresos = Number(ingresosByProductId.get(productId) ?? 0);
+            const ventas = Number(
+                salesByProductId.get(productId)
+                ?? salesByProductCode.get(productCode)
+                ?? 0
+            );
+            const stockInicialRaw = currentStock - ingresos + ventas;
+            const stockInicial = Math.max(0, Number.isFinite(stockInicialRaw) ? stockInicialRaw : 0);
+            const stockActual = stockInicial + ingresos - ventas;
 
             return {
             cod: item.cod ?? '',
@@ -258,10 +311,10 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             supplier_id: item.supplier_id ?? undefined,
             auto_price: Boolean(item.auto_price ?? false),
             markup_pct: Number(supplier?.markup_pct ?? 0),
-            'Stock-Inicial': Number.isFinite(stockInicial) ? stockInicial : 0,
+            'Stock-Inicial': stockInicial,
             Ingresos: Number.isFinite(ingresos) ? ingresos : 0,
             'Venta.PV': Number.isFinite(ventas) ? ventas : 0,
-            stockk: Number.isFinite(currentStock) ? currentStock : 0,
+            stockk: Number.isFinite(stockActual) ? stockActual : 0,
             Minimo: Number(item.min_stock ?? 0),
             Activo: Boolean(item.is_active ?? true),
             FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',

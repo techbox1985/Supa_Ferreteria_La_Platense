@@ -158,13 +158,13 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   }, [isOpen, product, isCreating]);
 
   const stockActual = useMemo(() => {
-    const stockInicial = Number(formData['Stock-Inicial'] || 0);
+    const stockInicial = Math.max(0, Number(formData['Stock-Inicial'] || 0));
     const ingresos = Number(formData.Ingresos || 0);
     const ventasAjuste = Number(formData['Venta.PV'] || 0);
     return stockInicial + ingresos - ventasAjuste;
   }, [formData['Stock-Inicial'], formData.Ingresos, formData['Venta.PV']]);
 
-  const stockInicialValue = Number(formData['Stock-Inicial'] || 0);
+  const stockInicialValue = Math.max(0, Number(formData['Stock-Inicial'] || 0));
   const ingresosAutoValue = Number(formData.Ingresos || 0);
   const ventasAutoValue = Number(formData['Venta.PV'] || 0);
 
@@ -260,7 +260,8 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
       return;
     }
     const parsedValue = parseFloat(value.replace(',', '.')) || 0;
-    setFormData(prev => ({ ...prev, [name]: parsedValue }));
+    const normalizedValue = name === 'Stock-Inicial' ? Math.max(0, parsedValue) : parsedValue;
+    setFormData(prev => ({ ...prev, [name]: normalizedValue }));
   }
 
 
@@ -297,7 +298,12 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { stockk, 'Auto?': auto, ...dataToSave } = formData;
       // Fuente única para stock: persistimos current_stock usando la fórmula oficial del modal.
-      const savePayload: Partial<Product> & { stockk?: number } = { ...dataToSave, stockk: stockActual };
+      const normalizedStockInicial = Math.max(0, Number(formData['Stock-Inicial'] || 0));
+      const savePayload: Partial<Product> & { stockk?: number } = {
+        ...dataToSave,
+        'Stock-Inicial': normalizedStockInicial,
+        stockk: normalizedStockInicial + ingresosAutoValue - ventasAutoValue,
+      };
         
       // Ensure Precio Final is set to the computed active selling price
       savePayload['Precio Final'] = activeSellPrice;
