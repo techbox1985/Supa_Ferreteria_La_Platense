@@ -59,7 +59,6 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
                      stock > 0 ? 'bg-yellow-100 text-yellow-800' : 
                      'bg-red-100 text-red-800';
   
-  const isPriceUpdatedOnline = product.Precio !== product['Precio Final'];
   const lastUpdateStr = product['Ultima.Actualizacion'];
   const lastUpdatedDate = useMemo(() => parseDate(lastUpdateStr), [lastUpdateStr]);
   const isValidDate = lastUpdatedDate instanceof Date && !isNaN(lastUpdatedDate.getTime());
@@ -134,17 +133,13 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
                     <p className="text-lg font-black text-slate-900 leading-none">${originalPrice.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                   ))
                 )}
-                {isPriceUpdatedOnline ? (
-                    <p className="text-[10px] font-black text-green-600 uppercase tracking-tighter mt-1">Actualizado Online</p>
-                ) : (
-                    isValidDate && lastUpdatedDate && (
-                        <p 
-                            className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isStale ? 'text-red-500' : 'text-slate-400'}`}
-                            title={`Precio actualizado el: ${lastUpdatedDate.toLocaleString('es-AR', { dateStyle: 'long', timeStyle: 'short' })}`}
-                        >
-                            Act.: {lastUpdatedDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                        </p>
-                    )
+                {isValidDate && lastUpdatedDate && (
+                  <p 
+                    className={`text-[10px] font-bold uppercase tracking-tighter mt-1 ${isStale ? 'text-red-500' : 'text-slate-400'}`}
+                    title={`Precio actualizado el: ${lastUpdatedDate.toLocaleString('es-AR', { dateStyle: 'long', timeStyle: 'short' })}`}
+                  >
+                    Act.: {lastUpdatedDate.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  </p>
                 )}
               </div>
               <button

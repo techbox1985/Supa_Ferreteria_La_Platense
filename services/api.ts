@@ -20,6 +20,7 @@ export const updateProductSupabase = async (productData: any): Promise<any> => {
     if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = productData.FOTOGRAFIA;
     if (productData.Imagen !== undefined) mapping.image_url = productData.Imagen;
     if (productData.Eliminado !== undefined) mapping.is_deleted = !!productData.Eliminado;
+    mapping.updated_at = new Date().toISOString();
     const { data, error } = await supabase
         .from('st_products')
         .update(mapping)
@@ -173,6 +174,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'photo_url',
         'image_url',
         'is_deleted',
+        'updated_at',
         'legacy_last_update',
         'final_price'
     ];
@@ -226,7 +228,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',
             Imagen: item.image_url ?? item.photo_url ?? '',
             Eliminado: Boolean(item.is_deleted ?? false),
-            'Ultima.Actualizacion': item.legacy_last_update ?? '',
+            'Ultima.Actualizacion': item.updated_at ?? item.legacy_last_update ?? '',
             'Precio Final': Number(item.final_price ?? 0)
         } as any;
         });
@@ -346,6 +348,7 @@ export const importSupplierCostsSupabase = async (
 
         const updatePayload: Record<string, any> = {
             cost_price: row.cost_price,
+            updated_at: new Date().toISOString(),
         };
 
         if (product.auto_price === true) {
