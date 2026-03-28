@@ -182,7 +182,13 @@ export const fetchUsdArsExchangeRateSuggestion = async (): Promise<{ rate: numbe
 let supabase: ReturnType<typeof createClient<Database>> | null = null;
 
 if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-    supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
+    supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false,
+        },
+    });
 } else {
     console.warn('Supabase URL o Anon Key no están configuradas. Las funciones de facturación electrónica no funcionarán.');
 }
@@ -894,19 +900,33 @@ const normalizeCustomerForTusFacturas = (customer: any) => {
     else normalized.Condicion_IVA = 'CF';
 
     const docType = String(customer['Tipo.Documento'] || '').toUpperCase();
-    if (docType.includes('CUIT')) normalized['Tipo.Documento'] = 'CUIT';
+    if (normalized.Condicion_IVA === 'CF') {
+        normalized['Tipo.Documento'] = '99';
+    } else if (docType.includes('CUIT')) normalized['Tipo.Documento'] = 'CUIT';
     else if (docType.includes('DNI')) normalized['Tipo.Documento'] = 'DNI';
     else normalized['Tipo.Documento'] = 'DNI';
 
     const doc = String(customer.Documento || '').replace(/\D/g, '');
     if (normalized['Tipo.Documento'] === 'CUIT' && doc.length !== 11) {
         normalized.Condicion_IVA = 'CF';
-        normalized['Tipo.Documento'] = 'DNI';
-        normalized.Documento = '';
+        normalized['Tipo.Documento'] = '99';
+        normalized.Documento = '0';
     } else if (normalized['Tipo.Documento'] === 'DNI' && (!doc || parseInt(doc) <= 0)) {
         normalized.Documento = '';
     } else {
         normalized.Documento = doc;
+    }
+
+    // Fiscal default for Consumidor Final when no explicit document is provided.
+    if (normalized.Condicion_IVA === 'CF' && (!normalized.Documento || String(normalized.Documento).trim() === '')) {
+        normalized['Tipo.Documento'] = '99';
+        normalized.Documento = '0';
+    }
+
+    // Always force AFIP generic consumer document for Consumidor Final.
+    if (normalized.Condicion_IVA === 'CF') {
+        normalized['Tipo.Documento'] = '99';
+        normalized.Documento = '0';
     }
 
     return normalized;
@@ -937,12 +957,23 @@ export const generateElectronicInvoice = async (sale: Sale): Promise<any> => {
     try {
         if (!supabase) {
             console.warn('Supabase no está inicializado. Verifique las variables de entorno VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY.');
-            return { status: 'facturación pendiente', reason: 'SUPABASE_NOT_INITIALIZED' };
+            return {
+                status: 'facturación pendiente',
+                reason: 'SUPABASE_NOT_INITIALIZED',
+                message: 'Supabase no está inicializado para facturación.',
+                debug: ['Supabase no está inicializado en generateElectronicInvoice.'],
+            };
         }
 
         const normalizedCustomer = normalizeCustomerForTusFacturas(sale.customer);
         const comprobante_tipo = determineInvoiceType(sale);
         const cbteTipo = getCbteTipo(sale);
+
+        console.log('[DIAG097 invoice sale id][api.generateElectronicInvoice input]', {
+            saleId: sale.id,
+            facturacion: sale.facturacion,
+            cbteTipo,
+        });
 
         const saleForInvoice = { 
             ...sale, 
@@ -953,27 +984,48 @@ export const generateElectronicInvoice = async (sale: Sale): Promise<any> => {
             sent_tipo: comprobante_tipo
         };
 
-        console.log('[invoice_request_debug]', {
-            selectedInvoiceType: sale.facturacion,
-            determinedType: comprobante_tipo,
-            cbteTipo: cbteTipo,
-            customerIVA: normalizedCustomer?.Condicion_IVA,
-            tipoDoc: normalizedCustomer?.['Tipo.Documento'],
-            nroDoc: normalizedCustomer?.Documento ? `***${normalizedCustomer.Documento.slice(-3)}` : 'N/A'
-        });
+        const payloadSummary = {
+            saleId: sale.id,
+            cbteTipo,
+            comprobante_tipo,
+            requestedType: sale.facturacion,
+            total: sale.total,
+            itemCount: sale.items?.length || 0,
+            shiftId: sale.shiftId,
+            customer: {
+                condicionIVA: normalizedCustomer?.Condicion_IVA,
+                tipoDocumento: normalizedCustomer?.['Tipo.Documento'],
+                documento: normalizedCustomer?.Documento,
+            },
+        };
+        console.log('[DIAG094][api.generateElectronicInvoice][payload]', payloadSummary);
 
-        const { data, error } = await supabase.functions.invoke('create-electronic-invoice', { body: { sale: saleForInvoice } });
-
-        console.log('[invoice_provider_response]', {
-            cbteTipo_final: data?.cbteTipo,
-            cae: data?.cae,
-            nro: data?.nro,
-            error: error
+        const { data, error } = await supabase.functions.invoke('create-electronic-invoice-tolosa', { body: { sale: saleForInvoice } });
+        console.log('[DIAG094][api.generateElectronicInvoice][edge raw response]', data);
+        console.log('[DIAG097 invoice sale id][api.generateElectronicInvoice response]', {
+            sentSaleId: sale.id,
+            invoiceSaleId: data?.sale_id || null,
+            invoiceNumber: data?.nro || null,
         });
 
         if (error) {
-            console.error('Error al invocar Edge Function create-electronic-invoice:', { status: error.status, message: error.message, body: (error as any).body });
-            return { status: 'facturación pendiente', reason: 'INVOKE_ERROR', message: error.message };
+            const invokeErrorInfo = {
+                status: error.status,
+                message: error.message,
+                body: (error as any).body,
+                context: (error as any).context,
+            };
+            console.error('Error al invocar Edge Function create-electronic-invoice-tolosa:', invokeErrorInfo);
+            return {
+                status: 'facturación pendiente',
+                reason: 'INVOKE_ERROR',
+                message: `Error al invocar facturación electrónica: ${error.message || 'sin mensaje'}`,
+                debug: [
+                    'Invoke error en create-electronic-invoice-tolosa.',
+                    JSON.stringify(invokeErrorInfo),
+                    JSON.stringify(payloadSummary),
+                ],
+            };
         }
 
         const cbteTipoFinal = data?.cbteTipo;
@@ -985,13 +1037,36 @@ export const generateElectronicInvoice = async (sale: Sale): Promise<any> => {
 
         if (!data?.nro || !data?.cae) {
             console.error('INVALID_INVOICE_RESPONSE: La respuesta de la Edge Function no contiene los campos Nro y CAE esperados para la factura.', data);
-            return { status: 'facturación pendiente', reason: 'INVALID_RESPONSE', message: 'Respuesta de facturación inválida: faltan Nro o CAE.', data };
+            const providerHint = data?.message || data?.error || data?.detail || data?.reason || '';
+            return {
+                status: 'facturación pendiente',
+                reason: 'INVALID_RESPONSE',
+                message: `Respuesta de facturación inválida: faltan Nro o CAE.${providerHint ? ` ${providerHint}` : ''}`,
+                data,
+                debug: [
+                    'Respuesta inválida de create-electronic-invoice-tolosa (sin nro/cae).',
+                    JSON.stringify(data),
+                    JSON.stringify(payloadSummary),
+                ],
+            };
         }
 
-        return { status: 'facturado', data: { ...data, effectiveType } }; 
+        return {
+            status: 'facturado',
+            data: { ...data, effectiveType },
+            debug: [
+                'Facturación exitosa.',
+                JSON.stringify({ cae: data?.cae, nro: data?.nro, cbteTipoFinal, effectiveType }),
+            ],
+        };
     } catch (e: any) {
         console.error('Fallo la facturación electrónica para la venta', sale.id, e.message || e);
-        return { status: 'facturación pendiente', reason: 'UNEXPECTED_ERROR', message: e.message || 'Error inesperado durante la facturación.' };
+        return {
+            status: 'facturación pendiente',
+            reason: 'UNEXPECTED_ERROR',
+            message: e.message || 'Error inesperado durante la facturación.',
+            debug: ['Excepción inesperada en generateElectronicInvoice.', JSON.stringify({ error: e?.message || String(e) })],
+        };
     }
 };
 
@@ -1018,19 +1093,10 @@ export const generateElectronicCreditNote = async (sale: Sale, items: CartItem[]
             sent_tipo: comprobante_tipo
         };
 
-        console.log('[credit_note_request_debug]', {
-            selectedInvoiceType: sale.facturacion,
-            determinedType: comprobante_tipo,
-            cbteTipo: cbteTipo,
-            customerIVA: normalizedCustomer?.Condicion_IVA,
-            tipoDoc: normalizedCustomer?.['Tipo.Documento'],
-            nroDoc: normalizedCustomer?.Documento ? `***${normalizedCustomer.Documento.slice(-3)}` : 'N/A'
-        });
-
-        const { data, error } = await supabase.functions.invoke('create-electronic-invoice', { body: { sale: saleForInvoice } });
+        const { data, error } = await supabase.functions.invoke('create-electronic-invoice-tolosa', { body: { sale: saleForInvoice } });
 
         if (error) {
-            console.error('Error al invocar Edge Function create-electronic-invoice (Nota de Crédito):', { status: error.status, message: error.message, body: (error as any).body });
+            console.error('Error al invocar Edge Function create-electronic-invoice-tolosa (Nota de Crédito):', { status: error.status, message: error.message, body: (error as any).body });
             return { status: 'facturación pendiente', reason: 'INVOKE_ERROR', message: error.message };
         }
 
@@ -1281,6 +1347,40 @@ export const getActiveShiftSupabase = async (legacyUserId: string): Promise<Shif
         Total_Gastos_Efectivo: 0,
         Efectivo_Esperado: 0,
         Diferencia: 0
+    } as Shift;
+};
+
+export const getAnyActiveShiftSupabase = async (): Promise<Shift | null> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('st_shifts')
+        .select(`
+            *,
+            st_user_profiles (
+                legacy_user_id
+            )
+        `)
+        .eq('status', 'open')
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return {
+        ID_Turno: data.id,
+        ID_Usuario: data.st_user_profiles?.legacy_user_id || 'Unknown',
+        Fecha_Apertura: new Date(data.opened_at),
+        Fecha_Cierre: null,
+        Monto_Apertura: Number(data.opening_amount),
+        Monto_Cierre_Declarado: 0,
+        Estado: 'Abierto',
+        Total_Ventas_Efectivo: 0,
+        Total_Gastos_Efectivo: 0,
+        Efectivo_Esperado: 0,
+        Diferencia: 0,
     } as Shift;
 };
 
@@ -1640,7 +1740,60 @@ export const getSales = async (): Promise<any[]> => {
 
     if (error) throw error;
 
-    return (data || []).map((item: any) => {
+    const salesRows = Array.isArray(data) ? data : [];
+    const saleIds = salesRows.map((row: any) => String(row?.id || '')).filter(Boolean);
+    const invoiceBySaleId = new Map<string, any>();
+
+    // Try to enrich sales with the real fiscal source (public.invoices) linked by sale_id.
+    // If this query fails for any reason, we keep legacy st_sales fields as fallback.
+    if (saleIds.length > 0) {
+        const baseOrder = { ascending: false };
+        const primarySelect = 'sale_id, cae, nro, qr_data, pdf_url, ticket_url, comprobante_ticket_url, url, vto_cae, invoice_type, created_at, issued_at';
+        const fallbackSelect = 'sale_id, cae, nro, qr_data, pdf_url, created_at';
+
+        let invoicesData: any[] = [];
+        let invoicesError: any = null;
+
+        try {
+            const primaryResponse = await supabase
+                .from('invoices')
+                .select(primarySelect)
+                .in('sale_id', saleIds)
+                .order('created_at', baseOrder);
+            invoicesData = Array.isArray(primaryResponse.data) ? primaryResponse.data : [];
+            invoicesError = primaryResponse.error;
+
+            if (invoicesError) {
+                const fallbackResponse = await supabase
+                    .from('invoices')
+                    .select(fallbackSelect)
+                    .in('sale_id', saleIds)
+                    .order('created_at', baseOrder);
+
+                invoicesData = Array.isArray(fallbackResponse.data) ? fallbackResponse.data : [];
+                invoicesError = fallbackResponse.error;
+            }
+        } catch {
+            // Non-blocking: if invoices lookup fails, st_sales fallback fields are used.
+        }
+
+        if (!invoicesError && Array.isArray(invoicesData)) {
+            for (const invoice of invoicesData) {
+                const linkedSaleId = String(invoice?.sale_id || '').trim();
+                if (!linkedSaleId) continue;
+                // Query ordered by newest first, keep the first invoice per sale.
+                if (!invoiceBySaleId.has(linkedSaleId)) {
+                    invoiceBySaleId.set(linkedSaleId, invoice);
+                }
+            }
+        }
+
+    }
+
+    return salesRows.map((item: any) => {
+        const linkedInvoice = invoiceBySaleId.get(String(item.id || ''));
+        const resolvedTicket80 = item.billing_ticket_url || linkedInvoice?.comprobante_ticket_url || linkedInvoice?.ticket_url || linkedInvoice?.url || undefined;
+        const resolvedA4 = item.billing_pdf_url || linkedInvoice?.pdf_url || item.legacy_invoice_url || undefined;
         const items = (item.st_sale_items || []).map((si: any) => ({
             product: {
                 cod: si.st_products?.cod || si.product_code || '',
@@ -1679,14 +1832,14 @@ export const getSales = async (): Promise<any[]> => {
             'Echeqs (JSON)': JSON.stringify([]),
             Estado: estado,
             ID_Turno: item.shift_id || undefined,
-            Facturacion: item.invoice_type || 'N',
-            Factura_CAE: item.legacy_cae || '',
-            Factura_Nro: item.legacy_invoice_number || '',
-            Factura_Fecha: item.sold_at,
-            Factura_Vto_CAE: '',
-            Factura_QR_Data: '',
-            Factura_URL: undefined,
-            Factura_Ticket_URL: undefined
+            Facturacion: item.billing_type || linkedInvoice?.invoice_type || item.invoice_type || 'N',
+            Factura_CAE: item.billing_cae || linkedInvoice?.cae || item.legacy_cae || '',
+            Factura_Nro: item.billing_number || linkedInvoice?.nro || item.legacy_invoice_number || '',
+            Factura_Fecha: linkedInvoice?.issued_at || linkedInvoice?.created_at || item.billing_date || item.sold_at,
+            Factura_Vto_CAE: linkedInvoice?.vto_cae || item.billing_vto_cae || '',
+            Factura_QR_Data: linkedInvoice?.qr_data || item.billing_qr_data || '',
+            Factura_URL: resolvedA4,
+            Factura_Ticket_URL: resolvedTicket80
         };
     });
 };
@@ -1747,6 +1900,9 @@ export const getCustomers = async (): Promise<Customer[]> => {
 export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
+    const isUuid = (value: string) =>
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+
     const { data: lastSale, error: lastSaleError } = await supabase
         .from('st_sales')
         .select('sale_number')
@@ -1765,7 +1921,15 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
             ? sale.customer.Id_Cliente
             : null;
 
+    console.log('[DIAG097 addSale sale id][api.addSale input]', {
+        saleId: sale.id,
+        shiftId,
+        customerId,
+        invoiceType: sale.facturacion || 'N',
+    });
+
     const saleInsert = {
+        ...(isUuid(String(sale.id || '')) ? { id: sale.id } : {}),
         sale_number: nextSaleNumber,
         sold_at: sale.date instanceof Date ? sale.date.toISOString() : new Date().toISOString(),
         customer_id: customerId,
@@ -1790,6 +1954,75 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
         .single();
 
     if (saleError) throw saleError;
+
+    console.log('[DIAG097 inserted st_sales id][api.addSale result]', {
+        requestedSaleId: sale.id,
+        insertedSaleId: insertedSale.id,
+        matches: String(sale.id || '') === String(insertedSale.id || ''),
+    });
+
+    const hasFiscalData = Boolean(sale.facturaInfo);
+    if (hasFiscalData) {
+        const facturaInfo: any = sale.facturaInfo || {};
+        const billingUpdate = {
+            billing_cae: facturaInfo?.cae ?? null,
+            billing_number: facturaInfo?.nro ?? null,
+            billing_vto_cae: facturaInfo?.vtoCae ?? facturaInfo?.vto_cae ?? null,
+            billing_qr_data: facturaInfo?.qrData ?? facturaInfo?.qr_data ?? null,
+            billing_pdf_url: facturaInfo?.url ?? facturaInfo?.pdf_url ?? null,
+            billing_ticket_url: facturaInfo?.ticketUrl ?? facturaInfo?.ticket_url ?? null,
+            billing_date: new Date().toISOString(),
+            legacy_cae: facturaInfo?.cae ?? null,
+            legacy_invoice_number: facturaInfo?.nro ?? null,
+            legacy_invoice_url: facturaInfo?.url ?? facturaInfo?.pdf_url ?? null,
+            updated_at: new Date().toISOString(),
+        };
+
+        const { error: billingUpdateError } = await supabase
+            .from('st_sales')
+            .update(billingUpdate)
+            .eq('id', insertedSale.id);
+
+        if (billingUpdateError) {
+            console.error('[DIAG098][api.addSale billing persist error]', {
+                saleId: insertedSale.id,
+                message: billingUpdateError.message,
+            });
+        } else {
+            Object.assign(insertedSale, billingUpdate);
+            console.log('[DIAG098][api.addSale billing persisted]', {
+                saleId: insertedSale.id,
+                cae: billingUpdate.billing_cae,
+                nro: billingUpdate.billing_number,
+                hasPdfUrl: Boolean(billingUpdate.billing_pdf_url),
+                hasTicketUrl: Boolean(billingUpdate.billing_ticket_url),
+            });
+        }
+    }
+
+    if ((sale.facturacion || 'N') !== 'N') {
+        const { data: linkedInvoice, error: linkedInvoiceError } = await supabase
+            .from('invoices')
+            .select('sale_id, nro, created_at')
+            .eq('sale_id', insertedSale.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (linkedInvoiceError) {
+            console.warn('[DIAG097 invoice sale id][api.addSale invoice lookup error]', {
+                saleId: insertedSale.id,
+                error: linkedInvoiceError.message,
+            });
+        } else {
+            console.log('[DIAG097 invoice sale id][api.addSale invoice lookup]', {
+                insertedSaleId: insertedSale.id,
+                invoiceSaleId: linkedInvoice?.sale_id || null,
+                invoiceNumber: linkedInvoice?.nro || null,
+                matches: String(insertedSale.id || '') === String(linkedInvoice?.sale_id || ''),
+            });
+        }
+    }
 
     const productCodes = sale.items
         .map(i => i.product?.cod)
@@ -1862,6 +2095,33 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
 
 export const updateSale = async (originalSale: Sale, updatedSale: Sale): Promise<void> => {
     await postToScript('updateSale', { originalSale, updatedSale });
+};
+
+export const updateSalePaymentAllocationSupabase = async (
+    saleId: string,
+    payment: { cash: number; digital: number; credit: number }
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!saleId) throw new Error('ID de venta inválido');
+
+    const { error } = await supabase
+        .from('st_sales')
+        .update({
+            payment_cash: Number(payment.cash || 0),
+            payment_digital: Number(payment.digital || 0),
+            payment_credit: Number(payment.credit || 0),
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', saleId);
+
+    if (error) throw error;
+};
+
+export const updateSalePaymentAllocation = async (
+    saleId: string,
+    payment: { cash: number; digital: number; credit: number }
+): Promise<void> => {
+    return updateSalePaymentAllocationSupabase(saleId, payment);
 };
 
 export const addCustomer = async (customerData: any): Promise<void> => {

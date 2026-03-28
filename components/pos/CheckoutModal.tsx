@@ -287,7 +287,8 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       return;
     }
 
-    if (generateInvoice && !billingDoc) {
+    const requiresManualDocument = condicionIVA !== 'Consumidor Final';
+    if (generateInvoice && requiresManualDocument && !billingDoc) {
       setError('Error: Debe ingresar el número de documento para generar la factura.');
       return;
     }
@@ -323,6 +324,13 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       },
       facturacion: generateInvoice ? facturacionType : 'N',
     };
+
+    console.log('[DIAG097 POS sale id][initial generated]', {
+      saleId: saleData.id,
+      isEdit: !!saleBeingEdited,
+      generateInvoice,
+      facturacion: saleData.facturacion,
+    });
 
     try {
       await onFinalizeSale(saleData, generateInvoice, { condicionIVA, facturacionType });

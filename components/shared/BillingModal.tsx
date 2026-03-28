@@ -118,20 +118,12 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, sal
         } as Customer
     };
 
-    console.log('[invoice_request_debug]', {
-        selectedInvoiceType: billingData.facturacionType,
-        condicionIVA: billingData.condicionIVA,
-        tipoDoc: billingData.customerDocType,
-        nroDoc: billingData.customerDoc ? `***${billingData.customerDoc.slice(-3)}` : 'N/A',
-        cbteTipo: billingData.facturacionType === 'A' ? 1 : 6
-    });
-
     try {
       const apiResponse = await api.generateElectronicInvoice(saleForBilling);
       
       const debugInfo = apiResponse.debug || [];
       const rawResponseLine = debugInfo.find((line: string) => line.startsWith('API Response Body:'));
-      const rawResponse = rawResponseLine ? rawResponseLine.substring('API Response Body: '.length) : 'No se pudo capturar la respuesta del proveedor.';
+            const rawResponse = rawResponseLine ? rawResponseLine.substring('API Response Body: '.length) : (debugInfo.length ? debugInfo.join('\n') : 'Sin detalle técnico devuelto por la función.');
       setRawApiResponse(rawResponse);
 
       if (apiResponse.status !== 'facturado' || !apiResponse.data) {
@@ -171,7 +163,7 @@ if (autoOpen) {
       if (!rawApiResponse && error.debugInfo) {
         const debugInfo = error.debugInfo || [];
         const rawResponseLine = debugInfo.find((line: string) => line.startsWith('API Response Body:'));
-        const rawResponse = rawResponseLine ? rawResponseLine.substring('API Response Body: '.length) : 'No se pudo capturar la respuesta del proveedor.';
+                const rawResponse = rawResponseLine ? rawResponseLine.substring('API Response Body: '.length) : (debugInfo.length ? debugInfo.join('\n') : 'Sin detalle técnico devuelto por la función.');
         setRawApiResponse(rawResponse);
       }
 

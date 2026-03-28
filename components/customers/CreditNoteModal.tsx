@@ -4,6 +4,7 @@ import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { useToast } from '../../contexts/ToastContext';
 import { SearchableSelect } from '../ui/SearchableSelect';
+import { getProductSearchText } from '../../utils/productFilters';
 
 interface CreditNoteModalProps {
   isOpen: boolean;
@@ -62,7 +63,8 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
           const precioFinal = typeof p['Precio Final'] === 'number' ? p['Precio Final'] : 0;
           return {
             value: p.cod,
-            label: `[${p.cod}] ${p.Producto} - $${precioFinal.toLocaleString('es-AR')}`
+            label: `[${p.cod}] ${p.Producto} - $${precioFinal.toLocaleString('es-AR')}`,
+            searchText: getProductSearchText(p),
           };
         })
   , [products]);
