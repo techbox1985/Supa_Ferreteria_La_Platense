@@ -643,13 +643,18 @@ export const importSupplierCostsSupabase = async (
     return summary;
 };
 
-export const updateUsdProductsByExchangeRateSupabase = async (exchangeRate: number): Promise<{ updated: number }> => {
+export const updateUsdProductsByExchangeRateSupabase = async (
+    exchangeRate: number,
+    onProgress?: (stage: string, percent: number) => void
+): Promise<{ updated: number }> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
     const safeExchangeRate = Number(exchangeRate);
     if (!Number.isFinite(safeExchangeRate) || safeExchangeRate <= 0) {
         throw new Error('Tipo de cambio inválido.');
     }
+
+    onProgress?.('searching', 10);
 
     const { data: usdProducts, error: productsError } = await supabase
         .from('st_products')
@@ -661,7 +666,12 @@ export const updateUsdProductsByExchangeRateSupabase = async (exchangeRate: numb
     if (productsError) throw productsError;
 
     const products = usdProducts || [];
-    if (products.length === 0) return { updated: 0 };
+    if (products.length === 0) {
+        onProgress?.('done', 100);
+        return { updated: 0 };
+    }
+
+    onProgress?.('recalculating', 35);
 
     const supplierIds = Array.from(new Set(products.map((product: any) => String(product.supplier_id || '')).filter(Boolean)));
     const taxBySupplierId = new Map<string, { tax1: number; tax2: number; tax3: number }>();
@@ -683,9 +693,13 @@ export const updateUsdProductsByExchangeRateSupabase = async (exchangeRate: numb
         }
     }
 
-    let updated = 0;
+    onProgress?.('saving', 55);
 
-    for (const product of products) {
+    let updated = 0;
+    const total = products.length;
+
+    for (let i = 0; i < total; i += 1) {
+        const product = products[i];
         const costUsd = Number((product as any).cost_price_usd ?? 0);
         if (!Number.isFinite(costUsd) || costUsd <= 0) continue;
 
@@ -706,7 +720,12 @@ export const updateUsdProductsByExchangeRateSupabase = async (exchangeRate: numb
 
         if (updateError) throw updateError;
         updated += 1;
+
+        const savePercent = 55 + Math.round(((i + 1) / total) * 35);
+        onProgress?.('saving', savePercent);
     }
+
+    onProgress?.('finalizing', 95);
 
     return { updated };
 };

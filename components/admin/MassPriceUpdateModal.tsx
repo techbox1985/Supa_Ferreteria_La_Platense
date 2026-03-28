@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import * as XLSX from 'xlsx';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
@@ -19,6 +20,18 @@ type TargetPriceType = 'P.Costo' | 'Precio';
 type ActionMode = 'mass-update' | 'supplier-import';
 type ImportCurrency = 'ARS' | 'USD';
 type SupplierImportProgressStage = 'idle' | 'parsing-file' | 'building-preview' | 'importing-rows' | 'finalizing' | 'done';
+type UsdUpdateStage = 'idle' | 'searching' | 'recalculating' | 'saving' | 'finalizing' | 'done' | 'error';
+
+interface PriceColumnCandidate {
+  label: string;
+  normalizedLabel: string;
+  inferredCurrency: 'ARS' | 'USD' | null;
+}
+
+interface FileAnalysis {
+  headerRowIndex: number;
+  priceColumnCandidates: PriceColumnCandidate[];
+}
 
 interface SupplierOption {
   id: string;
@@ -119,7 +132,58 @@ const findHeaderIndex = (headers: string[], aliases: string[]): number => {
   return headers.findIndex((header) => aliasSet.has(header));
 };
 
-const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; ignored: number; totalRows: number; errors: string[] } => {
+const isPriceHeader = (normalizedHeader: string): boolean => {
+  if (!normalizedHeader) return false;
+  return /precio|costo|cost|price|importe|tarifa/.test(normalizedHeader);
+};
+
+const inferCurrencyFromHeader = (normalizedHeader: string): 'ARS' | 'USD' | null => {
+  if (/usd|dolar|dollar/.test(normalizedHeader)) return 'USD';
+  if (/ars|peso/.test(normalizedHeader)) return 'ARS';
+  return null;
+};
+
+const findAllPriceColumnCandidates = (rawHeaders: string[], normalizedHeaders: string[]): PriceColumnCandidate[] =>
+  normalizedHeaders.reduce<PriceColumnCandidate[]>((acc, h, i) => {
+    if (isPriceHeader(h)) {
+      acc.push({ label: rawHeaders[i] || h, normalizedLabel: h, inferredCurrency: inferCurrencyFromHeader(h) });
+    }
+    return acc;
+  }, []);
+
+const CODE_HEADER_ALIASES = ['cod', 'codigo', 'código', 'articulo', 'artículo', 'code', 'sku'];
+const DESC_HEADER_ALIASES = ['descripcion', 'descripción', 'description', 'detalle', 'producto', 'nombre', 'name'];
+
+const analyzeImportText = (raw: string): FileAnalysis => {
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length === 0) return { headerRowIndex: 0, priceColumnCandidates: [] };
+
+  for (let i = 0; i < Math.min(lines.length, 20); i += 1) {
+    for (const delimiter of ['\t', ';', ',', '|']) {
+      const rawCells = splitDelimitedLine(lines[i], delimiter);
+      if (rawCells.length < 2) continue;
+      const normCells = rawCells.map(normalizeHeader);
+      const hasCode = findHeaderIndex(normCells, CODE_HEADER_ALIASES) >= 0;
+      if (!hasCode) continue;
+      const priceCandidates = findAllPriceColumnCandidates(rawCells, normCells);
+      const hasDesc = findHeaderIndex(normCells, DESC_HEADER_ALIASES) >= 0;
+      if (priceCandidates.length > 0 || hasDesc) {
+        return { headerRowIndex: i, priceColumnCandidates: priceCandidates };
+      }
+    }
+  }
+
+  // Fallback: first non-empty row
+  const delimiter = detectDelimiter(lines);
+  const rawCells = splitDelimitedLine(lines[0], delimiter);
+  const normCells = rawCells.map(normalizeHeader);
+  return { headerRowIndex: 0, priceColumnCandidates: findAllPriceColumnCandidates(rawCells, normCells) };
+};
+
+const parseSupplierImportRows = (
+  raw: string,
+  opts?: { headerRowIndex?: number; selectedPriceLabel?: string }
+): { rows: SupplierCostImportRow[]; ignored: number; totalRows: number; errors: string[] } => {
   const lines = raw
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -129,15 +193,32 @@ const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; 
     return { rows: [], ignored: 0, totalRows: 0, errors: ['No hay datos para importar.'] };
   }
 
-  const headerLine = lines[0];
-  const delimiter = detectDelimiter(lines);
+  const headerIdx = opts?.headerRowIndex ?? 0;
+  const relevantLines = lines.slice(headerIdx);
+
+  if (relevantLines.length === 0) {
+    return { rows: [], ignored: 0, totalRows: 0, errors: ['No hay datos después de la fila de cabecera detectada.'] };
+  }
+
+  const headerLine = relevantLines[0];
+  const delimiter = detectDelimiter(relevantLines);
   const rawHeaders = splitDelimitedLine(headerLine, delimiter);
   const headers = rawHeaders.map((header) => normalizeHeader(header));
 
-  const codIndex = findHeaderIndex(headers, ['cod', 'codigo', 'código', 'code', 'sku']);
-  const costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo']);
+  const codIndex = findHeaderIndex(headers, ['cod', 'codigo', 'código', 'articulo', 'artículo', 'code', 'sku']);
+
+  let costIndex: number;
+  if (opts?.selectedPriceLabel) {
+    costIndex = headers.findIndex((h) => h === normalizeHeader(opts.selectedPriceLabel!));
+    if (costIndex < 0) {
+      costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd']);
+    }
+  } else {
+    costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd']);
+  }
+
   const barcodeIndex = findHeaderIndex(headers, ['barcode', 'ean', 'cod_barras', 'codigo de barras', 'código de barras', 'cod.barras']);
-  const nameIndex = findHeaderIndex(headers, ['name', 'nombre']);
+  const nameIndex = findHeaderIndex(headers, ['name', 'nombre', 'descripcion', 'descripción', 'description', 'detalle']);
   const categoryIndex = findHeaderIndex(headers, ['category', 'categoria', 'rubro']);
   const subCategoryIndex = findHeaderIndex(headers, ['sub_category', 'subcategoria', 'subrubro']);
   const observationsIndex = findHeaderIndex(headers, ['observations', 'observacion', 'observaciones']);
@@ -145,13 +226,13 @@ const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; 
 
   if (codIndex < 0 || costIndex < 0) {
     const missing: string[] = [];
-    if (codIndex < 0) missing.push('cod/codigo/code/sku');
-    if (costIndex < 0) missing.push('cost_price/cost/costo/precio_costo');
+    if (codIndex < 0) missing.push('cod/codigo/articulo/code/sku');
+    if (costIndex < 0) missing.push('cost_price/costo/precio');
 
     return {
       rows: [],
-      ignored: Math.max(lines.length - 1, 0),
-      totalRows: Math.max(lines.length - 1, 0),
+      ignored: Math.max(relevantLines.length - 1, 0),
+      totalRows: Math.max(relevantLines.length - 1, 0),
       errors: [
         `No se detectaron columnas requeridas: ${missing.join(' y ')}.`,
         `Encabezados detectados: ${rawHeaders.join(', ') || '(vacío)'}.`,
@@ -162,8 +243,8 @@ const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; 
   const rows: SupplierCostImportRow[] = [];
   let ignored = 0;
 
-  for (let i = 1; i < lines.length; i += 1) {
-    const cols = splitDelimitedLine(lines[i], delimiter).map((c) => c.trim());
+  for (let i = 1; i < relevantLines.length; i += 1) {
+    const cols = splitDelimitedLine(relevantLines[i], delimiter).map((c) => c.trim());
     const cod = String(cols[codIndex] || '').trim();
     const costValue = String(cols[costIndex] || '').trim();
     const barcode = barcodeIndex >= 0 ? String(cols[barcodeIndex] || '').trim() : '';
@@ -200,7 +281,7 @@ const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; 
   return {
     rows,
     ignored,
-    totalRows: lines.length - 1,
+    totalRows: relevantLines.length - 1,
     errors: [],
   };
 };
@@ -239,6 +320,15 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const [exchangeRateSource, setExchangeRateSource] = useState('');
   const [importSummary, setImportSummary] = useState<SupplierCostImportSummary | null>(null);
   const [notFoundCodeSamples, setNotFoundCodeSamples] = useState<string[]>([]);
+
+  const [isProcessingUsdUpdate, setIsProcessingUsdUpdate] = useState(false);
+  const [usdUpdateStage, setUsdUpdateStage] = useState<UsdUpdateStage>('idle');
+  const [usdUpdatePercent, setUsdUpdatePercent] = useState(0);
+  const [usdUpdateResult, setUsdUpdateResult] = useState<{ updated: number } | null>(null);
+  const [usdUpdateError, setUsdUpdateError] = useState('');
+
+  const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
+  const [selectedPriceLabel, setSelectedPriceLabel] = useState('');
 
   const { addToast } = useToast();
 
@@ -290,6 +380,13 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setExchangeRateSource('');
       setImportSummary(null);
       setNotFoundCodeSamples([]);
+      setIsProcessingUsdUpdate(false);
+      setUsdUpdateStage('idle');
+      setUsdUpdatePercent(0);
+      setUsdUpdateResult(null);
+      setUsdUpdateError('');
+      setFileAnalysis(null);
+      setSelectedPriceLabel('');
     }
   }, [isOpen]);
 
@@ -303,6 +400,24 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     setSupplierImportProgress({ stage: 'idle', percent: 0 });
     setExchangeRateWarning('');
   }, [selectedSupplierId, importText, fileCurrency, exchangeRate, mode]);
+
+  useEffect(() => {
+    if (!importText) {
+      setFileAnalysis(null);
+      setSelectedPriceLabel('');
+      return;
+    }
+    const analysis = analyzeImportText(importText);
+    setFileAnalysis(analysis);
+    if (analysis.priceColumnCandidates.length === 1) {
+      const candidate = analysis.priceColumnCandidates[0];
+      setSelectedPriceLabel(candidate.normalizedLabel);
+      if (candidate.inferredCurrency) setFileCurrency(candidate.inferredCurrency);
+    } else if (analysis.priceColumnCandidates.length === 0) {
+      setSelectedPriceLabel('');
+    }
+    // If multiple candidates → leave selectedPriceLabel empty so user must choose
+  }, [importText]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchExchangeRateSuggestion = useCallback(async () => {
     setIsFetchingExchangeRate(true);
@@ -339,6 +454,8 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     setNotFoundCodeSamples([]);
     setSupplierImportStep('edit');
     setSupplierImportProgress({ stage: 'idle', percent: 0 });
+    setFileAnalysis(null);
+    setSelectedPriceLabel('');
     setError('');
   };
 
@@ -385,10 +502,31 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     const file = event.target.files?.[0];
     if (!file) return;
 
+    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+
     try {
-      const text = await file.text();
-      setImportText(text);
-      setError('');
+      if (ext === 'xlsx' || ext === 'xls') {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) {
+          setError('El archivo Excel no tiene hojas.');
+          return;
+        }
+        const worksheet = workbook.Sheets[sheetName];
+        const aoa = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, raw: false, defval: '' }) as unknown[][];
+        if (aoa.length === 0) {
+          setError('El archivo Excel está vacío.');
+          return;
+        }
+        const tsv = aoa.map((row) => (row as unknown[]).map((cell) => String(cell ?? '')).join('\t')).join('\n');
+        setImportText(tsv);
+        setError('');
+      } else {
+        const text = await file.text();
+        setImportText(text);
+        setError('');
+      }
     } catch {
       setError('No se pudo leer el archivo seleccionado.');
     }
@@ -422,8 +560,16 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       return;
     }
 
+    if (fileAnalysis && fileAnalysis.priceColumnCandidates.length > 1 && !selectedPriceLabel) {
+      setError('Se detectaron múltiples columnas de precio. Por favor seleccionar cuál usar antes de continuar.');
+      return;
+    }
+
     setSupplierImportProgress({ stage: 'parsing-file', percent: 20 });
-    const parsed = parseSupplierImportRows(importText);
+    const parsed = parseSupplierImportRows(importText, {
+      headerRowIndex: fileAnalysis?.headerRowIndex ?? 0,
+      selectedPriceLabel: selectedPriceLabel || undefined,
+    });
     if (parsed.errors.length > 0) {
       setError(parsed.errors.join(' '));
       setSupplierImportProgress({ stage: 'idle', percent: 0 });
@@ -532,22 +678,35 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
   const handleUpdateUsdByExchangeRate = async () => {
     setError('');
+    setUsdUpdateError('');
+    setUsdUpdateResult(null);
+    setUsdUpdatePercent(0);
     const nextRate = parseFloat(String(usdUpdateRate).replace(',', '.'));
     if (!Number.isFinite(nextRate) || nextRate <= 0) {
-      setError('Debe ingresar un tipo de cambio válido mayor a 0 para actualizar USD.');
+      setUsdUpdateError('Debe ingresar un tipo de cambio válido mayor a 0 para actualizar USD.');
       return;
     }
 
-    setIsProcessing(true);
+    setIsProcessingUsdUpdate(true);
+    setUsdUpdateStage('searching');
+    setUsdUpdatePercent(10);
     try {
-      const result = await api.updateUsdProductsByExchangeRateSupabase(nextRate);
+      const result = await api.updateUsdProductsByExchangeRateSupabase(nextRate, (stage, percent) => {
+        setUsdUpdateStage(stage as UsdUpdateStage);
+        setUsdUpdatePercent(percent);
+      });
+      setUsdUpdateResult(result);
+      setUsdUpdateStage('done');
+      setUsdUpdatePercent(100);
       addToast(`Actualización USD completada. Productos actualizados: ${result.updated}.`, 'success');
       onUpdate();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
-      setError(`Error: ${errorMessage}`);
+      setUsdUpdateError(errorMessage);
+      setUsdUpdateStage('error');
+      setUsdUpdatePercent(0);
     } finally {
-      setIsProcessing(false);
+      setIsProcessingUsdUpdate(false);
     }
   };
   
@@ -587,6 +746,16 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     'importing-rows': 'Importando filas',
     finalizing: 'Finalizando importación',
     done: 'Proceso completado',
+  };
+
+  const usdUpdateStageLabel: Record<UsdUpdateStage, string> = {
+    idle: 'Listo',
+    searching: 'Buscando productos USD…',
+    recalculating: 'Recalculando precios…',
+    saving: 'Guardando cambios…',
+    finalizing: 'Finalizando…',
+    done: 'Completado',
+    error: 'Error',
   };
 
   return (
@@ -766,28 +935,82 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                     inputMode="decimal"
                     value={usdUpdateRate}
                     onChange={(e) => setUsdUpdateRate(e.target.value)}
-                    className="mt-1 block w-full border-amber-300 rounded-md"
+                    disabled={isProcessingUsdUpdate}
+                    className="mt-1 block w-full border-amber-300 rounded-md disabled:bg-amber-100 disabled:text-amber-600"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={handleUpdateUsdByExchangeRate}
-                  disabled={isProcessing}
-                  className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 disabled:bg-gray-400"
+                  disabled={isProcessingUsdUpdate}
+                  className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 disabled:bg-gray-400 flex items-center gap-2"
                 >
-                  Actualizar precios USD
+                  {isProcessingUsdUpdate ? (
+                    <>
+                      <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin" />
+                      <span>Actualizando…</span>
+                    </>
+                  ) : (
+                    <span>Actualizar precios USD</span>
+                  )}
                 </button>
               </div>
+
+              {isProcessingUsdUpdate && (
+                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 p-3">
+                  <div className="flex items-center justify-between text-sm text-amber-900">
+                    <span className="font-medium">{usdUpdateStageLabel[usdUpdateStage]}</span>
+                    <span className="font-semibold">{usdUpdatePercent}%</span>
+                  </div>
+                  <div className="mt-2 h-2 w-full rounded-full bg-amber-200 overflow-hidden">
+                    <div
+                      className="h-full bg-amber-600 transition-all duration-300"
+                      style={{ width: `${usdUpdatePercent}%` }}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-amber-700">Etapas: buscando → recalculando → guardando → finalizando</p>
+                </div>
+              )}
+
+              {usdUpdateStage === 'done' && usdUpdateResult && (
+                <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-green-900 text-sm">Actualización completada</p>
+                    <p className="text-sm text-green-800 mt-1">
+                      <span className="font-bold">{usdUpdateResult.updated}</span>{' '}
+                      producto{usdUpdateResult.updated !== 1 ? 's' : ''} actualizados · TC aplicado:{' '}
+                      <span className="font-bold">${Number(usdUpdateRate).toLocaleString('es-AR')} ARS/USD</span>
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUsdUpdateStage('idle');
+                      setUsdUpdateResult(null);
+                      setUsdUpdateError('');
+                      setUsdUpdatePercent(0);
+                    }}
+                    className="text-xs text-green-700 underline hover:text-green-900 shrink-0 mt-1"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+              )}
+
+              {usdUpdateStage === 'error' && usdUpdateError && (
+                <p className="mt-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{usdUpdateError}</p>
+              )}
             </div>
 
             <div>
               <label className="block text-sm font-medium">Archivo (opcional)</label>
               <input
                 type="file"
-                accept=".csv,.txt,.tsv"
+                accept=".csv,.txt,.tsv,.xlsx,.xls"
                 onChange={handleImportFile}
                 className="mt-1 block w-full text-sm"
               />
+              <p className="mt-1 text-xs text-gray-500">Formatos soportados: CSV, TXT, TSV, XLSX. Se usa la primera hoja del archivo Excel.</p>
             </div>
 
             <div className="flex justify-end">
@@ -811,6 +1034,52 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                 placeholder={"cod\tcost_price\tbarcode\tname\tcategory\tsub_category\tobservations\tcost_currency\nA001\t12500\t779000000001\tProducto\tREPUESTOS\tMOTORES\t\tARS\nA002\t12.5\t\t\t\t\t\tUSD"}
               />
             </div>
+
+            {fileAnalysis && fileAnalysis.headerRowIndex > 0 && (
+              <div className="rounded-lg border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
+                <p className="font-semibold">Cabecera detectada automáticamente</p>
+                <p className="mt-1 text-xs text-teal-700">
+                  Fila de datos reales encontrada en la fila <span className="font-bold">{fileAnalysis.headerRowIndex + 1}</span>.
+                  Se ignorarán las primeras <span className="font-bold">{fileAnalysis.headerRowIndex}</span> fila(s) decorativas.
+                </p>
+              </div>
+            )}
+
+            {fileAnalysis && fileAnalysis.priceColumnCandidates.length > 1 && (
+              <div className="rounded-lg border border-violet-200 bg-violet-50 p-3">
+                <p className="text-sm font-semibold text-violet-900">Múltiples columnas de precio detectadas</p>
+                <p className="text-xs text-violet-700 mt-1">
+                  El archivo tiene {fileAnalysis.priceColumnCandidates.length} columnas de precio. Seleccioná cuál usar como costo de importación.
+                </p>
+                <select
+                  value={selectedPriceLabel}
+                  onChange={(e) => {
+                    const candidate = fileAnalysis.priceColumnCandidates.find((c) => c.normalizedLabel === e.target.value);
+                    setSelectedPriceLabel(e.target.value);
+                    if (candidate?.inferredCurrency) setFileCurrency(candidate.inferredCurrency);
+                  }}
+                  className="mt-2 block w-full border-violet-300 rounded-md text-sm bg-white"
+                >
+                  <option value="">— Seleccionar columna de precio —</option>
+                  {fileAnalysis.priceColumnCandidates.map((c) => (
+                    <option key={c.normalizedLabel} value={c.normalizedLabel}>
+                      {c.label}{c.inferredCurrency ? ` (${c.inferredCurrency})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {!selectedPriceLabel && (
+                  <p className="mt-1 text-xs text-amber-700 font-medium">Requerido: seleccioná una columna para continuar.</p>
+                )}
+                {selectedPriceLabel && (
+                  <p className="mt-1 text-xs text-violet-700">
+                    Columna seleccionada: <span className="font-bold">{fileAnalysis.priceColumnCandidates.find((c) => c.normalizedLabel === selectedPriceLabel)?.label ?? selectedPriceLabel}</span>
+                    {fileAnalysis.priceColumnCandidates.find((c) => c.normalizedLabel === selectedPriceLabel)?.inferredCurrency
+                      ? ` → moneda del archivo sincronizada a ${fileAnalysis.priceColumnCandidates.find((c) => c.normalizedLabel === selectedPriceLabel)?.inferredCurrency}`
+                      : ''}
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="bg-blue-50 text-blue-900 text-sm p-3 rounded-md">
               Reglas: solo actualiza productos existentes por cod + proveedor seleccionado. Recalcula final_price solo cuando auto_price = true. No toca offer_price ni crea productos.
