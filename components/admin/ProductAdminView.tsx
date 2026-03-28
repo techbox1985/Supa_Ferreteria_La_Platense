@@ -19,6 +19,19 @@ interface ProductAdminViewProps {
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const formatDateTime = (value: any): string => {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '-';
+  return parsed.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
 export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   products: _legacyProducts,
   suppliers: _legacySuppliers,
@@ -428,6 +441,7 @@ const [, setIsLoading] = useState(true);
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stock</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Mínimo</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Última actualización</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="relative px-4 py-3">
                   <span className="sr-only">Acciones</span>
@@ -524,6 +538,10 @@ const [, setIsLoading] = useState(true);
 
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {product.Categoria}
+                    </td>
+
+                    <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
+                      {formatDateTime((product as any)['Ultima.Actualizacion'])}
                     </td>
 
                     <td className="px-4 py-3 text-center">

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
@@ -18,6 +18,7 @@ type UpdateType = 'percentage' | 'fixed';
 type TargetPriceType = 'P.Costo' | 'Precio';
 type ActionMode = 'mass-update' | 'supplier-import';
 type ImportCurrency = 'ARS' | 'USD';
+type SupplierImportProgressStage = 'idle' | 'parsing-file' | 'building-preview' | 'importing-rows' | 'finalizing' | 'done';
 
 interface SupplierOption {
   id: string;
@@ -32,17 +33,91 @@ const parseCostValue = (value: string): number => {
   const raw = String(value || '').trim();
   if (!raw) return Number.NaN;
 
-  const hasDot = raw.includes('.');
-  const hasComma = raw.includes(',');
+  const cleaned = raw.replace(/\s+/g, '').replace(/[^0-9,.-]/g, '');
+  if (!cleaned) return Number.NaN;
+
+  const hasDot = cleaned.includes('.');
+  const hasComma = cleaned.includes(',');
 
   if (hasDot && hasComma) {
-    return Number(raw.replace(/\./g, '').replace(',', '.'));
+    const lastDot = cleaned.lastIndexOf('.');
+    const lastComma = cleaned.lastIndexOf(',');
+    if (lastComma > lastDot) {
+      return Number(cleaned.replace(/\./g, '').replace(',', '.'));
+    }
+    return Number(cleaned.replace(/,/g, ''));
   }
 
-  return Number(raw.replace(',', '.'));
+  return Number(cleaned.replace(',', '.'));
 };
 
 const normalizeImportKey = (value: string): string => String(value || '').trim().toLowerCase();
+
+const normalizeHeader = (value: string): string =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[()]/g, '')
+    .replace(/\./g, '_')
+    .replace(/[\s-]+/g, '_')
+    .replace(/__+/g, '_');
+
+const splitDelimitedLine = (line: string, delimiter: string): string[] => {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === delimiter && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current.trim());
+  return result;
+};
+
+const detectDelimiter = (lines: string[]): string => {
+  const candidates = ['\t', ';', ','];
+  const sample = lines.slice(0, 5);
+  let best = ',';
+  let bestScore = -1;
+
+  for (const delimiter of candidates) {
+    const counts = sample.map((line) => splitDelimitedLine(line, delimiter).length);
+    const min = Math.min(...counts);
+    const avg = counts.reduce((acc, n) => acc + n, 0) / Math.max(counts.length, 1);
+    const score = min > 1 ? avg : 0;
+    if (score > bestScore) {
+      best = delimiter;
+      bestScore = score;
+    }
+  }
+
+  return best;
+};
+
+const findHeaderIndex = (headers: string[], aliases: string[]): number => {
+  const aliasSet = new Set(aliases.map((alias) => normalizeHeader(alias)));
+  return headers.findIndex((header) => aliasSet.has(header));
+};
 
 const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; ignored: number; totalRows: number; errors: string[] } => {
   const lines = raw
@@ -55,26 +130,32 @@ const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; 
   }
 
   const headerLine = lines[0];
-  const delimiter = headerLine.includes('\t') ? '\t' : headerLine.includes(';') ? ';' : ',';
-  const headers = headerLine
-    .split(delimiter)
-    .map((h) => h.trim().toLowerCase());
+  const delimiter = detectDelimiter(lines);
+  const rawHeaders = splitDelimitedLine(headerLine, delimiter);
+  const headers = rawHeaders.map((header) => normalizeHeader(header));
 
-  const codIndex = headers.findIndex((h) => h === 'cod');
-  const costIndex = headers.findIndex((h) => h === 'cost_price' || h === 'costprice' || h === 'cost' || h === 'costo');
-  const barcodeIndex = headers.findIndex((h) => h === 'barcode' || h === 'codigo_barras' || h === 'cod.barras');
-  const nameIndex = headers.findIndex((h) => h === 'name' || h === 'nombre');
-  const categoryIndex = headers.findIndex((h) => h === 'category' || h === 'categoria');
-  const subCategoryIndex = headers.findIndex((h) => h === 'sub_category' || h === 'subcategoria' || h === 'sub categoria');
-  const observationsIndex = headers.findIndex((h) => h === 'observations' || h === 'observacion' || h === 'observaciones');
-  const costCurrencyIndex = headers.findIndex((h) => h === 'cost_currency' || h === 'currency' || h === 'moneda');
+  const codIndex = findHeaderIndex(headers, ['cod', 'codigo', 'código', 'code', 'sku']);
+  const costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo']);
+  const barcodeIndex = findHeaderIndex(headers, ['barcode', 'ean', 'cod_barras', 'codigo de barras', 'código de barras', 'cod.barras']);
+  const nameIndex = findHeaderIndex(headers, ['name', 'nombre']);
+  const categoryIndex = findHeaderIndex(headers, ['category', 'categoria', 'rubro']);
+  const subCategoryIndex = findHeaderIndex(headers, ['sub_category', 'subcategoria', 'subrubro']);
+  const observationsIndex = findHeaderIndex(headers, ['observations', 'observacion', 'observaciones']);
+  const costCurrencyIndex = findHeaderIndex(headers, ['currency', 'moneda', 'cost_currency']);
 
   if (codIndex < 0 || costIndex < 0) {
+    const missing: string[] = [];
+    if (codIndex < 0) missing.push('cod/codigo/code/sku');
+    if (costIndex < 0) missing.push('cost_price/cost/costo/precio_costo');
+
     return {
       rows: [],
       ignored: Math.max(lines.length - 1, 0),
       totalRows: Math.max(lines.length - 1, 0),
-      errors: ['La tabla debe incluir encabezados con al menos: cod y cost_price.'],
+      errors: [
+        `No se detectaron columnas requeridas: ${missing.join(' y ')}.`,
+        `Encabezados detectados: ${rawHeaders.join(', ') || '(vacío)'}.`,
+      ],
     };
   }
 
@@ -82,7 +163,7 @@ const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; 
   let ignored = 0;
 
   for (let i = 1; i < lines.length; i += 1) {
-    const cols = lines[i].split(delimiter).map((c) => c.trim());
+    const cols = splitDelimitedLine(lines[i], delimiter).map((c) => c.trim());
     const cod = String(cols[codIndex] || '').trim();
     const costValue = String(cols[costIndex] || '').trim();
     const barcode = barcodeIndex >= 0 ? String(cols[barcodeIndex] || '').trim() : '';
@@ -152,6 +233,10 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const [parsedImportRows, setParsedImportRows] = useState<SupplierCostImportRow[]>([]);
   const [importPreviewRows, setImportPreviewRows] = useState<SupplierCostImportPreviewRow[]>([]);
   const [supplierImportStep, setSupplierImportStep] = useState<'edit' | 'preview' | 'result'>('edit');
+  const [supplierImportProgress, setSupplierImportProgress] = useState<{ stage: SupplierImportProgressStage; percent: number }>({ stage: 'idle', percent: 0 });
+  const [isFetchingExchangeRate, setIsFetchingExchangeRate] = useState(false);
+  const [exchangeRateWarning, setExchangeRateWarning] = useState('');
+  const [exchangeRateSource, setExchangeRateSource] = useState('');
   const [importSummary, setImportSummary] = useState<SupplierCostImportSummary | null>(null);
   const [notFoundCodeSamples, setNotFoundCodeSamples] = useState<string[]>([]);
 
@@ -199,6 +284,10 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setParsedImportRows([]);
       setImportPreviewRows([]);
       setSupplierImportStep('edit');
+      setSupplierImportProgress({ stage: 'idle', percent: 0 });
+      setIsFetchingExchangeRate(false);
+      setExchangeRateWarning('');
+      setExchangeRateSource('');
       setImportSummary(null);
       setNotFoundCodeSamples([]);
     }
@@ -211,7 +300,47 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     setImportSummary(null);
     setNotFoundCodeSamples([]);
     setSupplierImportStep('edit');
+    setSupplierImportProgress({ stage: 'idle', percent: 0 });
+    setExchangeRateWarning('');
   }, [selectedSupplierId, importText, fileCurrency, exchangeRate, mode]);
+
+  const fetchExchangeRateSuggestion = useCallback(async () => {
+    setIsFetchingExchangeRate(true);
+    setExchangeRateWarning('');
+    try {
+      const suggestion = await api.fetchUsdArsExchangeRateSuggestion();
+      const formatted = String(Number(suggestion.rate.toFixed(2)));
+      setExchangeRate(formatted);
+      setUsdUpdateRate(formatted);
+      setExchangeRateSource(suggestion.source);
+    } catch {
+      setExchangeRateWarning('No se pudo obtener el dólar actual. Ingresalo manualmente.');
+      setExchangeRateSource('');
+      if (!exchangeRate) {
+        setExchangeRate('');
+      }
+    } finally {
+      setIsFetchingExchangeRate(false);
+    }
+  }, [exchangeRate]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (mode !== 'supplier-import') return;
+    if (fileCurrency !== 'USD') return;
+    fetchExchangeRateSuggestion();
+  }, [fileCurrency, fetchExchangeRateSuggestion, isOpen, mode]);
+
+  const resetSupplierImportFlow = () => {
+    setImportText('');
+    setParsedImportRows([]);
+    setImportPreviewRows([]);
+    setImportSummary(null);
+    setNotFoundCodeSamples([]);
+    setSupplierImportStep('edit');
+    setSupplierImportProgress({ stage: 'idle', percent: 0 });
+    setError('');
+  };
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
@@ -293,9 +422,11 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       return;
     }
 
+    setSupplierImportProgress({ stage: 'parsing-file', percent: 20 });
     const parsed = parseSupplierImportRows(importText);
     if (parsed.errors.length > 0) {
       setError(parsed.errors.join(' '));
+      setSupplierImportProgress({ stage: 'idle', percent: 0 });
       return;
     }
 
@@ -307,6 +438,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
     setIsProcessing(true);
     try {
+      setSupplierImportProgress({ stage: 'building-preview', percent: 55 });
       const preview = await api.previewSupplierCostsSupabase(selectedSupplierId, parsed.rows, {
         fileCurrency,
         exchangeRate: parsedExchangeRate,
@@ -314,9 +446,11 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setParsedImportRows(parsed.rows);
       setImportPreviewRows(preview);
       setSupplierImportStep('preview');
+      setSupplierImportProgress({ stage: 'done', percent: 100 });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
       setError(`Error: ${errorMessage}`);
+      setSupplierImportProgress({ stage: 'idle', percent: 0 });
     } finally {
       setIsProcessing(false);
     }
@@ -345,6 +479,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
     setIsProcessing(true);
     try {
+      setSupplierImportProgress({ stage: 'importing-rows', percent: 70 });
       const summary = await api.importSupplierCostsSupabase(selectedSupplierId, parsedImportRows, {
         fileCurrency,
         exchangeRate: parsedExchangeRate,
@@ -357,6 +492,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
       setImportSummary(mergedSummary);
       setSupplierImportStep('result');
+      setSupplierImportProgress({ stage: 'finalizing', percent: 90 });
 
       if (mergedSummary.notFound > 0) {
         try {
@@ -384,9 +520,11 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
       addToast('Importación de costos finalizada.', 'success');
       onUpdate();
+      setSupplierImportProgress({ stage: 'done', percent: 100 });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
       setError(`Error: ${errorMessage}`);
+      setSupplierImportProgress({ stage: 'idle', percent: 0 });
     } finally {
       setIsProcessing(false);
     }
@@ -440,6 +578,15 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     notFound: importPreviewRows.filter((row) => row.status === 'not found').length,
     willUpdate: importPreviewRows.filter((row) => row.result === 'will update').length,
     noChange: importPreviewRows.filter((row) => row.result === 'no change').length,
+  };
+
+  const progressLabelByStage: Record<SupplierImportProgressStage, string> = {
+    idle: 'Listo para iniciar',
+    'parsing-file': 'Parseando archivo',
+    'building-preview': 'Construyendo vista previa',
+    'importing-rows': 'Importando filas',
+    finalizing: 'Finalizando importación',
+    done: 'Proceso completado',
   };
 
   return (
@@ -595,7 +742,16 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                   disabled={fileCurrency !== 'USD'}
                   className={`mt-1 block w-full border-gray-300 rounded-md ${fileCurrency !== 'USD' ? 'bg-gray-100 text-gray-500' : ''}`}
                 />
-                <p className="mt-1 text-xs text-gray-500">Tipo de cambio actual: {exchangeRate || '0'} ARS/USD</p>
+                {fileCurrency === 'USD' && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    {isFetchingExchangeRate
+                      ? 'Obteniendo cotizacion sugerida...'
+                      : `Tipo de cambio sugerido: ${exchangeRate || '-'} ARS/USD${exchangeRateSource ? ` (${exchangeRateSource})` : ''}`}
+                  </p>
+                )}
+                {fileCurrency === 'USD' && exchangeRateWarning && (
+                  <p className="mt-1 text-xs text-amber-700">{exchangeRateWarning}</p>
+                )}
               </div>
             </div>
 
@@ -659,6 +815,24 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             <div className="bg-blue-50 text-blue-900 text-sm p-3 rounded-md">
               Reglas: solo actualiza productos existentes por cod + proveedor seleccionado. Recalcula final_price solo cuando auto_price = true. No toca offer_price ni crea productos.
             </div>
+
+            {(isProcessing || supplierImportProgress.stage !== 'idle') && (
+              <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+                <div className="flex items-center justify-between text-sm text-sky-900">
+                  <span className="font-medium">{progressLabelByStage[supplierImportProgress.stage]}</span>
+                  <span className="font-semibold">{supplierImportProgress.percent}%</span>
+                </div>
+                <div className="mt-2 h-2 w-full rounded-full bg-sky-100 overflow-hidden">
+                  <div
+                    className="h-full bg-sky-500 transition-all duration-300"
+                    style={{ width: `${supplierImportProgress.percent}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-sky-800">
+                  Etapas: parsear archivo → vista previa → importar filas → finalizar
+                </p>
+              </div>
+            )}
 
             {supplierImportStep === 'preview' && importPreviewRows.length > 0 && (
               <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -740,6 +914,11 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
             {supplierImportStep === 'result' && importSummary && (
               <div className="space-y-4">
+                <div className="rounded-xl border border-green-200 bg-green-50 p-4 text-green-900">
+                  <p className="font-semibold">Importación finalizada correctamente</p>
+                  <p className="text-sm mt-1">El proceso terminó y el resumen final quedó consolidado. Para volver a importar, usá "Nueva importación".</p>
+                </div>
+
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                   <p className="font-semibold text-gray-900 mb-3">Resumen principal (base proveedor)</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -809,26 +988,38 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                 disabled={isProcessing}
                 className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50"
               >
-                {supplierImportStep === 'preview' ? 'Volver' : 'Cerrar'}
+                {supplierImportStep === 'preview' ? 'Volver' : supplierImportStep === 'result' ? 'Finalizar' : 'Cerrar'}
               </button>
-              <button
-                type="button"
-                onClick={supplierImportStep === 'preview' ? handleImportSupplierCosts : handlePreviewSupplierCosts}
-                disabled={isProcessing}
-                className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
-              >
-                {isProcessing ? (
-                  <>
-                    <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin" />
-                    <span>Importando...</span>
-                  </>
-                ) : (
-                  <>
-                    <Icon path="M4.5 12.75l6 6 9-13.5" className="w-4 h-4" />
-                    <span>{supplierImportStep === 'preview' ? 'Confirmar importación' : 'Ver vista previa'}</span>
-                  </>
-                )}
-              </button>
+              {supplierImportStep === 'result' && (
+                <button
+                  type="button"
+                  onClick={resetSupplierImportFlow}
+                  disabled={isProcessing}
+                  className="bg-slate-100 text-slate-800 px-4 py-2 rounded-lg font-medium hover:bg-slate-200 disabled:opacity-50"
+                >
+                  Nueva importación
+                </button>
+              )}
+              {supplierImportStep !== 'result' && (
+                <button
+                  type="button"
+                  onClick={supplierImportStep === 'preview' ? handleImportSupplierCosts : handlePreviewSupplierCosts}
+                  disabled={isProcessing}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
+                >
+                  {isProcessing ? (
+                    <>
+                      <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin" />
+                      <span>{supplierImportStep === 'preview' ? 'Importando...' : 'Procesando...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Icon path="M4.5 12.75l6 6 9-13.5" className="w-4 h-4" />
+                      <span>{supplierImportStep === 'preview' ? 'Confirmar importación' : 'Ver vista previa'}</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         )}

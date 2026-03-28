@@ -139,6 +139,46 @@ export const calculateFinalPriceFromSupplierTaxes = (
     return Number((costPrice * (1 + t1 / 100) * (1 + t2 / 100) * (1 + t3 / 100)).toFixed(2));
 };
 
+export const fetchUsdArsExchangeRateSuggestion = async (): Promise<{ rate: number; source: string; updatedAt?: string }> => {
+    const attempts: Array<() => Promise<{ rate: number; source: string; updatedAt?: string }>> = [
+        async () => {
+            const response = await fetch('https://dolarapi.com/v1/dolares/oficial');
+            if (!response.ok) throw new Error('dolarapi oficial no disponible');
+            const payload = await response.json();
+            const rate = Number(payload?.venta ?? payload?.promedio ?? payload?.compra);
+            if (!Number.isFinite(rate) || rate <= 0) throw new Error('dolarapi oficial sin valor valido');
+            return {
+                rate: Number(rate.toFixed(2)),
+                source: 'dolarapi/oficial',
+                updatedAt: String(payload?.fechaActualizacion || payload?.fecha || ''),
+            };
+        },
+        async () => {
+            const response = await fetch('https://dolarapi.com/v1/dolares/blue');
+            if (!response.ok) throw new Error('dolarapi blue no disponible');
+            const payload = await response.json();
+            const rate = Number(payload?.venta ?? payload?.promedio ?? payload?.compra);
+            if (!Number.isFinite(rate) || rate <= 0) throw new Error('dolarapi blue sin valor valido');
+            return {
+                rate: Number(rate.toFixed(2)),
+                source: 'dolarapi/blue',
+                updatedAt: String(payload?.fechaActualizacion || payload?.fecha || ''),
+            };
+        },
+    ];
+
+    let lastError: unknown;
+    for (const attempt of attempts) {
+        try {
+            return await attempt();
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw new Error(lastError instanceof Error ? lastError.message : 'No se pudo obtener cotizacion USD/ARS');
+};
+
 let supabase: ReturnType<typeof createClient<Database>> | null = null;
 
 if (SUPABASE_URL && SUPABASE_ANON_KEY) {
