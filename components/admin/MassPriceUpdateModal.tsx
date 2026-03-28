@@ -3,7 +3,7 @@ import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
-import { SupplierCostImportSummary } from '../../types';
+import { SupplierCostImportPreviewRow, SupplierCostImportRow, SupplierCostImportSummary } from '../../types';
 
 interface MassPriceUpdateModalProps {
   isOpen: boolean;
@@ -17,11 +17,15 @@ type FilterByType = 'All' | 'Categoria' | 'Proveedor';
 type UpdateType = 'percentage' | 'fixed';
 type TargetPriceType = 'P.Costo' | 'Precio';
 type ActionMode = 'mass-update' | 'supplier-import';
+type ImportCurrency = 'ARS' | 'USD';
 
 interface SupplierOption {
   id: string;
   name: string;
   isActive: boolean;
+  tax1Percent: number;
+  tax2Percent: number;
+  tax3Percent: number;
 }
 
 const parseCostValue = (value: string): number => {
@@ -40,7 +44,7 @@ const parseCostValue = (value: string): number => {
 
 const normalizeImportKey = (value: string): string => String(value || '').trim().toLowerCase();
 
-const parseSupplierImportRows = (raw: string): { rows: { cod: string; cost_price: number; line: number }[]; ignored: number; totalRows: number; errors: string[] } => {
+const parseSupplierImportRows = (raw: string): { rows: SupplierCostImportRow[]; ignored: number; totalRows: number; errors: string[] } => {
   const lines = raw
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -58,6 +62,12 @@ const parseSupplierImportRows = (raw: string): { rows: { cod: string; cost_price
 
   const codIndex = headers.findIndex((h) => h === 'cod');
   const costIndex = headers.findIndex((h) => h === 'cost_price' || h === 'costprice' || h === 'cost' || h === 'costo');
+  const barcodeIndex = headers.findIndex((h) => h === 'barcode' || h === 'codigo_barras' || h === 'cod.barras');
+  const nameIndex = headers.findIndex((h) => h === 'name' || h === 'nombre');
+  const categoryIndex = headers.findIndex((h) => h === 'category' || h === 'categoria');
+  const subCategoryIndex = headers.findIndex((h) => h === 'sub_category' || h === 'subcategoria' || h === 'sub categoria');
+  const observationsIndex = headers.findIndex((h) => h === 'observations' || h === 'observacion' || h === 'observaciones');
+  const costCurrencyIndex = headers.findIndex((h) => h === 'cost_currency' || h === 'currency' || h === 'moneda');
 
   if (codIndex < 0 || costIndex < 0) {
     return {
@@ -68,13 +78,19 @@ const parseSupplierImportRows = (raw: string): { rows: { cod: string; cost_price
     };
   }
 
-  const rows: { cod: string; cost_price: number; line: number }[] = [];
+  const rows: SupplierCostImportRow[] = [];
   let ignored = 0;
 
   for (let i = 1; i < lines.length; i += 1) {
     const cols = lines[i].split(delimiter).map((c) => c.trim());
     const cod = String(cols[codIndex] || '').trim();
     const costValue = String(cols[costIndex] || '').trim();
+    const barcode = barcodeIndex >= 0 ? String(cols[barcodeIndex] || '').trim() : '';
+    const name = nameIndex >= 0 ? String(cols[nameIndex] || '').trim() : '';
+    const category = categoryIndex >= 0 ? String(cols[categoryIndex] || '').trim() : '';
+    const sub_category = subCategoryIndex >= 0 ? String(cols[subCategoryIndex] || '').trim() : '';
+    const observations = observationsIndex >= 0 ? String(cols[observationsIndex] || '').trim() : '';
+    const cost_currency = costCurrencyIndex >= 0 ? String(cols[costCurrencyIndex] || '').trim().toUpperCase() : '';
 
     if (!cod) {
       ignored += 1;
@@ -87,7 +103,17 @@ const parseSupplierImportRows = (raw: string): { rows: { cod: string; cost_price
       continue;
     }
 
-    rows.push({ cod, cost_price: cost, line: i + 1 });
+    rows.push({
+      cod,
+      cost_price: cost,
+      barcode,
+      name,
+      category,
+      sub_category,
+      observations,
+      cost_currency: cost_currency === 'USD' ? 'USD' : 'ARS',
+      line: i + 1,
+    });
   }
 
   return {
@@ -120,6 +146,12 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const [supplierOptions, setSupplierOptions] = useState<SupplierOption[]>([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [importText, setImportText] = useState('');
+  const [fileCurrency, setFileCurrency] = useState<ImportCurrency>('ARS');
+  const [exchangeRate, setExchangeRate] = useState('1000');
+  const [usdUpdateRate, setUsdUpdateRate] = useState('1000');
+  const [parsedImportRows, setParsedImportRows] = useState<SupplierCostImportRow[]>([]);
+  const [importPreviewRows, setImportPreviewRows] = useState<SupplierCostImportPreviewRow[]>([]);
+  const [supplierImportStep, setSupplierImportStep] = useState<'edit' | 'preview' | 'result'>('edit');
   const [importSummary, setImportSummary] = useState<SupplierCostImportSummary | null>(null);
   const [notFoundCodeSamples, setNotFoundCodeSamples] = useState<string[]>([]);
 
@@ -139,6 +171,9 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
               item.is_active !== false &&
               item.activo !== false &&
               String(item.Activo || 'SI').toUpperCase() !== 'NO',
+            tax1Percent: Number(item.tax_1_percent ?? 0),
+            tax2Percent: Number(item.tax_2_percent ?? 0),
+            tax3Percent: Number(item.tax_3_percent ?? 0),
           }))
           .filter((s: SupplierOption) => s.id.length > 0);
         setSupplierOptions(options);
@@ -158,10 +193,25 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setStep('form');
       setSelectedSupplierId('');
       setImportText('');
+      setFileCurrency('ARS');
+      setExchangeRate('1000');
+      setUsdUpdateRate('1000');
+      setParsedImportRows([]);
+      setImportPreviewRows([]);
+      setSupplierImportStep('edit');
       setImportSummary(null);
       setNotFoundCodeSamples([]);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (mode !== 'supplier-import') return;
+    setImportPreviewRows([]);
+    setParsedImportRows([]);
+    setImportSummary(null);
+    setNotFoundCodeSamples([]);
+    setSupplierImportStep('edit');
+  }, [selectedSupplierId, importText, fileCurrency, exchangeRate, mode]);
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
@@ -215,7 +265,25 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     }
   };
 
-  const handleImportSupplierCosts = async () => {
+  const handleDownloadTemplate = () => {
+    const headers = ['cod', 'cost_price', 'barcode', 'name', 'category', 'sub_category', 'observations', 'cost_currency'];
+    const sampleRows = [
+      ['A001', '12500', '779000000001', 'Producto ejemplo', 'REPUESTOS', 'MOTORES', 'Fila de ejemplo', 'ARS'],
+      ['A002', '12.50', '', '', '', '', '', 'USD'],
+    ];
+    const csvContent = [headers.join(';'), ...sampleRows.map((row) => row.join(';'))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', 'modelo_importacion_costos_proveedor.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePreviewSupplierCosts = async () => {
     setError('');
     setImportSummary(null);
     setNotFoundCodeSamples([]);
@@ -231,16 +299,64 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       return;
     }
 
+    const parsedExchangeRate = parseFloat(String(exchangeRate).replace(',', '.'));
+    if (fileCurrency === 'USD' && (!Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
+      setError('Debe ingresar un tipo de cambio válido mayor a 0 para archivos en USD.');
+      return;
+    }
+
     setIsProcessing(true);
     try {
-      const summary = await api.importSupplierCostsSupabase(selectedSupplierId, parsed.rows);
+      const preview = await api.previewSupplierCostsSupabase(selectedSupplierId, parsed.rows, {
+        fileCurrency,
+        exchangeRate: parsedExchangeRate,
+      });
+      setParsedImportRows(parsed.rows);
+      setImportPreviewRows(preview);
+      setSupplierImportStep('preview');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
+      setError(`Error: ${errorMessage}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleImportSupplierCosts = async () => {
+    setError('');
+    setImportSummary(null);
+    setNotFoundCodeSamples([]);
+
+    if (!selectedSupplierId) {
+      setError('Debe seleccionar un proveedor para importar costos.');
+      return;
+    }
+
+    if (parsedImportRows.length === 0) {
+      setError('Primero debe generar la vista previa antes de importar.');
+      return;
+    }
+
+    const parsedExchangeRate = parseFloat(String(exchangeRate).replace(',', '.'));
+    if (fileCurrency === 'USD' && (!Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
+      setError('Debe ingresar un tipo de cambio válido mayor a 0 para importar USD.');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const summary = await api.importSupplierCostsSupabase(selectedSupplierId, parsedImportRows, {
+        fileCurrency,
+        exchangeRate: parsedExchangeRate,
+      });
       const mergedSummary: SupplierCostImportSummary = {
         ...summary,
-        totalRows: parsed.totalRows,
-        ignored: summary.ignored + parsed.ignored,
+        totalRows: parsedImportRows.length + summary.ignored,
+        ignored: summary.ignored,
       };
 
       setImportSummary(mergedSummary);
+      setSupplierImportStep('result');
 
       if (mergedSummary.notFound > 0) {
         try {
@@ -256,7 +372,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
           });
 
           const uniqueCodes = Array.from(
-            new Set(parsed.rows.map((row) => String(row.cod || '').trim()).filter((code) => code.length > 0))
+            new Set(parsedImportRows.map((row) => String(row.cod || '').trim()).filter((code) => code.length > 0))
           );
 
           const missingCodes = uniqueCodes.filter((code) => !supplierKeys.has(normalizeImportKey(code)));
@@ -267,6 +383,27 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       }
 
       addToast('Importación de costos finalizada.', 'success');
+      onUpdate();
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
+      setError(`Error: ${errorMessage}`);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleUpdateUsdByExchangeRate = async () => {
+    setError('');
+    const nextRate = parseFloat(String(usdUpdateRate).replace(',', '.'));
+    if (!Number.isFinite(nextRate) || nextRate <= 0) {
+      setError('Debe ingresar un tipo de cambio válido mayor a 0 para actualizar USD.');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const result = await api.updateUsdProductsByExchangeRateSupabase(nextRate);
+      addToast(`Actualización USD completada. Productos actualizados: ${result.updated}.`, 'success');
       onUpdate();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
@@ -297,6 +434,13 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   };
   
   const confirmationText = `Va a actualizar el campo '${targetPrice === 'Precio' ? 'Precio Base (Lista)' : 'Precio de Costo'}' para todos los productos donde '${filterBy}' es '${filterBy === 'All' ? 'Todos' : filterValue}'. El precio se ${updateType === 'percentage' ? `incrementará en un ${updateValue}%` : `incrementará en $${updateValue}`}.`;
+  const selectedSupplier = supplierOptions.find((supplier) => supplier.id === selectedSupplierId) || null;
+  const previewCounts = {
+    found: importPreviewRows.filter((row) => row.status === 'found').length,
+    notFound: importPreviewRows.filter((row) => row.status === 'not found').length,
+    willUpdate: importPreviewRows.filter((row) => row.result === 'will update').length,
+    noChange: importPreviewRows.filter((row) => row.result === 'no change').length,
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={isProcessing ? () => {} : onClose} title="Acciones Masivas de Precios">
@@ -426,6 +570,60 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
               </select>
             </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium">Moneda del archivo</label>
+                <select
+                  value={fileCurrency}
+                  onChange={(e) => setFileCurrency(e.target.value as ImportCurrency)}
+                  className="mt-1 block w-full border-gray-300 rounded-md"
+                >
+                  <option value="ARS">ARS (Pesos argentinos)</option>
+                  <option value="USD">USD (Dólares)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium">Tipo de cambio (ARS/USD)</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={exchangeRate}
+                  onChange={(e) => {
+                    setExchangeRate(e.target.value);
+                    setUsdUpdateRate(e.target.value);
+                  }}
+                  disabled={fileCurrency !== 'USD'}
+                  className={`mt-1 block w-full border-gray-300 rounded-md ${fileCurrency !== 'USD' ? 'bg-gray-100 text-gray-500' : ''}`}
+                />
+                <p className="mt-1 text-xs text-gray-500">Tipo de cambio actual: {exchangeRate || '0'} ARS/USD</p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-semibold text-amber-900">Actualización manual por dólar</p>
+              <p className="text-xs text-amber-800 mt-1">Recalcula solo productos con costo en USD. No modifica offer_price ni overrides manuales.</p>
+              <div className="mt-3 flex flex-col md:flex-row md:items-end gap-3">
+                <div className="md:w-64">
+                  <label className="block text-xs font-medium text-amber-900">Nuevo tipo de cambio (ARS/USD)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={usdUpdateRate}
+                    onChange={(e) => setUsdUpdateRate(e.target.value)}
+                    className="mt-1 block w-full border-amber-300 rounded-md"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleUpdateUsdByExchangeRate}
+                  disabled={isProcessing}
+                  className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 disabled:bg-gray-400"
+                >
+                  Actualizar precios USD
+                </button>
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-medium">Archivo (opcional)</label>
               <input
@@ -436,6 +634,17 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
               />
             </div>
 
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={handleDownloadTemplate}
+                className="bg-slate-100 text-slate-800 px-4 py-2 rounded-lg font-medium hover:bg-slate-200 flex items-center gap-2"
+              >
+                <Icon path="M12 16.5v-9m0 9l-3.75-3.75M12 16.5l3.75-3.75M3.75 19.5h16.5" className="w-4 h-4" />
+                <span>Descargar modelo</span>
+              </button>
+            </div>
+
             <div>
               <label className="block text-sm font-medium">Lista tabular (cod, cost_price)</label>
               <textarea
@@ -443,7 +652,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                 onChange={(e) => setImportText(e.target.value)}
                 rows={10}
                 className="mt-1 block w-full border-gray-300 rounded-md font-mono text-sm"
-                placeholder={"cod\tcost_price\nA001\t12500\nA002\t21000"}
+                placeholder={"cod\tcost_price\tbarcode\tname\tcategory\tsub_category\tobservations\tcost_currency\nA001\t12500\t779000000001\tProducto\tREPUESTOS\tMOTORES\t\tARS\nA002\t12.5\t\t\t\t\t\tUSD"}
               />
             </div>
 
@@ -451,7 +660,85 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
               Reglas: solo actualiza productos existentes por cod + proveedor seleccionado. Recalcula final_price solo cuando auto_price = true. No toca offer_price ni crea productos.
             </div>
 
-            {importSummary && (
+            {supplierImportStep === 'preview' && importPreviewRows.length > 0 && (
+              <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-semibold text-slate-900">Vista previa de importación</p>
+                    <p className="text-sm text-slate-600 mt-1">
+                      Proveedor: <span className="font-medium">{selectedSupplier?.name || 'Sin proveedor'}</span>
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Impuestos aplicados al precio final: {selectedSupplier?.tax1Percent ?? 0}% / {selectedSupplier?.tax2Percent ?? 0}% / {selectedSupplier?.tax3Percent ?? 0}%
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Moneda archivo: {fileCurrency} {fileCurrency === 'USD' ? `| Tipo de cambio: ${exchangeRate || '0'} ARS/USD` : ''}
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Encontrados:</span> <span className="font-semibold">{previewCounts.found}</span></div>
+                    <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">No encontrados:</span> <span className="font-semibold">{previewCounts.notFound}</span></div>
+                    <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Actualizarán:</span> <span className="font-semibold">{previewCounts.willUpdate}</span></div>
+                    <div className="rounded-md bg-slate-50 px-3 py-2"><span className="text-slate-500">Sin cambios:</span> <span className="font-semibold">{previewCounts.noChange}</span></div>
+                  </div>
+                </div>
+
+                <div className="overflow-auto max-h-80 border border-slate-200 rounded-lg">
+                  <table className="min-w-[1400px] w-full text-sm">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        <th className="px-3 py-2 text-left">cod</th>
+                        <th className="px-3 py-2 text-left">Producto</th>
+                        <th className="px-3 py-2 text-center">Moneda</th>
+                        <th className="px-3 py-2 text-right">Costo archivo</th>
+                        <th className="px-3 py-2 text-right">TC</th>
+                        <th className="px-3 py-2 text-right">Costo convertido (ARS)</th>
+                        <th className="px-3 py-2 text-right">Costo actual</th>
+                        <th className="px-3 py-2 text-right">Costo nuevo</th>
+                        <th className="px-3 py-2 text-center">Imp. 1</th>
+                        <th className="px-3 py-2 text-center">Imp. 2</th>
+                        <th className="px-3 py-2 text-center">Imp. 3</th>
+                        <th className="px-3 py-2 text-right">Precio final actual</th>
+                        <th className="px-3 py-2 text-right">Precio final nuevo</th>
+                        <th className="px-3 py-2 text-center">Estado</th>
+                        <th className="px-3 py-2 text-center">Resultado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importPreviewRows.map((row, index) => (
+                        <tr key={`${row.cod}-${index}`} className="border-t border-slate-100">
+                          <td className="px-3 py-2 font-mono">{row.cod}</td>
+                          <td className="px-3 py-2">{row.product_name || 'No encontrado'}</td>
+                          <td className="px-3 py-2 text-center">{row.input_currency}</td>
+                          <td className="px-3 py-2 text-right">{row.input_cost.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-right">{row.exchange_rate.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-right font-semibold">${row.converted_cost_ars.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-right">${row.current_cost.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-right font-semibold">${row.new_cost.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-center">{row.supplier_tax_1_percent.toFixed(2)}%</td>
+                          <td className="px-3 py-2 text-center">{row.supplier_tax_2_percent.toFixed(2)}%</td>
+                          <td className="px-3 py-2 text-center">{row.supplier_tax_3_percent.toFixed(2)}%</td>
+                          <td className="px-3 py-2 text-right">${row.current_final_price.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-right font-semibold">${row.new_calculated_final_price.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${row.status === 'found' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}>
+                              {row.status === 'found' ? 'found' : 'not found'}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${row.result === 'will update' ? 'bg-green-100 text-green-800' : row.result === 'no change' ? 'bg-slate-100 text-slate-700' : 'bg-rose-100 text-rose-800'}`}>
+                              {row.result}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {supplierImportStep === 'result' && importSummary && (
               <div className="space-y-4">
                 <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                   <p className="font-semibold text-gray-900 mb-3">Resumen principal (base proveedor)</p>
@@ -518,15 +805,15 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             <div className="flex justify-end pt-2 space-x-3">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={supplierImportStep === 'preview' ? () => setSupplierImportStep('edit') : onClose}
                 disabled={isProcessing}
                 className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50"
               >
-                Cerrar
+                {supplierImportStep === 'preview' ? 'Volver' : 'Cerrar'}
               </button>
               <button
                 type="button"
-                onClick={handleImportSupplierCosts}
+                onClick={supplierImportStep === 'preview' ? handleImportSupplierCosts : handlePreviewSupplierCosts}
                 disabled={isProcessing}
                 className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
               >
@@ -538,7 +825,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                 ) : (
                   <>
                     <Icon path="M4.5 12.75l6 6 9-13.5" className="w-4 h-4" />
-                    <span>Importar Costos</span>
+                    <span>{supplierImportStep === 'preview' ? 'Confirmar importación' : 'Ver vista previa'}</span>
                   </>
                 )}
               </button>

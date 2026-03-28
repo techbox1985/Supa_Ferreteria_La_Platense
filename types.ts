@@ -29,6 +29,9 @@ export interface Product {
   supplier_id?: string;
   auto_price?: boolean;
   markup_pct?: number;
+  cost_currency?: 'ARS' | 'USD';
+  cost_price_usd?: number;
+  last_exchange_rate?: number;
   // Nuevos campos opcionales
   Marca?: string;
   Modelo_Compatible?: string;
@@ -289,7 +292,31 @@ export interface Supplier {
 export interface SupplierCostImportRow {
   cod: string;
   cost_price: number;
+  barcode?: string;
+  name?: string;
+  category?: string;
+  sub_category?: string;
+  observations?: string;
+  cost_currency?: 'ARS' | 'USD';
   line?: number;
+}
+
+export interface SupplierCostImportPreviewRow {
+  cod: string;
+  product_name: string;
+  current_cost: number;
+  input_currency: 'ARS' | 'USD';
+  input_cost: number;
+  exchange_rate: number;
+  converted_cost_ars: number;
+  new_cost: number;
+  supplier_tax_1_percent: number;
+  supplier_tax_2_percent: number;
+  supplier_tax_3_percent: number;
+  current_final_price: number;
+  new_calculated_final_price: number;
+  status: 'found' | 'not found';
+  result: 'will update' | 'no change' | 'not found';
 }
 
 export interface SupplierCostImportSummary {

@@ -9,6 +9,9 @@ const buildProductSupabasePayload = (productData: any, options?: { includeUpdate
     if (productData.supplier_id !== undefined) mapping.supplier_id = productData.supplier_id || null;
     if (productData['cod.barras'] !== undefined) mapping.barcode = productData['cod.barras'];
     if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
+    if (productData.cost_currency !== undefined) mapping.cost_currency = productData.cost_currency;
+    if (productData.cost_price_usd !== undefined) mapping.cost_price_usd = productData.cost_price_usd;
+    if (productData.last_exchange_rate !== undefined) mapping.last_exchange_rate = productData.last_exchange_rate;
     if (productData.Precio !== undefined) mapping.list_price = productData.Precio;
     if (productData['Precio Final'] !== undefined) mapping.final_price = productData['Precio Final'];
     if (productData['Precio de Oferta'] !== undefined) mapping.offer_price = productData['Precio de Oferta'];
@@ -86,6 +89,7 @@ import {
     SupplierInvoice,
     SupplierInvoiceItem,
     SupplierCostImportRow,
+    SupplierCostImportPreviewRow,
     SupplierCostImportSummary,
     SupplierAccountSummary,
     SupplierInvoiceBalance,
@@ -120,6 +124,8 @@ const parsePercentValue = (value: any): number => {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const normalizeImportKey = (value: any): string => String(value || '').trim().toLowerCase();
 
 export const calculateFinalPriceFromSupplierTaxes = (
     costPrice: number,
@@ -175,6 +181,9 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'supplier_id',
         'barcode',
         'cost_price',
+        'cost_currency',
+        'cost_price_usd',
+        'last_exchange_rate',
         'list_price',
         'offer_price',
         'auto_price',
@@ -306,6 +315,9 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             Proveedor: supplier?.nombre ?? supplier?.name ?? '',
             'cod.barras': item.barcode ?? '',
             'P.Costo': Number(item.cost_price ?? 0),
+            cost_currency: String(item.cost_currency || 'ARS').toUpperCase() === 'USD' ? 'USD' : 'ARS',
+            cost_price_usd: item.cost_price_usd !== null && item.cost_price_usd !== undefined ? Number(item.cost_price_usd) : undefined,
+            last_exchange_rate: item.last_exchange_rate !== null && item.last_exchange_rate !== undefined ? Number(item.last_exchange_rate) : undefined,
             Precio: Number(item.list_price ?? 0),
             'Precio de Oferta': Number(item.offer_price ?? 0),
             supplier_id: item.supplier_id ?? undefined,
@@ -344,26 +356,26 @@ export const getSuppliersSupabase = async (): Promise<any[]> => {
     return data || [];
 };
 
-export const importSupplierCostsSupabase = async (
-    supplierId: string,
-    rows: SupplierCostImportRow[]
-): Promise<SupplierCostImportSummary> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    if (!supplierId) throw new Error('Debe seleccionar un proveedor');
+const buildSupplierImportSummary = (totalRows: number): SupplierCostImportSummary => ({
+    existingSupplierProducts: 0,
+    foundInFile: 0,
+    notFoundInFile: 0,
+    totalRows,
+    found: 0,
+    updated: 0,
+    notFound: 0,
+    ignored: 0,
+});
 
-    const summary: SupplierCostImportSummary = {
-        existingSupplierProducts: 0,
-        foundInFile: 0,
-        notFoundInFile: 0,
-        totalRows: rows.length,
-        found: 0,
-        updated: 0,
-        notFound: 0,
-        ignored: 0,
-    };
+interface SupplierImportOptions {
+    fileCurrency?: 'ARS' | 'USD';
+    exchangeRate?: number;
+}
 
-    const normalizeImportKey = (value: any): string => String(value || '').trim().toLowerCase();
-
+const normalizeSupplierImportRows = (
+    rows: SupplierCostImportRow[],
+    summary: SupplierCostImportSummary
+): SupplierCostImportRow[] => {
     const seenCodes = new Set<string>();
     const normalizedRows: SupplierCostImportRow[] = [];
 
@@ -383,12 +395,48 @@ export const importSupplierCostsSupabase = async (
         }
 
         seenCodes.add(normalizedCode);
-        normalizedRows.push({ ...row, cod: normalizedCode, cost_price: cost });
+        normalizedRows.push({
+            ...row,
+            cod: normalizedCode,
+            barcode: String(row.barcode || '').trim(),
+            name: String(row.name || '').trim(),
+            category: String(row.category || '').trim(),
+            sub_category: String(row.sub_category || '').trim(),
+            observations: String(row.observations || '').trim(),
+            cost_currency: String(row.cost_currency || '').trim().toUpperCase() === 'USD' ? 'USD' : 'ARS',
+            cost_price: cost,
+        });
     }
+
+    return normalizedRows;
+};
+
+const resolveSupplierImportProductMatch = (
+    row: SupplierCostImportRow,
+    productByCode: Map<string, any>,
+    productByBarcode: Map<string, any>
+) => {
+    const rowCodeKey = normalizeImportKey(row.cod);
+    const rowBarcodeKey = normalizeImportKey(row.barcode);
+
+    return (
+        productByCode.get(rowCodeKey)
+        || (rowBarcodeKey ? productByBarcode.get(rowBarcodeKey) : undefined)
+        || productByBarcode.get(rowCodeKey)
+        || null
+    );
+};
+
+const prepareSupplierImportContext = async (supplierId: string, rows: SupplierCostImportRow[]) => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!supplierId) throw new Error('Debe seleccionar un proveedor');
+
+    const summary = buildSupplierImportSummary(rows.length);
+    const normalizedRows = normalizeSupplierImportRows(rows, summary);
 
     const { data: supplierProductsData, error: supplierProductsError } = await supabase
         .from('st_products')
-        .select('id, cod, barcode, auto_price')
+        .select('id, cod, barcode, name, cost_price, final_price, auto_price')
         .eq('supplier_id', supplierId)
         .eq('is_deleted', false);
 
@@ -397,27 +445,25 @@ export const importSupplierCostsSupabase = async (
     const supplierProducts = supplierProductsData || [];
     summary.existingSupplierProducts = supplierProducts.length;
 
-    const fileCodeSet = new Set(normalizedRows.map((r) => normalizeImportKey(r.cod)));
-    summary.foundInFile = supplierProducts.reduce((acc: number, p: any) => {
-        const codKey = normalizeImportKey(p.cod);
-        const barcodeKey = normalizeImportKey(p.barcode);
+    const fileCodeSet = new Set(
+        normalizedRows.flatMap((row) => [normalizeImportKey(row.cod), normalizeImportKey(row.barcode)]).filter(Boolean)
+    );
+    summary.foundInFile = supplierProducts.reduce((acc: number, product: any) => {
+        const codKey = normalizeImportKey(product.cod);
+        const barcodeKey = normalizeImportKey(product.barcode);
         return (fileCodeSet.has(codKey) || fileCodeSet.has(barcodeKey)) ? acc + 1 : acc;
     }, 0);
     summary.notFoundInFile = Math.max(summary.existingSupplierProducts - summary.foundInFile, 0);
     summary.found = summary.foundInFile;
 
-    if (normalizedRows.length === 0) {
-        return summary;
-    }
-
     const productByCode = new Map(
         supplierProducts
-            .map((p: any) => [normalizeImportKey(p.cod), p] as const)
+            .map((product: any) => [normalizeImportKey(product.cod), product] as const)
             .filter(([key]) => key.length > 0)
     );
     const productByBarcode = new Map(
         supplierProducts
-            .map((p: any) => [normalizeImportKey(p.barcode), p] as const)
+            .map((product: any) => [normalizeImportKey(product.barcode), product] as const)
             .filter(([key]) => key.length > 0)
     );
 
@@ -428,30 +474,124 @@ export const importSupplierCostsSupabase = async (
         .maybeSingle();
 
     if (supplierError) throw supplierError;
-    const supplierTax1Percent = parsePercentValue(supplierData?.tax_1_percent);
-    const supplierTax2Percent = parsePercentValue(supplierData?.tax_2_percent);
-    const supplierTax3Percent = parsePercentValue(supplierData?.tax_3_percent);
+
+    return {
+        summary,
+        normalizedRows,
+        productByCode,
+        productByBarcode,
+        supplierTax1Percent: parsePercentValue(supplierData?.tax_1_percent),
+        supplierTax2Percent: parsePercentValue(supplierData?.tax_2_percent),
+        supplierTax3Percent: parsePercentValue(supplierData?.tax_3_percent),
+    };
+};
+
+export const previewSupplierCostsSupabase = async (
+    supplierId: string,
+    rows: SupplierCostImportRow[],
+    options?: SupplierImportOptions
+): Promise<SupplierCostImportPreviewRow[]> => {
+    const fileCurrency: 'ARS' | 'USD' = options?.fileCurrency === 'USD' ? 'USD' : 'ARS';
+    const exchangeRate = Number(options?.exchangeRate ?? 1);
+    const safeExchangeRate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
+
+    const {
+        normalizedRows,
+        productByCode,
+        productByBarcode,
+        supplierTax1Percent,
+        supplierTax2Percent,
+        supplierTax3Percent,
+    } = await prepareSupplierImportContext(supplierId, rows);
+
+    return normalizedRows.map((row) => {
+        const product = resolveSupplierImportProductMatch(row, productByCode, productByBarcode);
+        const currentCost = Number(product?.cost_price ?? 0);
+        const currentFinalPrice = Number(product?.final_price ?? 0);
+        const inputCost = Number(row.cost_price || 0);
+        const convertedCostArs = fileCurrency === 'USD' ? Number((inputCost * safeExchangeRate).toFixed(2)) : inputCost;
+        const newFinalPrice = calculateFinalPriceFromSupplierTaxes(
+            convertedCostArs,
+            supplierTax1Percent,
+            supplierTax2Percent,
+            supplierTax3Percent
+        );
+        const willUpdate = !!product && (currentCost !== convertedCostArs || currentFinalPrice !== newFinalPrice);
+
+        return {
+            cod: String(row.cod || '').trim(),
+            product_name: String(product?.name || row.name || ''),
+            current_cost: currentCost,
+            input_currency: fileCurrency,
+            input_cost: inputCost,
+            exchange_rate: safeExchangeRate,
+            converted_cost_ars: convertedCostArs,
+            new_cost: convertedCostArs,
+            supplier_tax_1_percent: supplierTax1Percent,
+            supplier_tax_2_percent: supplierTax2Percent,
+            supplier_tax_3_percent: supplierTax3Percent,
+            current_final_price: currentFinalPrice,
+            new_calculated_final_price: newFinalPrice,
+            status: product ? 'found' : 'not found',
+            result: product ? (willUpdate ? 'will update' : 'no change') : 'not found',
+        };
+    });
+};
+
+export const importSupplierCostsSupabase = async (
+    supplierId: string,
+    rows: SupplierCostImportRow[],
+    options?: SupplierImportOptions
+): Promise<SupplierCostImportSummary> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    const supabaseClient = supabase;
+    const fileCurrency: 'ARS' | 'USD' = options?.fileCurrency === 'USD' ? 'USD' : 'ARS';
+    const exchangeRate = Number(options?.exchangeRate ?? 1);
+    const safeExchangeRate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
+
+    const {
+        summary,
+        normalizedRows,
+        productByCode,
+        productByBarcode,
+        supplierTax1Percent,
+        supplierTax2Percent,
+        supplierTax3Percent,
+    } = await prepareSupplierImportContext(supplierId, rows);
 
     for (const row of normalizedRows) {
-        const rowKey = normalizeImportKey(row.cod);
-        const product = productByCode.get(rowKey) || productByBarcode.get(rowKey);
+        const product = resolveSupplierImportProductMatch(row, productByCode, productByBarcode);
         if (!product) {
             summary.notFound += 1;
             continue;
         }
 
+        const inputCost = Number(row.cost_price || 0);
+        const convertedCostArs = fileCurrency === 'USD' ? Number((inputCost * safeExchangeRate).toFixed(2)) : inputCost;
+
+        const newFinalPrice = calculateFinalPriceFromSupplierTaxes(
+            convertedCostArs,
+            supplierTax1Percent,
+            supplierTax2Percent,
+            supplierTax3Percent
+        );
+        const currentCost = Number(product.cost_price ?? 0);
+        const currentFinalPrice = Number(product.final_price ?? 0);
+
+        if (currentCost === convertedCostArs && currentFinalPrice === newFinalPrice) {
+            continue;
+        }
+
         const updatePayload: Record<string, any> = {
-            cost_price: row.cost_price,
-            final_price: calculateFinalPriceFromSupplierTaxes(
-                row.cost_price,
-                supplierTax1Percent,
-                supplierTax2Percent,
-                supplierTax3Percent
-            ),
+            cost_price: convertedCostArs,
+            final_price: newFinalPrice,
+            cost_currency: fileCurrency,
+            cost_price_usd: fileCurrency === 'USD' ? inputCost : null,
+            last_exchange_rate: fileCurrency === 'USD' ? safeExchangeRate : null,
             updated_at: new Date().toISOString(),
         };
 
-        const { error: updateError } = await supabase
+        const { error: updateError } = await supabaseClient
             .from('st_products')
             .update(updatePayload)
             .eq('id', product.id);
@@ -461,6 +601,74 @@ export const importSupplierCostsSupabase = async (
     }
 
     return summary;
+};
+
+export const updateUsdProductsByExchangeRateSupabase = async (exchangeRate: number): Promise<{ updated: number }> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const safeExchangeRate = Number(exchangeRate);
+    if (!Number.isFinite(safeExchangeRate) || safeExchangeRate <= 0) {
+        throw new Error('Tipo de cambio inválido.');
+    }
+
+    const { data: usdProducts, error: productsError } = await supabase
+        .from('st_products')
+        .select('id, supplier_id, cost_price_usd')
+        .eq('is_deleted', false)
+        .eq('cost_currency', 'USD')
+        .not('cost_price_usd', 'is', null);
+
+    if (productsError) throw productsError;
+
+    const products = usdProducts || [];
+    if (products.length === 0) return { updated: 0 };
+
+    const supplierIds = Array.from(new Set(products.map((product: any) => String(product.supplier_id || '')).filter(Boolean)));
+    const taxBySupplierId = new Map<string, { tax1: number; tax2: number; tax3: number }>();
+
+    if (supplierIds.length > 0) {
+        const { data: suppliers, error: suppliersError } = await supabase
+            .from('st_suppliers')
+            .select('id, tax_1_percent, tax_2_percent, tax_3_percent')
+            .in('id', supplierIds);
+
+        if (suppliersError) throw suppliersError;
+
+        for (const supplier of suppliers || []) {
+            taxBySupplierId.set(String((supplier as any).id || ''), {
+                tax1: parsePercentValue((supplier as any).tax_1_percent),
+                tax2: parsePercentValue((supplier as any).tax_2_percent),
+                tax3: parsePercentValue((supplier as any).tax_3_percent),
+            });
+        }
+    }
+
+    let updated = 0;
+
+    for (const product of products) {
+        const costUsd = Number((product as any).cost_price_usd ?? 0);
+        if (!Number.isFinite(costUsd) || costUsd <= 0) continue;
+
+        const supplierId = String((product as any).supplier_id || '');
+        const taxes = taxBySupplierId.get(supplierId) || { tax1: 0, tax2: 0, tax3: 0 };
+        const newCostArs = Number((costUsd * safeExchangeRate).toFixed(2));
+        const newFinalArs = calculateFinalPriceFromSupplierTaxes(newCostArs, taxes.tax1, taxes.tax2, taxes.tax3);
+
+        const { error: updateError } = await supabase
+            .from('st_products')
+            .update({
+                cost_price: newCostArs,
+                final_price: newFinalArs,
+                last_exchange_rate: safeExchangeRate,
+                updated_at: new Date().toISOString(),
+            })
+            .eq('id', (product as any).id);
+
+        if (updateError) throw updateError;
+        updated += 1;
+    }
+
+    return { updated };
 };
 
 export const addSupplierSupabase = async (supplierData: any): Promise<any> => {
