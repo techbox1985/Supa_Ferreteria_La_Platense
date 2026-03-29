@@ -1713,6 +1713,44 @@ export const getBudgetsSupabase = async (): Promise<Budget[]> => {
 // --- LEGACY SERVICES (PENDING MIGRATION) ---
 // =============================================================================
 
+const buildInvoiceData = (item: any, linkedInvoice: any) => {
+    const invoiceTypeRaw = String(linkedInvoice?.invoice_type || '').toUpperCase();
+    const isCreditNoteInvoice =
+        invoiceTypeRaw.includes('NC') ||
+        invoiceTypeRaw.includes('NOTA') ||
+        invoiceTypeRaw.includes('CREDITO');
+
+    const cae = (isCreditNoteInvoice ? undefined : linkedInvoice?.cae) || item.billing_cae || item.legacy_cae || '';
+    const nro = (isCreditNoteInvoice ? undefined : linkedInvoice?.nro) || item.billing_number || item.legacy_invoice_number || '';
+    const vtoCae = linkedInvoice?.vto_cae || item.billing_vto_cae || '';
+    const qrData = linkedInvoice?.qr_data || item.billing_qr_data || '';
+    const pdfUrl =
+        (isCreditNoteInvoice ? undefined : linkedInvoice?.pdf_url) ||
+        item.billing_pdf_url ||
+        (isCreditNoteInvoice ? undefined : linkedInvoice?.url) ||
+        item.legacy_invoice_url ||
+        undefined;
+    const ticketUrl =
+        (isCreditNoteInvoice ? undefined : linkedInvoice?.comprobante_ticket_url) ||
+        (isCreditNoteInvoice ? undefined : linkedInvoice?.ticket_url) ||
+        (isCreditNoteInvoice ? undefined : linkedInvoice?.url) ||
+        item.billing_ticket_url ||
+        undefined;
+    const invoiceType = linkedInvoice?.invoice_type || item.billing_type || item.invoice_type || 'N';
+    const fecha = linkedInvoice?.issued_at || linkedInvoice?.created_at || item.billing_date || item.sold_at;
+
+    return {
+        cae,
+        nro,
+        vtoCae,
+        qrData,
+        pdfUrl,
+        ticketUrl,
+        invoiceType,
+        fecha,
+    };
+};
+
 export const getSales = async (): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
@@ -1792,8 +1830,7 @@ export const getSales = async (): Promise<any[]> => {
 
     return salesRows.map((item: any) => {
         const linkedInvoice = invoiceBySaleId.get(String(item.id || ''));
-        const resolvedTicket80 = item.billing_ticket_url || linkedInvoice?.comprobante_ticket_url || linkedInvoice?.ticket_url || linkedInvoice?.url || undefined;
-        const resolvedA4 = item.billing_pdf_url || linkedInvoice?.pdf_url || item.legacy_invoice_url || undefined;
+        const invoiceData = buildInvoiceData(item, linkedInvoice);
         const items = (item.st_sale_items || []).map((si: any) => ({
             product: {
                 cod: si.st_products?.cod || si.product_code || '',
@@ -1832,14 +1869,14 @@ export const getSales = async (): Promise<any[]> => {
             'Echeqs (JSON)': JSON.stringify([]),
             Estado: estado,
             ID_Turno: item.shift_id || undefined,
-            Facturacion: item.billing_type || linkedInvoice?.invoice_type || item.invoice_type || 'N',
-            Factura_CAE: item.billing_cae || linkedInvoice?.cae || item.legacy_cae || '',
-            Factura_Nro: item.billing_number || linkedInvoice?.nro || item.legacy_invoice_number || '',
-            Factura_Fecha: linkedInvoice?.issued_at || linkedInvoice?.created_at || item.billing_date || item.sold_at,
-            Factura_Vto_CAE: linkedInvoice?.vto_cae || item.billing_vto_cae || '',
-            Factura_QR_Data: linkedInvoice?.qr_data || item.billing_qr_data || '',
-            Factura_URL: resolvedA4,
-            Factura_Ticket_URL: resolvedTicket80
+            Facturacion: invoiceData.invoiceType,
+            Factura_CAE: invoiceData.cae,
+            Factura_Nro: invoiceData.nro,
+            Factura_Fecha: invoiceData.fecha,
+            Factura_Vto_CAE: invoiceData.vtoCae,
+            Factura_QR_Data: invoiceData.qrData,
+            Factura_URL: invoiceData.pdfUrl,
+            Factura_Ticket_URL: invoiceData.ticketUrl
         };
     });
 };

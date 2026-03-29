@@ -42,6 +42,28 @@ const parseSheetNumber = (value: any): number => {
     return isNaN(number) ? 0 : number;
 };
 
+const buildFacturaInfo = (item: any) => {
+    const cae = item.Factura_CAE || '';
+    const nro = item.Factura_Nro || '';
+    const vtoCae = item.Factura_Vto_CAE || '';
+    const qrData = item.Factura_QR_Data || '';
+    const url = item.Factura_URL || undefined;
+    const ticketUrl = item.Factura_Ticket_URL || undefined;
+
+    const hasFactura = Boolean(cae || url || ticketUrl);
+    if (!hasFactura) return undefined;
+
+    return {
+        cae: String(cae),
+        fecha: new Date(item.Factura_Fecha).toLocaleString('es-AR'),
+        nro: String(nro),
+        vtoCae,
+        qrData,
+        url,
+        ticketUrl,
+    };
+};
+
 const AppContent: React.FC = () => {
     const { currentUser } = useContext(AuthContext);
     const { addToast } = useToast();
@@ -380,20 +402,7 @@ const AppContent: React.FC = () => {
                     Pagos: 0,
                 };
 
-                const facturaCae = saleRow.Factura_CAE || saleRow['Factura CAE'] || saleRow.FacturaCAE;
-                const facturaInfo = facturaCae
-                    ? {
-                          cae: String(facturaCae),
-                          fecha: new Date(
-                              saleRow.Factura_Fecha || saleRow['Factura Fecha'] || saleRow.FacturaFecha
-                          ).toLocaleString('es-AR'),
-                          nro: String(saleRow.Factura_Nro || saleRow['Factura Nro'] || saleRow.FacturaNro || ''),
-                          vtoCae: saleRow.Factura_Vto_CAE || saleRow['Factura Vto CAE'] || saleRow.FacturaVtoCAE || '',
-                          qrData: saleRow.Factura_QR_Data || saleRow['Factura QR Data'] || saleRow.FacturaQRData || '',
-                          url: saleRow.Factura_URL || saleRow['Factura URL'] || saleRow.FacturaURL || undefined,
-                          ticketUrl: saleRow.Factura_Ticket_URL || saleRow['Factura Ticket URL'] || undefined,
-                      }
-                    : undefined;
+                const facturaInfo = buildFacturaInfo(saleRow);
 
                 const sale: Sale & { document_type?: string } = {
                     id: saleId,
@@ -588,6 +597,13 @@ const AppContent: React.FC = () => {
             Estado: 'Completada',
             ID_Turno: sale.shiftId,
             Facturacion: sale.facturacion,
+            Factura_CAE: sale.facturaInfo?.cae || '',
+            Factura_Nro: sale.facturaInfo?.nro || '',
+            Factura_Fecha: sale.facturaInfo?.fecha || sale.date,
+            Factura_Vto_CAE: sale.facturaInfo?.vtoCae || '',
+            Factura_QR_Data: sale.facturaInfo?.qrData || '',
+            Factura_URL: sale.facturaInfo?.url || '',
+            Factura_Ticket_URL: sale.facturaInfo?.ticketUrl || '',
             isPendingSync: sale.isPendingSync ?? true,
         };
 
