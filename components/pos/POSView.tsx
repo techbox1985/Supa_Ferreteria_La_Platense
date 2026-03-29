@@ -12,6 +12,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { sendTicketViaWhatsApp } from '../../utils/whatsappHelper';
 import { ProductDetailModal } from './ProductDetailModal';
 import { getPrintStyles } from '../../utils/printStyles';
+import { matchesProductSearch } from '../../utils/productFilters';
 
 interface POSViewProps {
     onNavigateBudgets: () => void;
@@ -50,16 +51,23 @@ const POSView: React.FC<POSViewProps> = ({
   onClearSaleBeingEdited,
   onOptimisticAddSale,
 }) => {
-  const { activeShift } = useContext(AuthContext);
+  const INITIAL_PRODUCTS_LIMIT = 80;
+  const { activeShift, currentUser } = useContext(AuthContext);
   const { addToast } = useToast();
   // Declaración de estados principales
   const [isCheckoutOpen, setCheckoutOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const cartSectionRef = useRef<HTMLDivElement>(null);
   // Lógica para guardar presupuesto
   const handleFinalizeBudget = useCallback(async (sale: Sale, _generateInvoice: boolean) => {
-    if (!activeShift) {
+    let operationalShift = activeShift;
+    if (!operationalShift && currentUser?.Rol === 'Admin') {
+      operationalShift = await api.getAnyActiveShiftSupabase();
+    }
+
+    if (!operationalShift) {
       addToast("Error: No hay un turno activo. No se puede registrar el presupuesto.", 'error');
       return;
     }
@@ -71,7 +79,7 @@ const POSView: React.FC<POSViewProps> = ({
         items: sale.items,
         total: sale.total,
         status: 'pending',
-        shiftId: activeShift.ID_Turno,
+        shiftId: operationalShift.ID_Turno,
         document_type: 'budget',
       };
       if (budget.customer) {
@@ -85,7 +93,7 @@ const POSView: React.FC<POSViewProps> = ({
       const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error inesperado.';
       addToast(`Error al guardar presupuesto: ${errorMessage}`, 'error');
     }
-  }, [activeShift, addToast, onClearCart, refreshData]);
+  }, [activeShift, addToast, currentUser?.Rol, onClearCart, refreshData]);
     // Focus search input on mount and add Ctrl+/ shortcut
     useEffect(() => {
       if (searchInputRef.current) {
@@ -112,6 +120,15 @@ const POSView: React.FC<POSViewProps> = ({
         }, 200);
       }
     }, [isCheckoutOpen, saleBeingEdited]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isBudgetMode, setIsBudgetMode] = useState(false);
   const [isCustomerFormOpen, setCustomerFormOpen] = useState(false);
@@ -139,33 +156,42 @@ const categoryOptions = useMemo(() => {
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
       const matchesCategory = selectedCategory === 'All' || p.Categoria === selectedCategory;
-      const lowerSearchTerm = searchTerm.toLowerCase();
-      const matchesSearch =
-        String(p.Producto || '').toLowerCase().includes(lowerSearchTerm) ||
-        String(p.cod || '').toLowerCase().includes(lowerSearchTerm) ||
-        String(p['cod.barras'] || '').toLowerCase().includes(lowerSearchTerm);
+      const matchesSearch = matchesProductSearch(p, debouncedSearchTerm);
       return matchesCategory && matchesSearch;
     });
-  }, [products, searchTerm, selectedCategory]);
+  }, [products, debouncedSearchTerm, selectedCategory]);
 
-  const visibleProductsCount = filteredProducts.length;
+  const hasActiveSearch = debouncedSearchTerm.trim().length > 0;
+  const visibleProducts = useMemo(() => {
+    if (hasActiveSearch) return filteredProducts;
+    return filteredProducts.slice(0, INITIAL_PRODUCTS_LIMIT);
+  }, [filteredProducts, hasActiveSearch, INITIAL_PRODUCTS_LIMIT]);
+
+  const visibleProductsCount = visibleProducts.length;
+  const totalFilteredProductsCount = filteredProducts.length;
+  const isInitialLimitApplied = !hasActiveSearch && totalFilteredProductsCount > INITIAL_PRODUCTS_LIMIT;
 
   const closePrintModal = useCallback(() => {
     setIsPrintModalOpen(false);
   }, []);
 
   const handleFinalizeSale = useCallback(async (sale: Sale, generateInvoice: boolean) => {
-    if (!activeShift) {
+    let operationalShift = activeShift;
+    if (!operationalShift && currentUser?.Rol === 'Admin') {
+      operationalShift = await api.getAnyActiveShiftSupabase();
+    }
+
+    if (!operationalShift) {
       addToast("Error: No hay un turno activo. No se puede registrar la venta.", 'error');
       throw new Error("Turno no activo.");
     }
 
     // UPDATE OPTIMISTA INMEDIATO
-    onOptimisticAddSale({ ...sale, isPendingSync: true, shiftId: activeShift.ID_Turno });
+    onOptimisticAddSale({ ...sale, isPendingSync: true, shiftId: operationalShift.ID_Turno });
     setCheckoutOpen(false);
     onClearCart();
 
-    const saleWithShiftId = { ...sale, shiftId: activeShift.ID_Turno };
+    const saleWithShiftId = { ...sale, shiftId: operationalShift.ID_Turno };
     let finalSaleObject: Sale = { ...saleWithShiftId };
 
     // 1) Modal inmediato (sin esperar facturación)
@@ -180,9 +206,39 @@ const categoryOptions = useMemo(() => {
           if (generateInvoice) {
             addToast('Generando factura electrónica...', 'info');
 
+            console.log('[DIAG097 invoice sale id][before generateElectronicInvoice]', {
+              saleId: finalSaleObject.id,
+              shiftId: finalSaleObject.shiftId,
+              facturacion: finalSaleObject.facturacion,
+            });
+
+            console.log('[DIAG094][POSView][invoice request payload]', {
+              saleId: finalSaleObject.id,
+              facturacion: finalSaleObject.facturacion,
+              total: finalSaleObject.total,
+              itemCount: finalSaleObject.items?.length || 0,
+              customer: {
+                id: finalSaleObject.customer?.Id_Cliente,
+                condicionIVA: finalSaleObject.customer?.Condicion_IVA,
+                tipoDocumento: finalSaleObject.customer?.['Tipo.Documento'],
+                documento: finalSaleObject.customer?.Documento,
+              },
+              shiftId: finalSaleObject.shiftId,
+            });
+
             const invoiceResponse = await api.generateElectronicInvoice(finalSaleObject);
+            console.log('[DIAG094][POSView][invoice response]', invoiceResponse);
+
+            if (invoiceResponse?.status !== 'facturado' || !invoiceResponse?.data) {
+              const providerMessage = invoiceResponse?.message || 'No se pudo obtener un comprobante fiscal válido.';
+              const reason = invoiceResponse?.reason ? ` (${invoiceResponse.reason})` : '';
+              const debugDetail = Array.isArray(invoiceResponse?.debug) && invoiceResponse.debug.length > 0
+                ? ` Detalle: ${invoiceResponse.debug.join(' | ')}`
+                : '';
+              throw new Error(`${providerMessage}${reason}.${debugDetail}`);
+            }
+
             const invoiceData = invoiceResponse.data;
-            const debugInfo = invoiceResponse.debug || [];
 
             // B.4) CONSISTENCIA: Usar el tipo efectivo devuelto por el API
             const effectiveType = invoiceData?.effectiveType || finalSaleObject.facturacion;
@@ -193,12 +249,8 @@ const categoryOptions = useMemo(() => {
 
             // Validación mínima: CAE obligatorio
             if (!invoiceData || !invoiceData.cae || invoiceData.cae === 'DEV_MODE_NO_CAE') {
-              const rawResponseLine = debugInfo.find((line: string) => line.startsWith('API Response Body:'));
-              const rawResponse = rawResponseLine
-                ? rawResponseLine.substring('API Response Body: '.length)
-                : 'No se pudo capturar la respuesta del proveedor.';
-              console.error("Proveedor API Response:", rawResponse);
-              throw new Error("El proveedor de facturación respondió sin un CAE. Venta NO registrada.");
+              const providerHint = invoiceData?.message || invoiceData?.error || invoiceResponse?.message || 'Sin detalle adicional del proveedor.';
+              throw new Error(`El proveedor de facturación respondió sin un CAE. ${providerHint}`);
             }
 
             finalSaleObject.facturaInfo = {
@@ -237,7 +289,12 @@ const categoryOptions = useMemo(() => {
           if (saleBeingEdited) {
             await api.updateSale(saleBeingEdited, finalSaleObject);
           } else {
-            await api.addSale(finalSaleObject, activeShift.ID_Turno);
+            console.log('[DIAG097 addSale sale id][before api.addSale]', {
+              saleId: finalSaleObject.id,
+              shiftId: operationalShift.ID_Turno,
+              generateInvoice,
+            });
+            await api.addSale(finalSaleObject, operationalShift.ID_Turno);
           }
 
           // Confirmamos el fin del sync quitando la bandera
@@ -245,9 +302,6 @@ const categoryOptions = useMemo(() => {
           onClearSaleBeingEdited();
           addToast("Venta registrada con éxito.", 'success');
 
-          if (sale.customer && sale.customer.Id_Cliente !== '0' && sale.customer.Whatsapp) {
-            sendTicketViaWhatsApp(sale, addToast);
-          }
         } catch (err) {
           const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error inesperado.';
           console.error("Error en proceso de venta en segundo plano:", err);
@@ -272,6 +326,7 @@ const categoryOptions = useMemo(() => {
   }, [
     activeShift,
     addToast,
+    currentUser?.Rol,
     onOptimisticAddSale,
     onClearCart,
     onClearSaleBeingEdited,
@@ -296,6 +351,7 @@ const categoryOptions = useMemo(() => {
   const isInvoiceReady = !!saleForPrintModal?.facturaInfo?.cae;
   const fiscalTicketUrl = saleForPrintModal?.facturaInfo?.ticketUrl;
   const fiscalA4Url = saleForPrintModal?.facturaInfo?.url;
+  const canSendWhatsapp = !!saleForPrintModal?.customer?.Whatsapp && saleForPrintModal?.customer?.Id_Cliente !== '0';
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 p-3 h-[calc(100vh-80px)] relative">
@@ -315,7 +371,7 @@ const categoryOptions = useMemo(() => {
           <div className="flex items-center justify-between gap-4 mb-4">
             <h2 className="text-2xl font-bold text-gray-800">Productos</h2>
             <span className="text-sm font-medium text-gray-500">
-              Mostrando {visibleProductsCount} producto{visibleProductsCount === 1 ? '' : 's'}
+              Mostrando {visibleProductsCount} de {totalFilteredProductsCount} producto{totalFilteredProductsCount === 1 ? '' : 's'}
             </span>
           </div>
 
@@ -357,6 +413,12 @@ const categoryOptions = useMemo(() => {
               <span>Varios</span>
             </button>
           </div>
+
+          {isInitialLimitApplied && (
+            <p className="mt-2 text-xs text-gray-500">
+              Mostrando primeros {INITIAL_PRODUCTS_LIMIT} productos. Use la búsqueda para ver todos los resultados.
+            </p>
+          )}
         </div>
 
         {isLoading ? (
@@ -368,7 +430,7 @@ const categoryOptions = useMemo(() => {
           </div>
         ) : (
           <div className="flex-grow overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 pr-2 -mr-4">
-              {filteredProducts.map(product => (
+              {visibleProducts.map(product => (
                 <ProductCard
                   key={product.cod}
                   product={product}
@@ -521,7 +583,20 @@ const categoryOptions = useMemo(() => {
                 Ticket interno
               </button>
 
-              {/* 2) Opciones fiscales solo si corresponde */}
+              {/* 2) WhatsApp manual solo cuando hay datos válidos */}
+              {canSendWhatsapp && (
+                <button
+                  onClick={() => {
+                    if (!saleForPrintModal) return;
+                    sendTicketViaWhatsApp(saleForPrintModal, addToast);
+                  }}
+                  className="w-full bg-green-500 text-white py-2 px-4 rounded-lg hover:bg-green-600 transition-colors"
+                >
+                  Enviar por WhatsApp
+                </button>
+              )}
+
+              {/* 3) Opciones fiscales solo si corresponde */}
               {printModalIsFiscal && (
                 <>
                   <button

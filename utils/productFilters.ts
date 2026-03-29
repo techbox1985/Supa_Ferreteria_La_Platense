@@ -16,12 +16,19 @@ type ProductSearchCandidate = Partial<Product> & {
   barcode?: string;
 };
 
+const productSearchTextCache = new WeakMap<object, string>();
+
 export const normalizeSearchText = (value: unknown): string =>
   String(value ?? '')
     .trim()
     .toLowerCase();
 
 export const getProductSearchText = (product: ProductSearchCandidate): string => {
+  if (product && typeof product === 'object') {
+    const cached = productSearchTextCache.get(product as object);
+    if (cached !== undefined) return cached;
+  }
+
   const parts = [
     product.Producto,
     product.name,
@@ -32,10 +39,16 @@ export const getProductSearchText = (product: ProductSearchCandidate): string =>
     product.barcode,
   ];
 
-  return parts
+  const searchText = parts
     .map(normalizeSearchText)
     .filter(Boolean)
     .join(' ');
+
+  if (product && typeof product === 'object') {
+    productSearchTextCache.set(product as object, searchText);
+  }
+
+  return searchText;
 };
 
 export const matchesProductSearch = (product: ProductSearchCandidate, query: string): boolean => {

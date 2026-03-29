@@ -384,6 +384,76 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         });
 };
 
+export const getProductsForPOS = async (): Promise<Product[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data: categoriesData, error: categoriesError } = await supabase
+        .from('st_categories')
+        .select('id, name');
+
+    if (categoriesError) throw categoriesError;
+
+    const categoryMap = new Map(
+        (Array.isArray(categoriesData) ? categoriesData : []).map((cat: any) => [cat.id, cat.name])
+    );
+
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    const rows: any[] = [];
+
+    // Consulta liviana para POS: solo campos usados en render, búsqueda, filtro y venta.
+    const PRODUCT_FIELDS = [
+        'cod',
+        'name',
+        'category_id',
+        'barcode',
+        'description',
+        'offer_price',
+        'final_price',
+        'current_stock',
+        'min_stock',
+        'is_active',
+        'photo_url',
+        'image_url',
+        'is_deleted',
+        'updated_at',
+        'legacy_last_update'
+    ];
+
+    while (true) {
+        const { data, error } = await supabase
+            .from('st_products')
+            .select(PRODUCT_FIELDS.join(','))
+            .eq('is_deleted', false)
+            .range(from, from + PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        const batch = Array.isArray(data) ? data : [];
+        rows.push(...batch);
+
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+    }
+
+    return rows.map((item: any) => ({
+        cod: item.cod ?? '',
+        Producto: item.name ?? '',
+        Categoria: categoryMap.get(item.category_id) || '',
+        Descripcion: item.description ?? '',
+        'cod.barras': item.barcode ?? '',
+        'Precio de Oferta': Number(item.offer_price ?? 0),
+        'Precio Final': Number(item.final_price ?? 0),
+        stockk: Number(item.current_stock ?? 0),
+        Minimo: Number(item.min_stock ?? 0),
+        Activo: Boolean(item.is_active ?? true),
+        FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',
+        Imagen: item.image_url ?? item.photo_url ?? '',
+        Eliminado: Boolean(item.is_deleted ?? false),
+        'Ultima.Actualizacion': item.updated_at ?? item.legacy_last_update ?? '',
+    }));
+};
+
 export const getCategoriesSupabase = async (): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     const { data, error } = await supabase

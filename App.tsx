@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext, useRef } from 'react';
 import { AuthProvider, AuthContext } from './contexts/AuthContext';
 import { ToastProvider, useToast } from './contexts/ToastContext';
 import Header from './components/layout/Header';
@@ -67,6 +67,8 @@ const buildFacturaInfo = (item: any) => {
 const AppContent: React.FC = () => {
     const { currentUser } = useContext(AuthContext);
     const { addToast } = useToast();
+    const initialLoadUserRef = useRef<string | null>(null);
+    const initialLoadInFlightRef = useRef(false);
 
     type View =
         | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history'
@@ -78,6 +80,7 @@ const AppContent: React.FC = () => {
 
     // Estados de Datos
     const [products, setProducts] = useState<Product[]>([]);
+    const [posProducts, setPosProducts] = useState<Product[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [rawSales, setRawSales] = useState<any[]>([]);
     const [rawBudgets, setRawBudgets] = useState<any[]>([]);
@@ -119,18 +122,18 @@ const AppContent: React.FC = () => {
         try {
             // Etapa 1: datos críticos para que el POS aparezca rápido
             const [
-                fetchedProducts,
+                fetchedPosProducts,
                 fetchedCustomers,
                 fetchedBudgets,
                 fetchedCategoriesData,
             ] = await Promise.all([
-                api.getProducts(),
+                api.getProductsForPOS(),
                 api.getCustomers(),
                 api.getBudgetsSupabase(),
                 api.getCategoriesSupabase(),
             ]);
 
-            setProducts((fetchedProducts || []).filter((p) => !isDeleted(p.Eliminado)));
+            setPosProducts((fetchedPosProducts || []).filter((p) => !isDeleted(p.Eliminado)));
             setCustomers(fetchedCustomers || []);
             setRawBudgets(fetchedBudgets || []);
             setCategories(
@@ -144,6 +147,7 @@ const AppContent: React.FC = () => {
 
             // Etapa 2: datos no críticos para el primer render del POS
             const [
+                productsResult,
                 salesResult,
                 expensesResult,
                 shiftsResult,
@@ -151,6 +155,7 @@ const AppContent: React.FC = () => {
                 suppliersResult,
                 accountTransactionsResult,
             ] = await Promise.allSettled([
+                api.getProducts(),
                 api.getSales(),
                 api.getExpenses(),
                 api.getShifts(),
@@ -158,6 +163,12 @@ const AppContent: React.FC = () => {
                 api.getSuppliers(),
                 api.getAccountTransactions(),
             ]);
+
+            if (productsResult.status === 'fulfilled') {
+                setProducts((productsResult.value || []).filter((p) => !isDeleted(p.Eliminado)));
+            } else {
+                console.error('Error fetching products:', productsResult.reason);
+            }
 
             if (salesResult.status === 'fulfilled') {
                 setRawSales(salesResult.value || []);
@@ -204,9 +215,22 @@ const AppContent: React.FC = () => {
     }, [addToast, products.length, customers.length, categories.length]);
 
     useEffect(() => {
-        if (currentUser) {
-            fetchData();
+        if (!currentUser) {
+            initialLoadUserRef.current = null;
+            initialLoadInFlightRef.current = false;
+            return;
         }
+
+        const userKey = String(currentUser.ID_Usuario || '');
+        if (initialLoadUserRef.current === userKey || initialLoadInFlightRef.current) {
+            return;
+        }
+
+        initialLoadInFlightRef.current = true;
+        Promise.resolve(fetchData()).finally(() => {
+            initialLoadUserRef.current = userKey;
+            initialLoadInFlightRef.current = false;
+        });
     }, [currentUser, fetchData]);
 
     // Listener de estado de red
@@ -658,7 +682,7 @@ const AppContent: React.FC = () => {
                 return (
                     <POSView
                         onNavigateBudgets={() => setCurrentView('budgets')}
-                        products={products}
+                        products={posProducts}
                         categories={categories}
                         customers={customersWithCalculatedDebt}
                         refreshData={fetchData}
