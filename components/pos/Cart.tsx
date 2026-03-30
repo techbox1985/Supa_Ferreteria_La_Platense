@@ -1,6 +1,7 @@
 import React from 'react';
 import { CartItem } from '../../types';
 import { Icon } from '../ui/Icon';
+import { sanitizeProductDisplayText } from '../../utils/productFilters';
 
 interface CartProps {
   cart: CartItem[];
@@ -19,6 +20,7 @@ const CartEntry: React.FC<{
     onUpdateCartItemDetails: (productId: string, details: { name?: string; price?: number }) => void;
 }> = ({ item, onUpdateQuantity, onRemoveItem, onUpdateCartItemDetails }) => {
     const isCommonProduct = item.product.cod.startsWith('COMMON_');
+  const displayName = sanitizeProductDisplayText(item.product.Producto);
 
     return (
         <div className="flex items-center justify-between py-3">
@@ -47,7 +49,7 @@ const CartEntry: React.FC<{
                 </div>
             ) : (
                 <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm truncate" title={item.product.Producto}>{item.product.Producto}</p>
+                <p className="font-semibold text-gray-800 text-sm truncate" title={displayName}>{displayName}</p>
                     <p className="text-gray-500 text-xs">${item.price.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                 </div>
             )}

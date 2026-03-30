@@ -47,10 +47,12 @@ const buildFacturaInfo = (item: any) => {
     const nro = item.Factura_Nro || '';
     const vtoCae = item.Factura_Vto_CAE || '';
     const qrData = item.Factura_QR_Data || '';
-    const url = item.Factura_URL || undefined;
-    const ticketUrl = item.Factura_Ticket_URL || undefined;
+    const rawUrl = item.Factura_URL || undefined;
+    const rawTicketUrl = item.Factura_Ticket_URL || undefined;
+    const url = rawUrl || rawTicketUrl;
+    const ticketUrl = rawTicketUrl || rawUrl;
 
-    const hasFactura = Boolean(cae || url || ticketUrl);
+    const hasFactura = Boolean(cae || nro || url || ticketUrl);
     if (!hasFactura) return undefined;
 
     return {

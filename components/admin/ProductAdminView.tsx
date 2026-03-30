@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Supplier } from '../../types';
-import { isDeleted, matchesProductSearch } from '../../utils/productFilters';
+import { isDeleted, matchesProductSearch, sanitizeProductDisplayText } from '../../utils/productFilters';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { ProductEditModal } from './ProductEditModal';
@@ -55,6 +55,11 @@ const resolveProductProviderName = (
   if (!supplierId) return '';
   return String(supplierNameById.get(supplierId) || '').trim();
 };
+
+const getProductDisplayName = (product: ProductRow): string => sanitizeProductDisplayText(product.Producto);
+const getProductDisplayCategory = (product: ProductRow): string => sanitizeProductDisplayText(product.Categoria);
+const getProductDisplayProvider = (product: ProductRow, supplierNameById: Map<string, string>): string =>
+  sanitizeProductDisplayText(resolveProductProviderName(product, supplierNameById));
 
 const formatDateTime = (value: any): string => {
   if (!value) return '-';
@@ -627,7 +632,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                       {hasPhoto ? (
                         <img
                           src={(product as any).FOTOGRAFIA}
-                          alt={product.Producto}
+                          alt={getProductDisplayName(product)}
                           className="w-16 h-16 object-cover rounded-md"
                           onError={(e) => {
                             e.currentTarget.style.display = 'none';
@@ -664,8 +669,8 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                       )}
                     </td>
 
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs truncate" title={product.Producto}>
-                      {product.Producto}
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-xs truncate" title={getProductDisplayName(product)}>
+                      {getProductDisplayName(product)}
                     </td>
 
                     <td className="px-4 py-3 text-sm text-right">
@@ -693,11 +698,11 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                     </td>
 
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {product.Categoria}
+                      {getProductDisplayCategory(product)}
                     </td>
 
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {resolveProductProviderName(product, supplierNameById) || '-'}
+                      {getProductDisplayProvider(product, supplierNameById) || '-'}
                     </td>
 
                     <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">

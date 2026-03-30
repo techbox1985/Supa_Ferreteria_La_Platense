@@ -27,14 +27,14 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
 
     const [startDate, setStartDate] = useState(() => {
         const now = new Date();
-        // Primer día del mes actual
-        return getLocalDateString(new Date(now.getFullYear(), now.getMonth(), 1));
+        // Por defecto: hoy (fecha local del usuario)
+        return getLocalDateString(now);
     });
     
     const [endDate, setEndDate] = useState(() => {
         const now = new Date();
-        // Último día del mes actual
-        return getLocalDateString(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+        // Por defecto: hoy (fecha local del usuario)
+        return getLocalDateString(now);
     });
 
     const [sellerFilter, setSellerFilter] = useState('All');
@@ -45,27 +45,26 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
         return new Map(shifts.map(shift => [shift.ID_Turno, shift.ID_Usuario]));
     }, [shifts]);
 
+    const toLocalDayKey = (value: Date | string) => {
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return '';
+        return getLocalDateString(d);
+    };
+
     // Filtrado por fecha y vendedor
     const salesInDateRange = useMemo(() => {
-        console.log('[HIST] Filtering sales. Total processedSales:', processedSales.length);
-        console.log('[HIST] Date Range:', startDate, 'to', endDate);
-
         if (!startDate || !endDate || !processedSales.length) return [];
-        
-        // Parsear manualmente para asegurar hora local (YYYY, MM-1, DD)
-        const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
-        const start = new Date(startYear, startMonth - 1, startDay, 0, 0, 0, 0);
-        
-        const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
-        const end = new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999);
 
-        console.log('[HIST] Parsed Range (Local):', start.toString(), ' - ', end.toString());
+        // Comparar por clave de fecha local YYYY-MM-DD para evitar desfasajes UTC/local
+        // y exclusiones por hora/minutos al filtrar por rango diario.
+        const fromDayKey = startDate;
+        const toDayKey = endDate;
 
         const filtered = processedSales.filter(sale => {
-            const saleDate = new Date(sale.date);
-            // Comparación inclusiva
-            const isInDateRange = saleDate >= start && saleDate <= end;
-            
+            const saleDayKey = toLocalDayKey(sale.date);
+            if (!saleDayKey) return false;
+
+            const isInDateRange = saleDayKey >= fromDayKey && saleDayKey <= toDayKey;
             if (!isInDateRange) return false;
 
             if (sellerFilter === 'All') {
@@ -75,8 +74,32 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
             const saleUserId = shiftUserMap.get(sale.shiftId || '');
             return saleUserId === sellerFilter;
         });
-        
-        console.log('[HIST] Filtered count:', filtered.length);
+
+        // Logs mínimos útiles para validar la lógica real de inclusión por día.
+        console.log('[HIST][filter-summary]', {
+            totalProcessed: processedSales.length,
+            fromDayKey,
+            toDayKey,
+            sellerFilter,
+            matched: filtered.length,
+        });
+
+        if (filtered.length === 0 && processedSales.length > 0) {
+            const sample = processedSales.slice(0, 5).map((sale) => {
+                const saleDayKey = toLocalDayKey(sale.date);
+                return {
+                    saleId: sale.id,
+                    saleDateOriginal: sale.date,
+                    saleDateISO: new Date(sale.date).toISOString(),
+                    saleDayKey,
+                    fromDayKey,
+                    toDayKey,
+                    inRange: saleDayKey >= fromDayKey && saleDayKey <= toDayKey,
+                };
+            });
+            console.log('[HIST][filter-debug-sample]', sample);
+        }
+
         return filtered;
     }, [processedSales, startDate, endDate, sellerFilter, shiftUserMap]);
 

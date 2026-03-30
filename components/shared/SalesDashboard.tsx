@@ -40,15 +40,13 @@ const formatMoneyInput = (value: number): string => {
 };
 
 const isSaleAlreadyBilled = (sale: Sale): boolean => {
-  const invoiceType = String(sale.facturacion || '').toUpperCase();
-  const hasInvoiceType = invoiceType !== '' && invoiceType !== 'N';
-  const hasFiscalInfo = Boolean(
+  const hasBillingEvidence = Boolean(
     sale.facturaInfo?.cae ||
     sale.facturaInfo?.nro ||
-    sale.facturaInfo?.url ||
-    sale.facturaInfo?.ticketUrl
+    sale.facturaInfo?.ticketUrl ||
+    sale.facturaInfo?.url
   );
-  return hasFiscalInfo || hasInvoiceType;
+  return hasBillingEvidence;
 };
 
 const openHtmlInNewWindow = (
@@ -1575,7 +1573,7 @@ export const SalesDashboard: React.FC<
                       <div className="flex items-center space-x-3">
                         <Icon path="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" className="w-6 h-6" />
                         <span className="font-medium">
-                          Facturado: {(selectedItemForActions.item as Sale).facturaInfo?.nro}
+                          Facturado: {(selectedItemForActions.item as Sale).facturaInfo?.nro || 'Comprobante oficial'}
                         </span>
                       </div>
                     </div>
@@ -1590,7 +1588,7 @@ export const SalesDashboard: React.FC<
                       className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
                     >
                       <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
-                      <span className="font-medium">Ver Ticket Oficial 80 mm</span>
+                      <span className="font-medium">Ver Ticket 80mm</span>
                     </a>
                   )}
 
@@ -1603,7 +1601,7 @@ export const SalesDashboard: React.FC<
                       className="flex items-center space-x-3 w-full p-3 text-left hover:bg-indigo-50 text-indigo-700 rounded-xl transition-colors"
                     >
                       <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
-                      <span className="font-medium">Ver Ticket Oficial A4</span>
+                      <span className="font-medium">Ver PDF A4 Oficial</span>
                     </a>
                   )}
 

@@ -12,7 +12,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { sendTicketViaWhatsApp } from '../../utils/whatsappHelper';
 import { ProductDetailModal } from './ProductDetailModal';
 import { getPrintStyles } from '../../utils/printStyles';
-import { matchesProductSearch } from '../../utils/productFilters';
+import { matchesProductSearch, sanitizeProductDisplayText } from '../../utils/productFilters';
 
 interface POSViewProps {
     onNavigateBudgets: () => void;
@@ -399,7 +399,7 @@ const categoryOptions = useMemo(() => {
             >
               {categoryOptions.map(cat => (
                 <option key={cat} value={cat}>
-                  {cat === 'All' ? 'Todas las categorías' : cat}
+                  {cat === 'All' ? 'Todas las categorías' : sanitizeProductDisplayText(cat)}
                 </option>
               ))}
             </select>

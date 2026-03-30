@@ -32,15 +32,18 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
     const { addToast } = useToast();
 
     const isSaleBilled = useCallback((sale: Sale) => {
-        const invoiceType = String(sale.facturacion || '').toUpperCase();
-        const hasInvoiceType = invoiceType !== '' && invoiceType !== 'N';
-        const hasFiscalInfo = Boolean(
-            sale.facturaInfo?.cae ||
-            sale.facturaInfo?.nro ||
-            sale.facturaInfo?.url ||
-            sale.facturaInfo?.ticketUrl
-        );
-        return hasFiscalInfo || hasInvoiceType;
+        const invoiceType = String(sale.facturacion || '').trim().toUpperCase();
+        const hasStrongInvoiceInfo = Boolean(sale.facturaInfo?.cae || sale.facturaInfo?.nro);
+        const hasInvoiceLinks = Boolean(sale.facturaInfo?.url || sale.facturaInfo?.ticketUrl);
+
+        // Auxiliary fallback when upstream only provides invoice type without full facturaInfo hydration.
+        const hasAuxInvoiceType =
+            invoiceType !== '' &&
+            invoiceType !== 'N' &&
+            !invoiceType.includes('NOTA DE CREDITO') &&
+            !invoiceType.includes('NC');
+
+        return hasStrongInvoiceInfo || hasInvoiceLinks || hasAuxInvoiceType;
     }, []);
 
     const filteredSales = useMemo(() => {

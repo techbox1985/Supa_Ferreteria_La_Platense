@@ -162,7 +162,7 @@ const persistInvoiceForSale = async (
     if (existingInvoice?.id) {
         const { error } = await supabase
             .from('invoices')
-            .update({ ...invoicePayload, updated_at: new Date().toISOString() })
+            .update({ ...invoicePayload })
             .eq('id', existingInvoice.id);
 
         if (error) throw error;
@@ -2006,20 +2006,66 @@ const buildInvoiceData = (item: any, linkedInvoice: any) => {
         invoiceTypeRaw.includes('NOTA') ||
         invoiceTypeRaw.includes('CREDITO');
 
-    const cae = (isCreditNoteInvoice ? undefined : linkedInvoice?.cae) || '';
-    const nro = (isCreditNoteInvoice ? undefined : linkedInvoice?.nro) || '';
-    const vtoCae = linkedInvoice?.vto_cae || '';
-    const qrData = linkedInvoice?.qr_data || '';
+    const billingCae = String(item?.billing_cae || '').trim();
+    const billingNumber = String(item?.billing_number || '').trim();
+    const billingTicketUrl = String(item?.billing_ticket_url || '').trim();
+    const billingPdfUrl = String(item?.billing_pdf_url || '').trim();
+    const billingQrData = String(item?.billing_qr_data || '').trim();
+    const billingVtoCae = String(item?.billing_vto_cae || '').trim();
+
+    const cae =
+        (isCreditNoteInvoice ? undefined : linkedInvoice?.cae) ||
+        billingCae ||
+        '';
+    const nro =
+        (isCreditNoteInvoice ? undefined : linkedInvoice?.nro) ||
+        billingNumber ||
+        '';
+    const vtoCae = linkedInvoice?.vto_cae || billingVtoCae || '';
+    const qrData = linkedInvoice?.qr_data || billingQrData || '';
+    const canonicalPdfUrl =
+        linkedInvoice?.pdf_url ||
+        linkedInvoice?.comprobante_pdf_url ||
+        linkedInvoice?.url ||
+        linkedInvoice?.comprobante_url ||
+        undefined;
+    const canonicalTicketUrl =
+        linkedInvoice?.comprobante_ticket_url ||
+        linkedInvoice?.ticket_url ||
+        undefined;
+
     const pdfUrl =
-        (isCreditNoteInvoice ? undefined : linkedInvoice?.pdf_url) ||
-        (isCreditNoteInvoice ? undefined : linkedInvoice?.url) ||
+        (isCreditNoteInvoice ? undefined : canonicalPdfUrl) ||
+        billingPdfUrl ||
+        (isCreditNoteInvoice ? undefined : canonicalTicketUrl) ||
+        billingTicketUrl ||
         undefined;
     const ticketUrl =
-        (isCreditNoteInvoice ? undefined : linkedInvoice?.comprobante_ticket_url) ||
-        (isCreditNoteInvoice ? undefined : linkedInvoice?.ticket_url) ||
-        (isCreditNoteInvoice ? undefined : linkedInvoice?.url) ||
+        (isCreditNoteInvoice ? undefined : canonicalTicketUrl) ||
+        billingTicketUrl ||
+        (isCreditNoteInvoice ? undefined : canonicalPdfUrl) ||
+        billingPdfUrl ||
         undefined;
-    const invoiceType = linkedInvoice?.invoice_type || item.invoice_type || 'N';
+    const hasBillingEvidence = Boolean(
+        billingCae ||
+        billingNumber ||
+        billingTicketUrl ||
+        billingPdfUrl
+    );
+    const hasLinkedInvoiceEvidence = Boolean(
+        linkedInvoice?.cae ||
+        linkedInvoice?.nro ||
+        linkedInvoice?.pdf_url ||
+        linkedInvoice?.comprobante_pdf_url ||
+        linkedInvoice?.url ||
+        linkedInvoice?.comprobante_url ||
+        linkedInvoice?.ticket_url ||
+        linkedInvoice?.comprobante_ticket_url
+    );
+    const invoiceType =
+        linkedInvoice?.invoice_type ||
+        item.invoice_type ||
+        (hasLinkedInvoiceEvidence || hasBillingEvidence ? 'FACTURADA' : 'N');
     const fecha = linkedInvoice?.issued_at || linkedInvoice?.created_at || item.sold_at;
 
     return {
@@ -2037,31 +2083,59 @@ const buildInvoiceData = (item: any, linkedInvoice: any) => {
 export const getSales = async (): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
-    const { data, error } = await supabase
-        .from('st_sales')
-        .select(`
-            *,
-            st_sale_items (
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    let keepFetching = true;
+    const salesRowsMap = new Map<string, any>();
+    const salesRowsNoId: any[] = [];
+
+    while (keepFetching) {
+        const { data, error } = await supabase
+            .from('st_sales')
+            .select(`
                 *,
-                st_products (
-                    name,
-                    cod
+                st_sale_items (
+                    *,
+                    st_products (
+                        name,
+                        cod
+                    )
+                ),
+                st_customers (
+                    full_name,
+                    whatsapp,
+                    document_type,
+                    document_number,
+                    iva_condition
                 )
-            ),
-            st_customers (
-                full_name,
-                whatsapp,
-                document_type,
-                document_number,
-                iva_condition
-            )
-        `)
-        .in('status', ['active', 'annulled', 'pending', 'approved'])
-        .order('sold_at', { ascending: false });
+            `)
+            .in('status', ['active', 'annulled', 'pending', 'approved'])
+            .order('sold_at', { ascending: false })
+            .range(from, from + PAGE_SIZE - 1);
 
-    if (error) throw error;
+        if (error) throw error;
 
-    const salesRows = Array.isArray(data) ? data : [];
+        const batch = Array.isArray(data) ? data : [];
+        for (const row of batch) {
+            const rowId = String(row?.id || '').trim();
+            if (!rowId) {
+                salesRowsNoId.push(row);
+                continue;
+            }
+            if (!salesRowsMap.has(rowId)) {
+                salesRowsMap.set(rowId, row);
+            }
+        }
+
+        if (batch.length < PAGE_SIZE) {
+            keepFetching = false;
+        } else {
+            from += PAGE_SIZE;
+        }
+    }
+
+    const salesRows = [...salesRowsMap.values(), ...salesRowsNoId];
+    console.log('[getSales] Total ventas traidas desde st_sales:', salesRows.length);
     const saleIds = salesRows.map((row: any) => String(row?.id || '')).filter(Boolean);
     const invoiceBySaleId = new Map<string, any>();
 
@@ -2069,30 +2143,34 @@ export const getSales = async (): Promise<any[]> => {
     // If this query fails for any reason, we keep legacy st_sales fields as fallback.
     if (saleIds.length > 0) {
         const baseOrder = { ascending: false };
-        const primarySelect = 'sale_id, cae, nro, qr_data, pdf_url, ticket_url, comprobante_ticket_url, url, vto_cae, invoice_type, created_at';
-        const fallbackSelect = 'sale_id, cae, nro, qr_data, pdf_url, url, ticket_url, invoice_type, created_at';
+        const selectCandidates = [
+            // Esquema completo con columnas nuevas y legacy.
+            'sale_id, cae, nro, qr_data, pdf_url, comprobante_pdf_url, ticket_url, comprobante_ticket_url, url, comprobante_url, vto_cae, invoice_type, issued_at, created_at',
+            // Variante sin columnas alternativas.
+            'sale_id, cae, nro, qr_data, pdf_url, ticket_url, comprobante_ticket_url, url, vto_cae, invoice_type, issued_at, created_at',
+            // Variante legacy frecuente.
+            'sale_id, cae, nro, qr_data, pdf_url, url, ticket_url, invoice_type, created_at',
+            // Fallback mínimo para no romper listado.
+            'sale_id, cae, nro, created_at'
+        ];
 
         let invoicesData: any[] = [];
         let invoicesError: any = null;
 
         try {
-            const primaryResponse = await supabase
-                .from('invoices')
-                .select(primarySelect)
-                .in('sale_id', saleIds)
-                .order('created_at', baseOrder);
-            invoicesData = Array.isArray(primaryResponse.data) ? primaryResponse.data : [];
-            invoicesError = primaryResponse.error;
-
-            if (invoicesError) {
-                const fallbackResponse = await supabase
+            for (const selectClause of selectCandidates) {
+                const response = await supabase
                     .from('invoices')
-                    .select(fallbackSelect)
+                    .select(selectClause)
                     .in('sale_id', saleIds)
                     .order('created_at', baseOrder);
 
-                invoicesData = Array.isArray(fallbackResponse.data) ? fallbackResponse.data : [];
-                invoicesError = fallbackResponse.error;
+                invoicesData = Array.isArray(response.data) ? response.data : [];
+                invoicesError = response.error;
+
+                if (!invoicesError) {
+                    break;
+                }
             }
         } catch {
             // Non-blocking: if invoices lookup fails, st_sales fallback fields are used.
@@ -2159,7 +2237,13 @@ export const getSales = async (): Promise<any[]> => {
             Factura_Vto_CAE: invoiceData.vtoCae,
             Factura_QR_Data: invoiceData.qrData,
             Factura_URL: invoiceData.pdfUrl,
-            Factura_Ticket_URL: invoiceData.ticketUrl
+            Factura_Ticket_URL: invoiceData.ticketUrl,
+            billing_cae: item.billing_cae || null,
+            billing_number: item.billing_number || null,
+            billing_ticket_url: item.billing_ticket_url || null,
+            billing_pdf_url: item.billing_pdf_url || null,
+            billing_qr_data: item.billing_qr_data || null,
+            billing_vto_cae: item.billing_vto_cae || null
         };
     });
 };
@@ -3686,7 +3770,6 @@ export const markSaleAsBilled = async (saleId: string, cae: string, nro: string,
         .from('st_sales')
         .update({
             invoice_type: facturacion || 'N',
-            updated_at: date.toISOString(),
         })
         .eq('id', saleId);
 

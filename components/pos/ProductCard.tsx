@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { Product } from '../../types';
 import { Icon } from '../ui/Icon';
+import { sanitizeProductDisplayText } from '../../utils/productFilters';
 
 interface ProductCardProps {
   product: Product;
@@ -42,6 +43,8 @@ const parseDate = (dateString: string | null | undefined): Date | null => {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, onAddToCart, onViewDetails, allowOutOfStock = false, imageHeightClass = 'h-32' }) => {
+  const displayName = sanitizeProductDisplayText(product.Producto);
+  const displayCategory = sanitizeProductDisplayText(product.Categoria);
   const stock = product.stockk ?? 0;
   const minimo = product.Minimo ?? 0;
   const canBeAdded = product.Activo && (allowOutOfStock || stock > 0);
@@ -81,10 +84,10 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
       <div className="relative">
         <img
           src={product.FOTOGRAFIA || 'https://picsum.photos/400'}
-          alt={product.Producto}
+          alt={displayName}
           className={`w-full ${imageHeightClass} object-cover bg-slate-100 ${canBeAdded ? 'cursor-pointer' : ''} ${!canBeAdded ? 'filter grayscale' : ''}`}
           onClick={handleImageClick}
-          title={canBeAdded ? `Añadir "${product.Producto}" al carrito` : `${product.Producto} - Sin Stock`}
+          title={canBeAdded ? `Añadir "${displayName}" al carrito` : `${displayName} - Sin Stock`}
           loading="lazy"
           decoding="async"
         />
@@ -110,8 +113,8 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
         </button>
       </div>
       <div className="p-3 flex flex-col flex-grow">
-        <h3 className="font-bold text-slate-800 line-clamp-2 leading-tight text-sm break-words" title={product.Producto}>{product.Producto}</h3>
-        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{product.Categoria}</p>
+        <h3 className="font-bold text-slate-800 line-clamp-2 leading-tight text-sm break-words" title={displayName}>{displayName}</h3>
+        <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">{displayCategory}</p>
         
         <div className="flex-grow"></div>
         

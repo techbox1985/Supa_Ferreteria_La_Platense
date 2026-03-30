@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Product } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
+import { sanitizeProductDisplayText } from '../../utils/productFilters';
 
 interface ProductDetailModalProps {
   isOpen: boolean;
@@ -23,6 +24,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ isOpen, 
 
   if (!isOpen || !product) return null;
 
+  const displayName = sanitizeProductDisplayText(product.Producto);
+  const displayCategory = sanitizeProductDisplayText(product.Categoria);
+  const displayDescription = sanitizeProductDisplayText(product.Descripcion || 'No hay descripción disponible.');
+
   const stock = product.stockk ?? 0;
   const canBeAdded = stock > 0;
   const isOnSale = product['Precio de Oferta'] && product['Precio de Oferta'] > 0;
@@ -31,25 +36,25 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ isOpen, 
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title={product.Producto} size="lg">
+      <Modal isOpen={isOpen} onClose={onClose} title={displayName} size="lg">
         <div className="flex flex-col md:flex-row gap-4 sm:gap-6">
           <div className="md:w-1/2">
             <img 
               src={product.FOTOGRAFIA || 'https://picsum.photos/400'} 
-              alt={product.Producto}
+              alt={displayName}
               className="w-full h-auto object-contain rounded-lg shadow-lg max-h-96 cursor-zoom-in transition-transform duration-200 hover:scale-105"
               onClick={() => setIsZoomed(true)}
             />
           </div>
           <div className="md:w-1/2 flex flex-col space-y-4">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900">{product.Producto}</h2>
-              <p className="text-sm text-gray-500">{product.Categoria}</p>
+              <h2 className="text-2xl font-bold text-gray-900">{displayName}</h2>
+              <p className="text-sm text-gray-500">{displayCategory}</p>
             </div>
             
             <div className="bg-gray-50 p-3 rounded-md max-h-32 overflow-y-auto">
               <h4 className="font-semibold text-gray-700">Descripción</h4>
-              <p className="text-sm text-gray-600 mt-1">{product.Descripcion || 'No hay descripción disponible.'}</p>
+              <p className="text-sm text-gray-600 mt-1">{displayDescription}</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-sm">
@@ -100,7 +105,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({ isOpen, 
         >
           <img 
             src={product.FOTOGRAFIA || 'https://picsum.photos/400'} 
-            alt={product.Producto}
+            alt={displayName}
             className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
             onClick={(e) => e.stopPropagation()} // Prevent closing when clicking the image itself
           />

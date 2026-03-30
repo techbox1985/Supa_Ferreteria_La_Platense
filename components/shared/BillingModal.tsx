@@ -155,8 +155,15 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, sal
       }
 
       const effectiveType = apiResponse.data?.effectiveType || billingData.facturacionType;
-      await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url || '', ticketUrl, effectiveType);
-      
+
+      // Persistir localmente. Si falla (ej: columna inexistente, RLS), no bloquear el
+      // éxito de la UI: AFIP ya emitió la factura correctamente.
+      try {
+        await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url || '', ticketUrl, effectiveType);
+      } catch (persistErr: any) {
+        console.error('[BillingModal] persistencia local fallida tras emisión AFIP exitosa:', persistErr?.message || persistErr);
+      }
+
       addToast(`Factura ${nro} generada y registrada con éxito.`, 'success');
       onSuccess();
       onClose();
