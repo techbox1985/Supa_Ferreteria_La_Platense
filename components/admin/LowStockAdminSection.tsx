@@ -1,9 +1,10 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Product, Supplier } from '../../types';
 import { Icon } from '../ui/Icon';
-import { StatCard } from '../dashboard/StatCard';
-import { Modal } from '../ui/Modal';
+import { ProductEditModal } from './ProductEditModal';
+import { useToast } from '../../contexts/ToastContext';
+import * as api from '../../services/api';
 
 interface LowStockAdminSectionProps {
   products: Product[];
@@ -11,9 +12,42 @@ interface LowStockAdminSectionProps {
 }
 
 export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ products }) => {
+  type LocalProduct = Product & { category_id?: string; supplier_id?: string };
+  type CategoryOption = { id: string; name: string };
+
+  const [localProducts, setLocalProducts] = useState<LocalProduct[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [providerFilter, setProviderFilter] = useState('All');
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<LocalProduct | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const { addToast } = useToast();
   const NO_PROVIDER_FILTER = '__NO_PROVIDER__';
+
+  useEffect(() => {
+    setLocalProducts((products || []) as LocalProduct[]);
+  }, [products]);
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = await api.getCategoriesSupabase();
+        const normalized = (Array.isArray(data) ? data : [])
+          .map((item: any) => ({
+            id: String(item?.id || '').trim(),
+            name: String(item?.name || '').trim(),
+          }))
+          .filter((item: CategoryOption) => item.id !== '' && item.name !== '');
+        setCategories(normalized);
+      } catch {
+        setCategories([]);
+      }
+    };
+
+    void loadCategories();
+  }, []);
 
   const getProviderFilterValue = (provider?: string): string => {
     const raw = String(provider || '').trim();
@@ -26,32 +60,106 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
     return filterValue;
   };
 
-  // Filtrar productos que están bajo stock o sin stock
-  const allLowStockProducts = useMemo(() => {
-    return products.filter(p => {
-      const stock = p.stockk ?? 0;
-      const min = p.Minimo ?? 0;
-      return p.Activo && (stock <= min || stock <= 0);
-    });
-  }, [products]);
+  const getStock = (product: Product): number => Number(product.stockk ?? 0);
+  const getMinStock = (product: Product): number => Number(product.Minimo ?? 0);
 
-  // Aplicar filtro de proveedor
+  const getStockStatus = (product: Product): 'sin-stock' | 'bajo-stock' | 'ok' => {
+    const stock = getStock(product);
+    const min = getMinStock(product);
+    if (stock <= 0) return 'sin-stock';
+    if (min > 0 && stock > 0 && stock <= min) return 'bajo-stock';
+    return 'ok';
+  };
+
+  const getMissing = (product: Product): number => {
+    const stock = getStock(product);
+    const min = getMinStock(product);
+    return Math.max(min - stock, 0);
+  };
+
+  const normalize = (value: string): string =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+
+  const getCategoryLabel = (product: Product): string => String(product.Categoria || '').trim();
+
+  const openEditModal = (product: LocalProduct) => {
+    setSelectedProduct(product);
+    setIsEditModalOpen(true);
+  };
+
+  const categoriesData = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    localProducts.forEach((product) => {
+      const category = String(product.Categoria || '').trim();
+      const subCategory = String(product['Sub Categoria'] || '').trim();
+      if (!category) return;
+      if (!map[category]) map[category] = [];
+      if (subCategory && !map[category].includes(subCategory)) {
+        map[category].push(subCategory);
+      }
+    });
+
+    Object.keys(map).forEach((key) => {
+      map[key] = [...map[key]].sort((a, b) => a.localeCompare(b));
+    });
+
+    return map;
+  }, [localProducts]);
+
+  const allLowStockProducts = useMemo(() => {
+    return localProducts.filter((product) => {
+      if (!product.Activo) return false;
+      return getStockStatus(product) !== 'ok';
+    });
+  }, [localProducts]);
+
   const filteredLowStock = useMemo(() => {
-    const filtered = providerFilter === 'All'
-      ? allLowStockProducts
-      : allLowStockProducts.filter(p => getProviderFilterValue(p.Proveedor) === providerFilter);
+    const normalizedSearch = normalize(searchTerm);
+
+    const filtered = allLowStockProducts.filter((product) => {
+      const matchesProvider =
+        providerFilter === 'All' || getProviderFilterValue(product.Proveedor) === providerFilter;
+      const matchesCategory =
+        categoryFilter === 'All' || getCategoryLabel(product) === categoryFilter;
+      const matchesSearch =
+        normalizedSearch === '' ||
+        normalize(product.Producto || '').includes(normalizedSearch) ||
+        normalize(product.cod || '').includes(normalizedSearch);
+
+      return matchesProvider && matchesCategory && matchesSearch;
+    });
 
     return [...filtered].sort((a, b) => {
-      const aStock = a.stockk ?? 0;
-      const bStock = b.stockk ?? 0;
+      const statusRank = (product: Product): number => {
+        const status = getStockStatus(product);
+        if (status === 'sin-stock') return 0;
+        if (status === 'bajo-stock') return 1;
+        return 2;
+      };
 
-      if (aStock !== bStock) {
-        return aStock - bStock;
+      const rankDiff = statusRank(a) - statusRank(b);
+      if (rankDiff !== 0) return rankDiff;
+
+      const missingDiff = getMissing(b) - getMissing(a);
+      if (missingDiff !== 0) return missingDiff;
+
+      const aStock = getStock(a);
+      const bStock = getStock(b);
+      const aMin = getMinStock(a);
+      const bMin = getMinStock(b);
+      const aRatio = aMin > 0 ? aStock / aMin : Number.POSITIVE_INFINITY;
+      const bRatio = bMin > 0 ? bStock / bMin : Number.POSITIVE_INFINITY;
+      if (aRatio !== bRatio) {
+        return aRatio - bRatio;
       }
 
       return String(a.Producto || '').localeCompare(String(b.Producto || ''));
     });
-  }, [allLowStockProducts, providerFilter]);
+  }, [allLowStockProducts, providerFilter, categoryFilter, searchTerm]);
 
   const activeProviders = useMemo(() => {
     const providerValues = Array.from(
@@ -66,73 +174,45 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
     return ['All', ...namedProviders, ...(hasNoProvider ? [NO_PROVIDER_FILTER] : [])];
   }, [allLowStockProducts]);
 
-  const providerCards = useMemo(() => {
-    const counts = new Map<string, number>();
-
-    allLowStockProducts.forEach((product) => {
-      const key = getProviderFilterValue(product.Proveedor);
-      counts.set(key, (counts.get(key) || 0) + 1);
-    });
-
-    const providerItems = Array.from(counts.entries())
-      .filter(([key]) => key !== NO_PROVIDER_FILTER)
-      .sort((a, b) => {
-        if (b[1] !== a[1]) return b[1] - a[1];
-        return a[0].localeCompare(b[0], 'es', { sensitivity: 'base' });
-      })
-      .map(([key, count]) => ({ key, label: getProviderLabel(key), count }));
-
-    const cards = [...providerItems];
-
-    if (counts.has(NO_PROVIDER_FILTER)) {
-      cards.push({
-        key: NO_PROVIDER_FILTER,
-        label: 'Sin proveedor',
-        count: counts.get(NO_PROVIDER_FILTER) || 0,
-      });
-    }
-
-    return cards;
+  const activeCategories = useMemo(() => {
+    const categoriesSet = new Set(
+      allLowStockProducts
+        .map((product) => getCategoryLabel(product))
+        .filter((category) => category !== '')
+    );
+    return ['All', ...Array.from(categoriesSet).sort((a, b) => a.localeCompare(b))];
   }, [allLowStockProducts]);
 
   const providerFilterLabel = getProviderLabel(providerFilter);
 
-  const downloadExcel = (onlyFiltered: boolean) => {
-    const dataToExport = onlyFiltered ? filteredLowStock : allLowStockProducts;
-    
-    if (dataToExport.length === 0) {
-      alert("No hay productos para exportar.");
-      return;
+  const handleSaveProduct = async (
+    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string }
+  ) => {
+    if (!selectedProduct) return;
+
+    setIsSaving(true);
+    try {
+      await api.updateProductSupabase(productData);
+      setLocalProducts((prev) =>
+        prev.map((product) =>
+          product.cod === selectedProduct.cod
+            ? {
+                ...product,
+                ...productData,
+              }
+            : product
+        )
+      );
+      setIsEditModalOpen(false);
+      setSelectedProduct(null);
+      addToast('Producto actualizado correctamente.', 'success');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Error desconocido';
+      addToast(`No se pudo guardar el producto: ${message}`, 'error');
+      throw error;
+    } finally {
+      setIsSaving(false);
     }
-
-    // Generar CSV (Excel compatible)
-    const headers = ['Producto', 'Código', 'Proveedor', 'Stock Actual', 'Mínimo', 'Estado'];
-    const rows = dataToExport.map(p => {
-      const stock = p.stockk ?? 0;
-      return [
-        p.Producto,
-        p.cod,
-        p.Proveedor || 'Sin proveedor',
-        stock,
-        p.Minimo ?? 0,
-        stock <= 0 ? 'SIN STOCK' : 'BAJO STOCK'
-      ];
-    });
-
-    const csvContent = [
-      headers.join(';'),
-      ...rows.map(r => r.join(';'))
-    ].join('\n');
-
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `Bajo_Stock_${onlyFiltered ? providerFilterLabel : 'Total'}_${new Date().toLocaleDateString()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setIsExportModalOpen(false);
   };
 
   return (
@@ -146,84 +226,99 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
           <p className="text-sm text-gray-500 mt-1">Control operativo de mercadería crítica</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="text-sm text-gray-600">
+          Total críticos: <span className="font-semibold text-gray-900">{filteredLowStock.length}</span>
+          {providerFilter !== 'All' ? ` · ${providerFilterLabel}` : ''}
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar por producto o código"
+            className="border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+          />
+
           <select 
             value={providerFilter} 
             onChange={(e) => setProviderFilter(e.target.value)}
             className="border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="All">Todos los proveedores</option>
-            {activeProviders.filter(p => p !== 'All').map(p => (
-              <option key={p} value={p}>{getProviderLabel(p)}</option>
+            {activeProviders.filter((provider) => provider !== 'All').map((provider) => (
+              <option key={provider} value={provider}>{getProviderLabel(provider)}</option>
             ))}
           </select>
-          
-          <button 
-            onClick={() => setIsExportModalOpen(true)}
-            className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2 text-sm shadow-sm"
+
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="border-gray-300 rounded-md shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
           >
-            <Icon path="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" className="w-4 h-4" />
-            <span>Descargar Excel</span>
-          </button>
+            <option value="All">Todos los rubros</option>
+            {activeCategories.filter((category) => category !== 'All').map((category) => (
+              <option key={category} value={category}>{category}</option>
+            ))}
+          </select>
         </div>
-      </div>
-
-      <div className="max-w-xs">
-        <StatCard 
-          title={`Bajos de Stock ${providerFilter !== 'All' ? `(${providerFilterLabel})` : ''}`}
-          value={filteredLowStock.length.toString()}
-          iconPath="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
-          iconBgColor="bg-orange-500"
-          description="Productos que requieren reposición inmediata"
-        />
-      </div>
-
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {providerCards.map((card) => {
-          const isActive = providerFilter === card.key;
-          return (
-            <button
-              key={card.key}
-              type="button"
-              onClick={() => setProviderFilter(card.key)}
-              className={`text-left rounded-lg border p-3 transition-colors ${isActive ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
-            >
-              <p className={`text-xs font-semibold uppercase tracking-wide ${isActive ? 'text-blue-700' : 'text-gray-500'}`}>
-                {card.label}
-              </p>
-              <p className={`text-2xl font-bold mt-1 ${isActive ? 'text-blue-900' : 'text-gray-900'}`}>{card.count}</p>
-            </button>
-          );
-        })}
       </div>
 
       <div className="bg-white shadow-md rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
+          <table className="min-w-[1100px] w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Producto</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Código / SKU</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoría / Rubro</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proveedor</th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Stock mínimo</th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Stock actual</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Stock mínimo</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Faltante</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Acción</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredLowStock.length > 0 ? filteredLowStock.map((p) => {
-                const stock = p.stockk ?? 0;
-                const min = p.Minimo ?? 0;
+                const stock = getStock(p);
+                const min = getMinStock(p);
+                const missing = getMissing(p);
+                const status = getStockStatus(p);
+                const statusLabel = status === 'sin-stock' ? 'Sin stock' : 'Bajo stock';
 
                 return (
-                  <tr key={p.cod} className="hover:bg-gray-50">
+                  <tr key={p.cod} className={`hover:bg-gray-50 ${status === 'sin-stock' ? 'bg-red-50/40' : 'bg-orange-50/30'}`}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{p.Producto}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">{p.cod}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{getCategoryLabel(p) || '-'}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">{p.Proveedor || 'Sin proveedor'}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-700">{min}</td>
                     <td className={`px-6 py-4 whitespace-nowrap text-center text-sm font-bold ${stock <= 0 ? 'text-red-600' : 'text-orange-600'}`}>{stock}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-700">{min}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-semibold text-blue-700">{missing}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${status === 'sin-stock' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700'}`}>
+                        {statusLabel}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                      <button
+                        type="button"
+                        onClick={() => openEditModal(p)}
+                        className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-white hover:bg-blue-700"
+                      >
+                        <Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" className="w-3.5 h-3.5" />
+                        Editar
+                      </button>
+                    </td>
                   </tr>
                 );
               }) : (
                 <tr>
-                  <td colSpan={4} className="text-center py-10 text-gray-500">
+                  <td colSpan={9} className="text-center py-10 text-gray-500">
                     No hay productos críticos para mostrar.
                   </td>
                 </tr>
@@ -233,33 +328,17 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
         </div>
       </div>
 
-      <Modal isOpen={isExportModalOpen} onClose={() => setIsExportModalOpen(false)} title="Exportar a Excel" size="sm">
-        <div className="space-y-4">
-          <p className="text-gray-600 text-sm">¿Querés descargar el Excel del proveedor seleccionado o de todos los productos bajo stock?</p>
-          <div className="flex flex-col gap-2">
-            {providerFilter !== 'All' && (
-              <button 
-                onClick={() => downloadExcel(true)}
-                className="w-full bg-blue-600 text-white py-2 rounded-md font-medium hover:bg-blue-700 flex items-center justify-center gap-2"
-              >
-                Solo de &quot;{providerFilterLabel}&quot;
-              </button>
-            )}
-            <button 
-              onClick={() => downloadExcel(false)}
-              className="w-full bg-gray-200 text-gray-800 py-2 rounded-md font-medium hover:bg-gray-300"
-            >
-              Todos los productos bajo stock
-            </button>
-            <button 
-              onClick={() => setIsExportModalOpen(false)}
-              className="w-full text-gray-500 text-sm hover:underline py-1"
-            >
-              Cancelar
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <ProductEditModal
+        isOpen={isEditModalOpen}
+        onClose={isSaving ? () => {} : () => { setIsEditModalOpen(false); setSelectedProduct(null); }}
+        product={selectedProduct}
+        onSave={handleSaveProduct}
+        categoriesData={categoriesData}
+        allProducts={localProducts}
+        providers={Array.from(new Set(localProducts.map((p) => String(p.Proveedor || '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b))}
+        categories={categories}
+        suppliers={[]}
+      />
     </div>
   );
 };

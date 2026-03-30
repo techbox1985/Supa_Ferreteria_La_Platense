@@ -8,19 +8,22 @@ interface LowStockViewProps {
 }
 
 export const LowStockView: React.FC<LowStockViewProps> = ({ products, isLoading }) => {
+    const getStock = (product: Product) => Number(product.stockk ?? 0);
+    const getMinStock = (product: Product) => Number(product.Minimo ?? 0);
+    const isLowStock = (product: Product) => {
+        const stock = getStock(product);
+        const min = getMinStock(product);
+        return stock <= 0 || (stock > 0 && min > 0 && stock <= min);
+    };
     
     const lowStockProducts = useMemo(() => {
         return products
-                        .filter(p => {
-                            const minimo = p.Minimo ?? 0;
-                            const stock = p.stockk ?? 0;
-                            return p.Activo && minimo > 0 && stock < minimo;
-                        })
+                        .filter(p => p.Activo && isLowStock(p))
                         .sort((a, b) => {
-                            const aStock = a.stockk ?? 0;
-                            const aMin = a.Minimo ?? 1;
-                            const bStock = b.stockk ?? 0;
-                            const bMin = b.Minimo ?? 1;
+                            const aStock = getStock(a);
+                            const aMin = getMinStock(a) || 1;
+                            const bStock = getStock(b);
+                            const bMin = getMinStock(b) || 1;
                             return (aStock / aMin) - (bStock / bMin);
                         }); // Sort by urgency (percentage of stock left)
     }, [products]);
