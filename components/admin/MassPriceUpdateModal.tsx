@@ -59,8 +59,20 @@ interface SupplierApiRow {
 
 interface MissingInFileRow {
   code: string;
+  barcode: string;
   description: string;
   price: number | null;
+}
+
+interface NotFoundProductRow {
+  excel_code: string;
+  excel_barcode: string;
+  excel_description: string;
+  excel_price: number | null;
+  system_code: string;
+  system_barcode: string;
+  search_field: string;
+  edit_code: string;
 }
 
 const parseCostValue = (value: string): number => {
@@ -86,6 +98,27 @@ const parseCostValue = (value: string): number => {
 };
 
 const normalizeImportKey = (value: string): string => String(value || '').trim().toLowerCase();
+
+const translateStatusLabel = (status: 'found' | 'not found'): string => {
+  if (status === 'found') return 'Encontrado';
+  return 'No encontrado';
+};
+
+const translateResultLabel = (result: 'will update' | 'no change' | 'not found'): string => {
+  if (result === 'will update') return 'Se actualizará';
+  if (result === 'no change') return 'Sin cambios';
+  return 'No encontrado';
+};
+
+const translateReasonLabel = (reason: string): string => {
+  const reasonMap: Record<string, string> = {
+    'exact_code': 'Encontrado por código',
+    'exact_barcode': 'Encontrado por barcode',
+    'not_found': 'No encontrado',
+    'invalid_row': 'Fila inválida',
+  };
+  return reasonMap[reason] || reason;
+};
 
 const mapSupplierOption = (item: SupplierApiRow): SupplierOption => ({
   id: String(item.id || item.ID_Proveedor || ''),
@@ -364,6 +397,10 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const [fileAnalysis, setFileAnalysis] = useState<FileAnalysis | null>(null);
   const [selectedPriceLabel, setSelectedPriceLabel] = useState('');
 
+  const [notFoundProductRows, setNotFoundProductRows] = useState<NotFoundProductRow[]>([]);
+  const [editingNotFoundRows, setEditingNotFoundRows] = useState<Map<string, string>>(new Map());
+  const [showRetryAfterEdit, setShowRetryAfterEdit] = useState(false);
+
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -413,6 +450,9 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setUsdUpdateError('');
       setFileAnalysis(null);
       setSelectedPriceLabel('');
+      setNotFoundProductRows([]);
+      setEditingNotFoundRows(new Map());
+      setShowRetryAfterEdit(false);
     }
   }, [isOpen]);
 
@@ -723,6 +763,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             })
             .map((product) => ({
               code: String(product.cod || '').trim(),
+              barcode: String(product['cod.barras'] || '').trim(),
               description: String(product.Producto || '').trim(),
               price: Number.isFinite(Number(product['P.Costo'])) ? Number(product['P.Costo']) : null,
             }));
@@ -784,7 +825,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     if (missingInFileRows.length === 0) return;
 
     const text = missingInFileRows
-      .map((row) => [row.code || '-', row.description || '-', row.price != null ? String(row.price) : '-'].join('\t'))
+      .map((row) => [row.code || '-', row.barcode || '-', row.description || '-', row.price != null ? String(row.price) : '-'].join('\t'))
       .join('\n');
 
     try {
@@ -792,6 +833,90 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       addToast('Lista copiada al portapapeles.', 'success');
     } catch {
       addToast('No se pudo copiar la lista.', 'error');
+    }
+  };
+
+  const handleStartEditNotFound = async () => {
+    let supplierProducts: any[] = [];
+    try {
+      const allProducts = await api.getProductsSupabase();
+      supplierProducts = allProducts.filter((product) => String(product.supplier_id || '') === selectedSupplierId);
+    } catch {
+      supplierProducts = [];
+    }
+
+    // Preparar fila por fila con la data de búsqueda fallida
+    const enrichedRows: NotFoundProductRow[] = importPreviewRows
+      .filter((row) => row.status === 'not found')
+      .map((row) => {
+        const parsedRow = parsedImportRows.find((pr) => String(pr.cod || '') === String(row.cod || ''));
+        const excelBarcode = String(parsedRow?.barcode || '').trim();
+
+        const candidate = supplierProducts.find((product) => {
+          const productCode = normalizeImportKey(product.cod || '');
+          const productBarcode = normalizeImportKey(product['cod.barras'] || '');
+          const inputCode = normalizeImportKey(row.cod || '');
+          const inputBarcode = normalizeImportKey(excelBarcode || '');
+          if (!inputCode && !inputBarcode) return false;
+          return (inputBarcode && productCode === inputBarcode) || (inputCode && productBarcode === inputCode);
+        });
+
+        return {
+          excel_code: row.cod,
+          excel_barcode: excelBarcode,
+          excel_description: row.product_name || row.cod,
+          excel_price: row.input_cost,
+          system_code: String(candidate?.cod || '').trim(),
+          system_barcode: String(candidate?.['cod.barras'] || '').trim(),
+          search_field: (row as any).matchedBy === 'barcode' ? 'Barcode' : 'Código',
+          edit_code: row.cod,
+        };
+      });
+
+    setNotFoundProductRows(enrichedRows);
+    const initialEdits = new Map<string, string>();
+    enrichedRows.forEach((row) => {
+      initialEdits.set(row.excel_code, row.edit_code);
+    });
+    setEditingNotFoundRows(initialEdits);
+    setShowRetryAfterEdit(true);
+  };
+
+  const handleEditCodeInNotFound = (excelCode: string, newCode: string) => {
+    const updated = new Map(editingNotFoundRows);
+    updated.set(excelCode, newCode);
+    setEditingNotFoundRows(updated);
+  };
+
+  const handleRetryMatchAfterEdit = async () => {
+    // Modificar los parsedImportRows con los códigos editados
+    const updatedRows = parsedImportRows.map((row) => {
+      const newCode = editingNotFoundRows.get(row.cod);
+      return newCode ? { ...row, cod: newCode } : row;
+    });
+
+    // Regenerar preview con los códigos corregidos
+    setError('');
+    setShowRetryAfterEdit(false);
+    setSupplierImportProgress({ stage: 'building-preview', percent: 55 });
+    setIsProcessing(true);
+    try {
+      const preview = await api.previewSupplierCostsSupabase(selectedSupplierId, updatedRows, {
+        fileCurrency,
+        exchangeRate: parseFloat(String(exchangeRate).replace(',', '.')),
+      });
+      setParsedImportRows(updatedRows);
+      setImportPreviewRows(preview);
+      setNotFoundProductRows([]);
+      setEditingNotFoundRows(new Map());
+      setSupplierImportProgress({ stage: 'done', percent: 100 });
+      addToast('Vista previa actualizada con códigos revisados.', 'success');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error desconocido.';
+      setError(`Error al regenerar preview: ${errorMessage}`);
+      setSupplierImportProgress({ stage: 'idle', percent: 0 });
+    } finally {
+      setIsProcessing(false);
     }
   };
   
@@ -817,12 +942,14 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   
   const confirmationText = `Va a actualizar el campo '${targetPrice === 'Precio' ? 'Precio Base (Lista)' : 'Precio de Costo'}' para todos los productos donde '${filterBy}' es '${filterBy === 'All' ? 'Todos' : filterValue}'. El precio se ${updateType === 'percentage' ? `incrementará en un ${updateValue}%` : `incrementará en $${updateValue}`}.`;
   const selectedSupplier = supplierOptions.find((supplier) => supplier.id === selectedSupplierId) || null;
+  const isUsdFileCurrency = fileCurrency === 'USD';
   const previewCounts = {
     found: importPreviewRows.filter((row) => row.status === 'found').length,
     notFound: importPreviewRows.filter((row) => row.status === 'not found').length,
     willUpdate: importPreviewRows.filter((row) => row.result === 'will update').length,
     noChange: importPreviewRows.filter((row) => row.result === 'no change').length,
   };
+  const parsedImportRowByCode = new Map(parsedImportRows.map((row) => [String(row.cod || '').trim(), row]));
 
   const progressLabelByStage: Record<SupplierImportProgressStage, string> = {
     idle: 'Listo para iniciar',
@@ -844,7 +971,12 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={isProcessing ? () => {} : onClose} title="Acciones Masivas de Precios">
+    <Modal
+      isOpen={isOpen}
+      onClose={isProcessing ? () => {} : onClose}
+      title="Acciones Masivas de Precios"
+      size={mode === 'supplier-import' ? '5xl' : 'md'}
+    >
         <div className="flex gap-2 mb-4">
           <button
             type="button"
@@ -972,7 +1104,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
               </select>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={`grid grid-cols-1 ${isUsdFileCurrency ? 'md:grid-cols-2' : ''} gap-4`}>
               <div>
                 <label className="block text-sm font-medium">Moneda del archivo</label>
                 <select
@@ -984,109 +1116,110 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                   <option value="USD">USD (Dólares)</option>
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium">Tipo de cambio (ARS/USD)</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={exchangeRate}
-                  onChange={(e) => {
-                    setExchangeRate(e.target.value);
-                    setUsdUpdateRate(e.target.value);
-                  }}
-                  disabled={fileCurrency !== 'USD'}
-                  className={`mt-1 block w-full border-gray-300 rounded-md ${fileCurrency !== 'USD' ? 'bg-gray-100 text-gray-500' : ''}`}
-                />
-                {fileCurrency === 'USD' && (
+              {isUsdFileCurrency && (
+                <div>
+                  <label className="block text-sm font-medium">Tipo de cambio (ARS/USD)</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={exchangeRate}
+                    onChange={(e) => {
+                      setExchangeRate(e.target.value);
+                      setUsdUpdateRate(e.target.value);
+                    }}
+                    className="mt-1 block w-full border-gray-300 rounded-md"
+                  />
                   <p className="mt-1 text-xs text-gray-500">
                     {isFetchingExchangeRate
                       ? 'Obteniendo cotizacion sugerida...'
                       : `Tipo de cambio sugerido: ${exchangeRate || '-'} ARS/USD${exchangeRateSource ? ` (${exchangeRateSource})` : ''}`}
                   </p>
-                )}
-                {fileCurrency === 'USD' && exchangeRateWarning && (
-                  <p className="mt-1 text-xs text-amber-700">{exchangeRateWarning}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="text-sm font-semibold text-amber-900">Actualización manual por dólar</p>
-              <p className="text-xs text-amber-800 mt-1">Recalcula solo productos con costo en USD. No modifica offer_price ni overrides manuales.</p>
-              <div className="mt-3 flex flex-col md:flex-row md:items-end gap-3">
-                <div className="md:w-64">
-                  <label className="block text-xs font-medium text-amber-900">Nuevo tipo de cambio (ARS/USD)</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={usdUpdateRate}
-                    onChange={(e) => setUsdUpdateRate(e.target.value)}
-                    disabled={isProcessingUsdUpdate}
-                    className="mt-1 block w-full border-amber-300 rounded-md disabled:bg-amber-100 disabled:text-amber-600"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handleUpdateUsdByExchangeRate}
-                  disabled={isProcessingUsdUpdate}
-                  className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 disabled:bg-gray-400 flex items-center gap-2"
-                >
-                  {isProcessingUsdUpdate ? (
-                    <>
-                      <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin" />
-                      <span>Actualizando…</span>
-                    </>
-                  ) : (
-                    <span>Actualizar precios USD</span>
+                  {exchangeRateWarning && (
+                    <p className="mt-1 text-xs text-amber-700">{exchangeRateWarning}</p>
                   )}
-                </button>
-              </div>
-
-              {isProcessingUsdUpdate && (
-                <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 p-3">
-                  <div className="flex items-center justify-between text-sm text-amber-900">
-                    <span className="font-medium">{usdUpdateStageLabel[usdUpdateStage]}</span>
-                    <span className="font-semibold">{usdUpdatePercent}%</span>
-                  </div>
-                  <div className="mt-2 h-2 w-full rounded-full bg-amber-200 overflow-hidden">
-                    <div
-                      className="h-full bg-amber-600 transition-all duration-300"
-                      style={{ width: `${usdUpdatePercent}%` }}
-                    />
-                  </div>
-                  <p className="mt-1 text-xs text-amber-700">Etapas: buscando → recalculando → guardando → finalizando</p>
                 </div>
               )}
+            </div>
 
-              {usdUpdateStage === 'done' && usdUpdateResult && (
-                <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-green-900 text-sm">Actualización completada</p>
-                    <p className="text-sm text-green-800 mt-1">
-                      <span className="font-bold">{usdUpdateResult.updated}</span>{' '}
-                      producto{usdUpdateResult.updated !== 1 ? 's' : ''} actualizados · TC aplicado:{' '}
-                      <span className="font-bold">${Number(usdUpdateRate).toLocaleString('es-AR')} ARS/USD</span>
-                    </p>
+            {isUsdFileCurrency && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-900">Actualización manual por dólar</p>
+                <p className="text-xs text-amber-800 mt-1">Recalcula solo productos con costo en USD. No modifica offer_price ni overrides manuales.</p>
+                <div className="mt-3 flex flex-col md:flex-row md:items-end gap-3">
+                  <div className="md:w-64">
+                    <label className="block text-xs font-medium text-amber-900">Nuevo tipo de cambio (ARS/USD)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={usdUpdateRate}
+                      onChange={(e) => setUsdUpdateRate(e.target.value)}
+                      disabled={isProcessingUsdUpdate}
+                      className="mt-1 block w-full border-amber-300 rounded-md disabled:bg-amber-100 disabled:text-amber-600"
+                    />
                   </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setUsdUpdateStage('idle');
-                      setUsdUpdateResult(null);
-                      setUsdUpdateError('');
-                      setUsdUpdatePercent(0);
-                    }}
-                    className="text-xs text-green-700 underline hover:text-green-900 shrink-0 mt-1"
+                    onClick={handleUpdateUsdByExchangeRate}
+                    disabled={isProcessingUsdUpdate}
+                    className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 disabled:bg-gray-400 flex items-center gap-2"
                   >
-                    Limpiar
+                    {isProcessingUsdUpdate ? (
+                      <>
+                        <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin" />
+                        <span>Actualizando…</span>
+                      </>
+                    ) : (
+                      <span>Actualizar precios USD</span>
+                    )}
                   </button>
                 </div>
-              )}
 
-              {usdUpdateStage === 'error' && usdUpdateError && (
-                <p className="mt-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{usdUpdateError}</p>
-              )}
-            </div>
+                {isProcessingUsdUpdate && (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 p-3">
+                    <div className="flex items-center justify-between text-sm text-amber-900">
+                      <span className="font-medium">{usdUpdateStageLabel[usdUpdateStage]}</span>
+                      <span className="font-semibold">{usdUpdatePercent}%</span>
+                    </div>
+                    <div className="mt-2 h-2 w-full rounded-full bg-amber-200 overflow-hidden">
+                      <div
+                        className="h-full bg-amber-600 transition-all duration-300"
+                        style={{ width: `${usdUpdatePercent}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-amber-700">Etapas: buscando → recalculando → guardando → finalizando</p>
+                  </div>
+                )}
+
+                {usdUpdateStage === 'done' && usdUpdateResult && (
+                  <div className="mt-3 rounded-lg border border-green-200 bg-green-50 p-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-green-900 text-sm">Actualización completada</p>
+                      <p className="text-sm text-green-800 mt-1">
+                        <span className="font-bold">{usdUpdateResult.updated}</span>{' '}
+                        producto{usdUpdateResult.updated !== 1 ? 's' : ''} actualizados · TC aplicado:{' '}
+                        <span className="font-bold">${Number(usdUpdateRate).toLocaleString('es-AR')} ARS/USD</span>
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUsdUpdateStage('idle');
+                        setUsdUpdateResult(null);
+                        setUsdUpdateError('');
+                        setUsdUpdatePercent(0);
+                      }}
+                      className="text-xs text-green-700 underline hover:text-green-900 shrink-0 mt-1"
+                    >
+                      Limpiar
+                    </button>
+                  </div>
+                )}
+
+                {usdUpdateStage === 'error' && usdUpdateError && (
+                  <p className="mt-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{usdUpdateError}</p>
+                )}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium">Archivo (opcional)</label>
@@ -1161,19 +1294,36 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             </div>
 
             {(isProcessing || supplierImportProgress.stage !== 'idle') && (
-              <div className="rounded-lg border border-sky-200 bg-sky-50 p-3">
+              <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 space-y-2">
                 <div className="flex items-center justify-between text-sm text-sky-900">
-                  <span className="font-medium">{progressLabelByStage[supplierImportProgress.stage]}</span>
-                  <span className="font-semibold">{supplierImportProgress.percent}%</span>
+                  <div className="flex items-center gap-2">
+                    <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin text-sky-600" />
+                    <span className="font-medium">{progressLabelByStage[supplierImportProgress.stage]}</span>
+                  </div>
+                  <span className="font-semibold text-sky-700">{supplierImportProgress.percent}%</span>
                 </div>
-                <div className="mt-2 h-2 w-full rounded-full bg-sky-100 overflow-hidden">
+                <div className="h-2 w-full rounded-full bg-sky-100 overflow-hidden">
                   <div
                     className="h-full bg-sky-500 transition-all duration-300"
                     style={{ width: `${supplierImportProgress.percent}%` }}
                   />
                 </div>
-                <p className="mt-2 text-xs text-sky-800">
-                  Etapas: parsear archivo → vista previa → importar filas → finalizar
+                <p className="text-xs text-sky-700 mt-2">
+                  {parsedImportRows.length > 0 && (
+                    <>
+                      Procesando: <span className="font-semibold">{parsedImportRows.length} filas</span>
+                      {previewCounts.found > 0 && (
+                        <>
+                          {' '}· <span className="text-green-700">{translateStatusLabel('found')}: <span className="font-semibold">{previewCounts.found}</span></span>
+                        </>
+                      )}
+                      {previewCounts.notFound > 0 && (
+                        <>
+                          {' '}· <span className="text-rose-700">{translateStatusLabel('not found')}: <span className="font-semibold">{previewCounts.notFound}</span></span>
+                        </>
+                      )}
+                    </>
+                  )}
                 </p>
               </div>
             )}
@@ -1201,53 +1351,45 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                   </div>
                 </div>
 
-                <div className="overflow-auto max-h-80 border border-slate-200 rounded-lg">
-                  <table className="min-w-[1400px] w-full text-sm">
+                <div className="overflow-auto max-h-[62vh] border border-slate-200 rounded-lg">
+                  <table className="min-w-[1250px] w-full text-sm table-fixed">
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
-                        <th className="px-3 py-2 text-left">cod</th>
+                        <th className="px-3 py-2 text-left w-40">Código Excel</th>
+                        <th className="px-3 py-2 text-left w-44">Barcode Excel</th>
                         <th className="px-3 py-2 text-left">Producto</th>
-                        <th className="px-3 py-2 text-center">Moneda</th>
-                        <th className="px-3 py-2 text-right">Costo archivo</th>
-                        <th className="px-3 py-2 text-right">TC</th>
-                        <th className="px-3 py-2 text-right">Costo convertido (ARS)</th>
-                        <th className="px-3 py-2 text-right">Costo actual</th>
-                        <th className="px-3 py-2 text-right">Costo nuevo</th>
-                        <th className="px-3 py-2 text-center">Imp. 1</th>
-                        <th className="px-3 py-2 text-center">Imp. 2</th>
-                        <th className="px-3 py-2 text-center">Imp. 3</th>
-                        <th className="px-3 py-2 text-right">Precio final actual</th>
-                        <th className="px-3 py-2 text-right">Precio final nuevo</th>
-                        <th className="px-3 py-2 text-center">Estado</th>
-                        <th className="px-3 py-2 text-center">Resultado</th>
+                        <th className="px-3 py-2 text-center w-36">Resultado</th>
+                        <th className="px-3 py-2 text-center w-36">Buscado por</th>
+                        <th className="px-3 py-2 text-center w-24">Moneda</th>
+                        <th className="px-3 py-2 text-right w-36">Costo archivo</th>
+                        <th className="px-3 py-2 text-right w-36">Costo actual</th>
+                        <th className="px-3 py-2 text-right w-36">Costo nuevo</th>
+                        <th className="px-3 py-2 text-right w-40">Precio final nuevo</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {importPreviewRows.map((row, index) => (
-                        <tr key={`${row.cod}-${index}`} className="border-t border-slate-100">
-                          <td className="px-3 py-2 font-mono">{row.cod}</td>
-                          <td className="px-3 py-2">{row.product_name || 'No encontrado'}</td>
+                      {importPreviewRows.map((row: any, index) => (
+                        <tr key={`${row.cod}-${index}`} className={`border-t border-slate-100 ${row.status === 'not found' ? 'bg-rose-50' : ''}`}>
+                          <td className="px-3 py-2 font-mono text-xs font-semibold">{row.cod || '-'}</td>
+                          <td className="px-3 py-2 font-mono text-xs text-slate-600">{String(parsedImportRowByCode.get(String(row.cod || '').trim())?.barcode || '').trim() || '-'}</td>
+                          <td className="px-3 py-2 truncate" title={row.product_name || 'No encontrado'}>{row.product_name || 'No encontrado'}</td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={`px-2 py-1 rounded-full text-xs font-semibold whitespace-nowrap ${
+                              row.result === 'will update' 
+                                ? 'bg-green-100 text-green-800'
+                                : row.result === 'no change'
+                                ? 'bg-slate-100 text-slate-700'
+                                : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {translateResultLabel(row.result)}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-center text-xs text-slate-600">{translateReasonLabel((row as any).reason || '')}</td>
                           <td className="px-3 py-2 text-center">{row.input_currency}</td>
-                          <td className="px-3 py-2 text-right">{row.input_cost.toLocaleString('es-AR')}</td>
-                          <td className="px-3 py-2 text-right">{row.exchange_rate.toLocaleString('es-AR')}</td>
-                          <td className="px-3 py-2 text-right font-semibold">${row.converted_cost_ars.toLocaleString('es-AR')}</td>
+                          <td className="px-3 py-2 text-right">${row.input_cost.toLocaleString('es-AR')}</td>
                           <td className="px-3 py-2 text-right">${row.current_cost.toLocaleString('es-AR')}</td>
                           <td className="px-3 py-2 text-right font-semibold">${row.new_cost.toLocaleString('es-AR')}</td>
-                          <td className="px-3 py-2 text-center">{row.supplier_tax_1_percent.toFixed(2)}%</td>
-                          <td className="px-3 py-2 text-center">{row.supplier_tax_2_percent.toFixed(2)}%</td>
-                          <td className="px-3 py-2 text-center">{row.supplier_tax_3_percent.toFixed(2)}%</td>
-                          <td className="px-3 py-2 text-right">${row.current_final_price.toLocaleString('es-AR')}</td>
                           <td className="px-3 py-2 text-right font-semibold">${row.new_calculated_final_price.toLocaleString('es-AR')}</td>
-                          <td className="px-3 py-2 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${row.status === 'found' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}>
-                              {row.status === 'found' ? 'found' : 'not found'}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${row.result === 'will update' ? 'bg-green-100 text-green-800' : row.result === 'no change' ? 'bg-slate-100 text-slate-700' : 'bg-rose-100 text-rose-800'}`}>
-                              {row.result}
-                            </span>
-                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1383,12 +1525,13 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
               isOpen={showMissingModal}
               onClose={() => setShowMissingModal(false)}
               title="Productos no encontrados"
-              size="3xl"
+              size="5xl"
             >
               <div className="space-y-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm text-slate-600">
                     Se muestran los productos del proveedor que no hicieron match con las filas importadas.
+                    Revisa si necesitas actualizar códigos en tu proveedor.
                   </p>
                   <button
                     type="button"
@@ -1402,27 +1545,29 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <div className="max-h-[50vh] overflow-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-sm min-w-[900px] table-fixed">
                       <thead className="bg-slate-50 sticky top-0">
                         <tr>
-                          <th className="px-3 py-2 text-left">Código</th>
+                          <th className="px-3 py-2 text-left w-44">Código</th>
+                          <th className="px-3 py-2 text-left w-52">Barcode</th>
                           <th className="px-3 py-2 text-left">Descripción</th>
-                          <th className="px-3 py-2 text-right">Precio</th>
+                          <th className="px-3 py-2 text-right w-32">Precio</th>
                         </tr>
                       </thead>
                       <tbody>
                         {missingInFileRows.map((row, index) => (
                           <tr key={`${row.code}-${index}`} className="border-t border-slate-100">
-                            <td className="px-3 py-2 font-mono">{row.code || '-'}</td>
-                            <td className="px-3 py-2">{row.description || '-'}</td>
-                            <td className="px-3 py-2 text-right">
-                              {row.price != null ? row.price.toLocaleString('es-AR') : '-'}
+                            <td className="px-3 py-2 font-mono text-xs">{row.code || '-'}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.barcode || '-'}</td>
+                            <td className="px-3 py-2 truncate" title={row.description || '-'}>{row.description || '-'}</td>
+                            <td className="px-3 py-2 text-right text-xs">
+                              {row.price != null ? `$${row.price.toLocaleString('es-AR')}` : '-'}
                             </td>
                           </tr>
                         ))}
                         {missingInFileRows.length === 0 && (
                           <tr>
-                            <td className="px-3 py-6 text-center text-slate-500" colSpan={3}>
+                            <td className="px-3 py-6 text-center text-slate-500" colSpan={4}>
                               No hay detalle disponible para esta importación.
                             </td>
                           </tr>
@@ -1432,13 +1577,128 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2">
+                  {previewCounts.notFound > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowMissingModal(false);
+                        handleStartEditNotFound();
+                      }}
+                      className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 flex items-center gap-2"
+                    >
+                      <Icon path="M11 4a1 1 0 011 1v14a1 1 0 11-2 0V5a1 1 0 011-1m5-1a1 1 0 011 1v14a1 1 0 11-2 0V4a1 1 0 011-1M7 7a1 1 0 011 1v10a1 1 0 11-2 0V8a1 1 0 011-1z" className="w-4 h-4" />
+                      Revisar y corregir códigos
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setShowMissingModal(false)}
                     className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300"
                   >
                     Cerrar
+                  </button>
+                </div>
+              </div>
+            </Modal>
+
+            <Modal
+              isOpen={showRetryAfterEdit}
+              onClose={() => {
+                setShowRetryAfterEdit(false);
+                setNotFoundProductRows([]);
+                setEditingNotFoundRows(new Map());
+              }}
+              title="Corregir códigos y reintentar match"
+              size="5xl"
+            >
+              <div className="space-y-4">
+                <p className="text-sm text-slate-600">
+                  Edita los códigos de los productos no encontrados. Una vez corregidos, haz clic en "Reintentar" 
+                  para buscar nuevamente en tu base de datos sin resubir el archivo.
+                </p>
+
+                <div className="border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="max-h-[60vh] overflow-auto">
+                    <table className="w-full text-sm min-w-[1300px] table-fixed">
+                      <thead className="bg-slate-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left w-44">Código Excel</th>
+                          <th className="px-3 py-2 text-left w-52">Barcode Excel</th>
+                          <th className="px-3 py-2 text-left">Descripción Excel</th>
+                          <th className="px-3 py-2 text-right w-32">Precio Excel</th>
+                          <th className="px-3 py-2 text-left w-44">Código sistema</th>
+                          <th className="px-3 py-2 text-left w-52">Barcode sistema</th>
+                          <th className="px-3 py-2 text-left w-36">Buscado por</th>
+                          <th className="px-3 py-2 text-left w-48">Código corregido</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {notFoundProductRows.map((row, index) => (
+                          <tr key={`${row.excel_code}-${index}`} className="border-t border-slate-100 hover:bg-slate-50">
+                            <td className="px-3 py-2 font-mono text-xs text-slate-900 font-semibold">{row.excel_code || '-'}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.excel_barcode || '-'}</td>
+                            <td className="px-3 py-2 text-sm truncate" title={row.excel_description}>{row.excel_description}</td>
+                            <td className="px-3 py-2 text-right text-xs text-slate-600">
+                              {row.excel_price != null ? `$${row.excel_price.toLocaleString('es-AR')}` : '-'}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-xs">{row.system_code || '-'}</td>
+                            <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.system_barcode || '-'}</td>
+                            <td className="px-3 py-2 text-xs text-slate-600">{row.search_field}</td>
+                            <td className="px-3 py-2">
+                              <input
+                                type="text"
+                                value={editingNotFoundRows.get(row.excel_code) || row.edit_code}
+                                onChange={(e) => handleEditCodeInNotFound(row.excel_code, e.target.value)}
+                                className="w-full px-2 py-1 border border-amber-300 rounded text-xs font-mono bg-white focus:border-amber-500 focus:ring-1 focus:ring-amber-400"
+                                placeholder={row.excel_code}
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  <p className="font-semibold">💡 Consejo</p>
+                  <p className="mt-1 text-xs">
+                    Revisa si los códigos en tu proveedor coinciden exactamente con los del archivo. 
+                    Cambios como espacios, mayúsculas o caracteres especiales pueden causar que no se encuentre el match.
+                  </p>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRetryAfterEdit(false);
+                      setNotFoundProductRows([]);
+                      setEditingNotFoundRows(new Map());
+                    }}
+                    disabled={isProcessing}
+                    className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRetryMatchAfterEdit}
+                    disabled={isProcessing}
+                    className="bg-amber-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-amber-700 disabled:bg-gray-400 flex items-center gap-2"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin" />
+                        <span>Reintentando match…</span>
+                      </>
+                    ) : (
+                      <>
+                        <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" className="w-4 h-4" />
+                        <span>Reintentar match</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

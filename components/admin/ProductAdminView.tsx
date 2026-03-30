@@ -14,6 +14,12 @@ type CategoryRow = {
   name: string;
 };
 
+type CategoryTreeNode = {
+  id: string;
+  name: string;
+  subcategories: Array<{ id: string; name: string }>;
+};
+
 type SupplierRow = Supplier & {
   id?: string;
   nombre?: string;
@@ -35,9 +41,6 @@ interface ProductAdminViewProps {
 
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-
-const normalize = (value: string) =>
-  value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
 const getSupplierName = (supplier: SupplierRow): string =>
   String(supplier.nombre || supplier.name || supplier.Nombre || '').trim();
@@ -77,6 +80,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
     Array.isArray(initialSuppliers) ? (initialSuppliers as SupplierRow[]) : []
   );
   const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [categoryTree, setCategoryTree] = useState<CategoryTreeNode[]>([]);
   const [, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilterId, setCategoryFilterId] = useState('All');
@@ -127,37 +131,43 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const refreshProducts = async () => {
     setIsLoading(true);
     try {
-      const [p, s, c] = await Promise.all([
+      const [p, s, categoryTreeResponse] = await Promise.all([
         api.getProductsSupabase(),
         api.getSuppliersSupabase(),
-        api.getCategoriesSupabase(),
+        api.getCategoryTreeSupabase(),
       ]);
 
-      const normalizedCategories: CategoryRow[] = Array.isArray(c)
-        ? c
-            .map((item: any) => ({
-              id: String(item?.id || '').trim(),
-              name: String(item?.name || '').trim(),
-            }))
-            .filter((item) => item.id !== '' && item.name !== '')
-        : [];
+      const normalizedTree: CategoryTreeNode[] = (Array.isArray(categoryTreeResponse) ? categoryTreeResponse : [])
+        .map((node: any) => ({
+          id: String(node?.id || '').trim(),
+          name: String(node?.name || '').trim(),
+          subcategories: Array.isArray(node?.subcategories)
+            ? node.subcategories
+                .map((sub: any) => ({ id: String(sub?.id || '').trim(), name: String(sub?.name || '').trim() }))
+                .filter((sub: { id: string; name: string }) => sub.id !== '' && sub.name !== '')
+            : [],
+        }))
+        .filter((node) => node.id !== '' && node.name !== '');
+
+      const normalizedCategories: CategoryRow[] = normalizedTree
+        .map((item: any) => ({
+          id: String(item?.id || '').trim(),
+          name: String(item?.name || '').trim(),
+        }))
+        .filter((item) => item.id !== '' && item.name !== '');
 
       const normalizedSuppliers: SupplierRow[] = Array.isArray(s)
         ? s.map((item: any) => item as SupplierRow)
         : [];
 
-      const localCategoryIdByName = new Map(
-        normalizedCategories.map((category) => [normalize(category.name), category.id])
-      );
       const localCategoryNameById = new Map(
         normalizedCategories.map((category) => [category.id, category.name])
       );
 
       const normalizedProducts: ProductRow[] = (Array.isArray(p) ? p : []).map((item: any) => {
         const explicitCategoryId = String(item?.category_id || '').trim();
-        const inferredCategoryId = explicitCategoryId || localCategoryIdByName.get(normalize(String(item?.Categoria || ''))) || '';
-        const categoryName = inferredCategoryId
-          ? localCategoryNameById.get(inferredCategoryId) || String(item?.Categoria || '').trim()
+        const categoryName = explicitCategoryId
+          ? localCategoryNameById.get(explicitCategoryId) || String(item?.Categoria || '').trim()
           : String(item?.Categoria || '').trim();
         const supplierId = String(item?.supplier_id || '').trim();
         const supplierName = supplierId
@@ -166,7 +176,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
 
         return {
           ...(item as Product),
-          category_id: inferredCategoryId || undefined,
+          category_id: explicitCategoryId || undefined,
           supplier_id: supplierId || undefined,
           Categoria: categoryName,
           Proveedor: String(item?.Proveedor || '').trim() || supplierName,
@@ -174,24 +184,11 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       });
 
       const structuredData: { [key: string]: string[] } = {};
-      normalizedCategories.forEach((category) => {
-        structuredData[category.name] = [];
-      });
-
-      normalizedProducts.forEach((item) => {
-        const categoryName = item.category_id
-          ? localCategoryNameById.get(item.category_id) || ''
-          : String(item.Categoria || '').trim();
-        const subCategory = String(item['Sub Categoria'] || '').trim();
-        if (!categoryName || !subCategory || subCategory === '-') return;
-
-        if (!Object.prototype.hasOwnProperty.call(structuredData, categoryName)) {
-          structuredData[categoryName] = [];
-        }
-
-        if (!structuredData[categoryName].includes(subCategory)) {
-          structuredData[categoryName].push(subCategory);
-        }
+      normalizedTree.forEach((node) => {
+        const categoryName = node.name;
+        if (!categoryName) return;
+        const subcategories = node.subcategories.map((sub) => sub.name).filter((subName) => subName !== '');
+        structuredData[categoryName] = [...new Set(subcategories)];
       });
 
       Object.keys(structuredData).forEach((key) => {
@@ -201,6 +198,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       setProducts(normalizedProducts);
       setSuppliers(normalizedSuppliers);
       setCategories(normalizedCategories);
+      setCategoryTree(normalizedTree);
       setCategoriesData(structuredData);
     } catch (error) {
       console.error('Error fetching Supabase data:', error);
@@ -751,6 +749,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         product={productToEdit}
         onSave={handleSaveProduct}
         categoriesData={categoriesData}
+        categoryTree={categoryTree}
         allProducts={products}
         providers={suppliers
           .filter((s) => s.activo !== false)

@@ -19,6 +19,12 @@ type SupplierOption = Supplier & {
   activo?: boolean;
 };
 
+type CategoryTreeNode = {
+  id: string;
+  name: string;
+  subcategories: Array<{ id: string; name: string }>;
+};
+
 const getSupplierId = (supplier: SupplierOption) => String(supplier.id || supplier.ID_Proveedor || '').trim();
 const getSupplierName = (supplier: SupplierOption) => String(supplier.nombre || supplier.name || supplier.Nombre || '').trim();
 
@@ -53,7 +59,8 @@ interface ProductEditModalProps {
   onClose: () => void;
   product: Product | null; // Can be null for creating a new product
   onSave: (productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string }) => Promise<void>;
-  categoriesData: { [key: string]: string[] };
+  categoriesData?: { [key: string]: string[] };
+  categoryTree?: CategoryTreeNode[];
   providers: string[];
   allProducts: Product[];
   categories?: CategoryOption[];
@@ -114,7 +121,8 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   onClose,
   product,
   onSave,
-  categoriesData,
+  categoriesData = {},
+  categoryTree = [],
   providers,
   allProducts,
   categories = [],
@@ -128,40 +136,60 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   const [showEcommerce, setShowEcommerce] = useState(false);
   const [showLogistics, setShowLogistics] = useState(false);
   const [showStockOnline, setShowStockOnline] = useState(false);
+  const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const { addToast } = useToast();
   
   const isCreating = !product;
+
+  const effectiveCategoryTree = useMemo(() => {
+    if (categoryTree.length > 0) {
+      return categoryTree;
+    }
+
+    return categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+      subcategories: (categoriesData[category.name] || []).map((subName) => ({ id: subName, name: subName })),
+    }));
+  }, [categoryTree, categories, categoriesData]);
+
+  const categoryNameById = useMemo(() => {
+    return new Map(effectiveCategoryTree.map((node) => [node.id, node.name]));
+  }, [effectiveCategoryTree]);
+
+  const selectedCategoryNode = useMemo(() => {
+    return effectiveCategoryTree.find((node) => node.id === selectedCategoryId) || null;
+  }, [effectiveCategoryTree, selectedCategoryId]);
 
   useEffect(() => {
     if (isOpen) {
       if (isCreating) {
         setFormData(newProductInitialState);
+        setSelectedCategoryId('');
       } else if (product) {
-        const normalizedProductCategory = normalize(product.Categoria || '');
-        const normalizedProductSubCategory = normalize(product['Sub Categoria'] || '');
+        const initialCategoryId = String((product as any).category_id || '').trim();
+        const categoryName = initialCategoryId
+          ? categoryNameById.get(initialCategoryId) || String(product.Categoria || '').trim()
+          : String(product.Categoria || '').trim();
 
-        let matchedCategory = '';
-        if (product.Categoria) {
-          matchedCategory = Object.keys(categoriesData).find(catKey => normalize(catKey) === normalizedProductCategory) || '';
-        }
-
-        let matchedSubCategory = '';
-        if (matchedCategory && product['Sub Categoria']) {
-          const subCategories = categoriesData[matchedCategory] || [];
-          matchedSubCategory = subCategories.find(subCat => normalize(subCat) === normalizedProductSubCategory) || '';
-        }
+        const subOptions = effectiveCategoryTree.find((node) => node.id === initialCategoryId)?.subcategories || [];
+        const currentSubCategory = String(product['Sub Categoria'] || '').trim();
+        const validSubCategory = subOptions.some((sub) => sub.name === currentSubCategory)
+          ? currentSubCategory
+          : '';
 
         setFormData({
           ...product,
-          Categoria: matchedCategory || (product.Categoria || '').trim().toUpperCase(),
-          'Sub Categoria': matchedSubCategory || (product['Sub Categoria'] || '').trim().toUpperCase(),
+          Categoria: categoryName,
+          'Sub Categoria': validSubCategory,
         });
+        setSelectedCategoryId(initialCategoryId);
       }
 
       setIsSaving(false);
       setIsGeneratingDesc(false);
     }
-  }, [isOpen, product, isCreating, categoriesData]);
+  }, [isOpen, product, isCreating, effectiveCategoryTree, categoryNameById]);
 
   const stockActual = useMemo(() => {
     const stockInicial = Math.max(0, Number(formData['Stock-Inicial'] || 0));
@@ -222,32 +250,27 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   const formatPercent = (value: number) => `${value.toFixed(2)}%`;
 
   const displayableSubCategories = useMemo(() => {
-    if (!formData.Categoria || !categoriesData) {
-        return [];
+    if (selectedCategoryNode) {
+      return selectedCategoryNode.subcategories.map((sub) => sub.name);
     }
-    let subs = categoriesData[formData.Categoria] || [];
-    // Si la subcategoría actual del producto no está en la lista de subcategorías disponibles,
-    // la añadimos temporalmente para que se muestre como opción.
-    if (formData['Sub Categoria'] && !subs.includes(formData['Sub Categoria'])) {
-      subs = [...subs, formData['Sub Categoria']].sort();
-    }
-    return subs;
-  }, [formData.Categoria, categoriesData, formData['Sub Categoria']]);
+    if (!formData.Categoria) return [];
+    return categoriesData[formData.Categoria] || [];
+  }, [selectedCategoryNode, formData.Categoria, categoriesData]);
+
+  const handleCategorySelectChange = (categoryId: string) => {
+    const categoryName = categoryNameById.get(categoryId) || '';
+    setSelectedCategoryId(categoryId);
+    setFormData((prev) => ({
+      ...prev,
+      Categoria: categoryName,
+      'Sub Categoria': '',
+    }));
+  };
 
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    // Si cambia la categoría, reseteamos la subcategoría
-    if (name === 'Categoria') {
-        setFormData(prev => ({ 
-            ...prev, 
-            Categoria: value,
-            'Sub Categoria': '' 
-        }));
-        return;
-    }
-
     if (name === 'Online' || name === 'Activo' || name === 'Fragil' || name === 'Embalaje_Especial' || name === 'Permitir_Venta_Sin_Stock' || name === 'Destacado' || name === 'auto_price') {
       if (value === '') {
         setFormData(prev => ({ ...prev, [name]: undefined }));
@@ -321,15 +344,24 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
       // Ensure Precio Final is set to the computed active selling price
       savePayload['Precio Final'] = activeSellPrice;
         
-        const selectedCategoryName = normalize(String(formData.Categoria || ''));
         const selectedSupplierName = normalize(String(formData.Proveedor || ''));
-        const category = categories.find((item) => normalize(item.name) === selectedCategoryName);
         const supplier = suppliers.find((item) => normalize(getSupplierName(item)) === selectedSupplierName);
+        const normalizedSubCategory = String(formData['Sub Categoria'] || '').trim();
+        const validSubCategory = displayableSubCategories.includes(normalizedSubCategory)
+          ? normalizedSubCategory
+          : selectedCategoryId
+          ? ''
+          : normalizedSubCategory;
+        const resolvedCategoryName = selectedCategoryId
+          ? categoryNameById.get(selectedCategoryId) || ''
+          : String(formData.Categoria || '').trim();
 
         await onSave({ 
           ...savePayload, 
+          Categoria: resolvedCategoryName,
+          'Sub Categoria': validSubCategory,
           cod: formData.cod as string,
-          category_id: category?.id,
+          category_id: selectedCategoryId || undefined,
           supplier_id: supplier ? getSupplierId(supplier) || undefined : undefined
         });
     } catch (error) {
@@ -542,9 +574,17 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Categoría</label>
-                    <select name="Categoria" value={toInputValue(formData.Categoria)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
+                  <select
+                    name="Categoria"
+                    value={toInputValue(selectedCategoryId)}
+                    onChange={(e) => handleCategorySelectChange(e.target.value)}
+                    className="mt-1 block w-full border-gray-300 rounded-md"
+                    disabled={isSaving}
+                  >
                         <option value="">Seleccionar Categoría</option>
-                        {Object.keys(categoriesData).sort().map(c => <option key={c} value={c}>{c}</option>)}
+                    {effectiveCategoryTree.map((category) => (
+                      <option key={category.id} value={category.id}>{category.name}</option>
+                    ))}
                     </select>
                 </div>
                 <div>
@@ -554,7 +594,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                         value={toInputValue(formData['Sub Categoria'])} 
                         onChange={handleChange} 
                         className="mt-1 block w-full border-gray-300 rounded-md" 
-                        disabled={isSaving || !formData.Categoria || displayableSubCategories.length === 0}
+                        disabled={isSaving || !selectedCategoryId || displayableSubCategories.length === 0}
                     >
                         <option value="">Seleccionar Subcategoría</option>
                         {displayableSubCategories.map(sc => <option key={sc} value={sc}>{sc}</option>)}
