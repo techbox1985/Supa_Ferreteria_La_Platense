@@ -28,7 +28,10 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
     const [saleToBill, setSaleToBill] = useState<Sale | null>(null);
     const [isBulkBilling, setIsBulkBilling] = useState(false);
     const [selectedSaleIds, setSelectedSaleIds] = useState<string[]>([]);
+    const [lastBillingIncidents, setLastBillingIncidents] = useState<Array<{ saleId: string; customerName: string; reason: string }>>([]);
     const { addToast } = useToast();
+
+    const hasInvoiceCae = useCallback((sale: Sale) => Boolean(sale.facturaInfo?.cae), []);
 
     const filteredSales = useMemo(() => {
         if (!startDate || !endDate || !processedSales.length) return [];
@@ -53,16 +56,16 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
         // FIX: Sum the amounts from the echeqs array for accurate total digital income.
         const totalDigitalIncome = digitalSales.reduce((sum, s) => sum + s.payment.digital + (s.payment.echeqs?.reduce((eSum, e) => eSum + e.amount, 0) || 0), 0);
         
-        const billedSales = digitalSales.filter(s => s.facturaInfo);
+        const billedSales = digitalSales.filter(hasInvoiceCae);
         // FIX: Sum the amounts from the echeqs array for accurate total billed amount.
         const totalBilled = billedSales.reduce((sum, s) => sum + s.payment.digital + (s.payment.echeqs?.reduce((eSum, e) => eSum + e.amount, 0) || 0), 0);
         
         const pendingToBill = totalDigitalIncome - totalBilled;
 
         return { totalDigitalIncome, totalBilled, pendingToBill };
-    }, [filteredSales]);
+    }, [filteredSales, hasInvoiceCae]);
 
-    const pendingSales = useMemo(() => filteredSales.filter(s => !s.facturaInfo), [filteredSales]);
+    const pendingSales = useMemo(() => filteredSales.filter(s => !hasInvoiceCae(s)), [filteredSales, hasInvoiceCae]);
     const selectedPendingCount = useMemo(
         () => selectedSaleIds.filter(id => pendingSales.some(sale => sale.id === id)).length,
         [pendingSales, selectedSaleIds]
@@ -102,12 +105,33 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
         setIsBulkBilling(true);
         let successful = 0;
         let failed = 0;
+        let skipped = 0;
+        const incidents: Array<{ saleId: string; customerName: string; reason: string }> = [];
 
         for (const sale of selectedPendingSales) {
+            // Validación mínima: cliente con nombre identificable
+            // El documento y otras normalizaciones se pueden manejar en el nivel de API
+            const customerName = String(sale.customer?.['Nombre y Apellido'] ?? '').trim();
+
+            if (!sale.customer || !customerName) {
+              skipped += 1;
+              incidents.push({
+                saleId: sale.id.slice(0, 8),
+                customerName: 'Sin cliente',
+                reason: 'Datos de cliente insuficientes'
+              });
+              continue;
+            }
+
             try {
                 const apiResponse = await api.generateElectronicInvoice(sale);
                 if (apiResponse.status !== 'facturado' || !apiResponse.data) {
                     failed += 1;
+                    incidents.push({
+                      saleId: sale.id.slice(0, 8),
+                      customerName,
+                      reason: apiResponse.message || 'Error en respuesta de facturación'
+                    });
                     continue;
                 }
 
@@ -118,23 +142,40 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
 
                 if (!cae || !nro || cae === 'DEV_MODE_NO_CAE') {
                     failed += 1;
+                    incidents.push({
+                      saleId: sale.id.slice(0, 8),
+                      customerName,
+                      reason: 'CAE o número de factura inválido'
+                    });
                     continue;
                 }
 
                 const effectiveType = apiResponse.data?.effectiveType || sale.facturacion;
                 await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url, ticketUrl, effectiveType);
                 successful += 1;
-            } catch {
+            } catch (err) {
                 failed += 1;
+                incidents.push({
+                  saleId: sale.id.slice(0, 8),
+                  customerName,
+                  reason: (err as any)?.message || 'Error inesperado'
+                });
             }
         }
 
-        if (successful > 0 && failed === 0) {
+        setLastBillingIncidents(incidents);
+
+        if (successful > 0 && failed === 0 && skipped === 0) {
             addToast(`Facturación masiva completada: ${successful} venta(s) facturada(s).`, 'success');
-        } else if (successful > 0 && failed > 0) {
-            addToast(`Facturación masiva finalizada: ${successful} exitosa(s), ${failed} fallida(s).`, 'info');
+        } else if (successful > 0 || failed > 0 || skipped > 0) {
+            let msg = `Facturación masiva finalizada: `;
+            const parts = [];
+            if (successful > 0) parts.push(`${successful} exitosa(s)`);
+            if (failed > 0) parts.push(`${failed} fallida(s)`);
+            if (skipped > 0) parts.push(`${skipped} sin datos válidos`);
+            addToast(msg + parts.join(', ') + '.', successful > 0 ? 'info' : 'error');
         } else {
-            addToast(`Facturación masiva sin éxitos: ${failed} fallida(s).`, 'error');
+            addToast(`Facturación masiva: ninguna venta fue procesada.`, 'error');
         }
 
         await refreshData();
@@ -242,10 +283,14 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                             </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                            {filteredSales.length > 0 ? filteredSales.map(sale => (
+                            {filteredSales.length > 0 ? filteredSales.map(sale => {
+                                const invoiceInfo = sale.facturaInfo;
+                                const isBilled = hasInvoiceCae(sale);
+
+                                return (
                                 <tr key={sale.id}>
                                     <td className="px-4 py-4 text-center">
-                                        {!sale.facturaInfo ? (
+                                        {!isBilled ? (
                                             <input
                                                 type="checkbox"
                                                 checked={selectedSaleIds.includes(sale.id)}
@@ -264,14 +309,14 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                                     {/* FIX: Sum the amounts from the echeqs array for an accurate digital amount. */}
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold">{formatCurrency(sale.payment.digital + (sale.payment.echeqs?.reduce((sum, e) => sum + e.amount, 0) || 0))}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
-                                        {sale.facturaInfo ? (
+                                        {isBilled && invoiceInfo ? (
                                             <div className="flex items-center justify-center space-x-2">
-                                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800" title={`CAE: ${sale.facturaInfo.cae}`}>
-                                                    Facturada ({sale.facturaInfo.nro})
+                                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800" title={`CAE: ${invoiceInfo.cae}`}>
+                                                    Facturada ({invoiceInfo.nro})
                                                 </span>
-                                                {sale.facturaInfo.url && (
+                                                {invoiceInfo.url && (
                                                     <a
-                                                        href={sale.facturaInfo.url}
+                                                        href={invoiceInfo.url}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="text-blue-600 hover:text-blue-800"
@@ -288,7 +333,7 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                                         )}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        {!sale.facturaInfo && (
+                                        {!isBilled && (
                                             <button 
                                                 onClick={() => setSaleToBill(sale)} 
                                                 className="text-blue-600 hover:text-blue-800"
@@ -299,7 +344,8 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                                         )}
                                     </td>
                                 </tr>
-                            )) : (
+                                );
+                            }) : (
                                 <tr>
                                     <td colSpan={7} className="text-center py-10 text-gray-500">
                                         No hay ventas con pagos digitales en el período seleccionado.
@@ -310,6 +356,23 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                     </table>
                 </div>
             </div>
+
+            {lastBillingIncidents.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <h3 className="font-semibold text-amber-900 text-sm mb-3">Detalle de incidencias (último lote)</h3>
+                    <div className="space-y-2 text-sm">
+                        {lastBillingIncidents.map((incident, idx) => (
+                            <div key={idx} className="flex items-start gap-3 p-2 bg-white rounded border border-amber-100">
+                                <span className="font-mono text-xs text-amber-600 flex-shrink-0">{incident.saleId}</span>
+                                <div className="flex-grow min-w-0">
+                                    <p className="font-medium text-amber-900">{incident.customerName}</p>
+                                    <p className="text-amber-700 text-xs">{incident.reason}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {saleToBill && (
                 <BillingModal

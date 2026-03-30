@@ -6,6 +6,7 @@ import { AuthContext } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { EntryList } from './EntryList';
 import { Modal } from '../ui/Modal';
+import { matchesProductSearch } from '../../utils/productFilters';
 
 interface StockEntryViewProps {
   products: Product[];
@@ -76,10 +77,7 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
     return products
       .filter(p => {
         const matchesCategory = selectedCategory === 'All' || p.Categoria === selectedCategory;
-        const lowerSearchTerm = searchTerm.toLowerCase();
-        const matchesSearch =
-          String(p.Producto || '').toLowerCase().includes(lowerSearchTerm) ||
-          String(p.cod || '').toLowerCase().includes(lowerSearchTerm);
+        const matchesSearch = matchesProductSearch(p, searchTerm);
         return matchesCategory && matchesSearch;
       })
       .sort((a, b) => {
@@ -240,25 +238,27 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
   }, [addToast]);
 
   const renderNewPurchase = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-170px)]">
-      <div className="lg:col-span-2 bg-gray-50 rounded-xl p-6 flex flex-col">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Nueva Compra</h2>
-          <div className="flex flex-col sm:flex-row gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_420px] gap-6 h-[calc(100vh-170px)]">
+      <div className="bg-gray-50 rounded-xl p-4 flex flex-col">
+        <div className="mb-4">
+          <h2 className="text-xl font-bold text-gray-800 mb-3">Nueva Compra</h2>
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch">
             <div className="relative flex-grow">
-              <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" className="w-5 h-5 text-gray-400 absolute inset-y-0 left-3 flex items-center" />
+              <span className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                <Icon path="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" className="w-4 h-4 text-gray-400" />
+              </span>
               <input
                 type="text"
                 placeholder="Buscar por nombre o código..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
             <select
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
               {categories.map(cat => (
                 <option key={cat} value={cat}>{cat}</option>
@@ -276,15 +276,15 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50 sticky top-0 z-10">
                   <tr>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Imagen</th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Código</th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
-                    <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Stock</th>
-                    <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">P. Costo</th>
-                    <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">P. Final</th>
-                    <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Margen</th>
-                    <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Acción</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide w-12">Img</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide min-w-[160px]">Producto</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide w-28">Código</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wide w-28">Proveedor</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wide w-20">Stock</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wide w-24">P. Costo</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wide w-24">P. Final</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wide w-20">Margen</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-medium text-gray-500 uppercase tracking-wide w-24">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -358,9 +358,9 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
         )}
       </div>
 
-      <div className="lg:col-span-1">
-        <div className="bg-white rounded-xl shadow-lg p-4 mb-4 border border-gray-200 space-y-3">
-          <h3 className="text-lg font-semibold text-gray-800">Datos de Compra</h3>
+      <div className="flex flex-col gap-4 min-h-0 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-lg p-4 border border-gray-200 space-y-4 flex-shrink-0">
+          <h3 className="text-base font-semibold text-gray-800 border-b border-gray-100 pb-2">Datos de Compra</h3>
 
           <div>
             <label className="block text-sm font-medium text-gray-700">Proveedor *</label>
@@ -414,16 +414,18 @@ export const StockEntryView: React.FC<StockEntryViewProps> = ({ products, refres
           </div>
         </div>
 
-        <EntryList
-          entryList={entryList}
-          onUpdateQuantity={handleUpdateQuantity}
-          onUpdateCostPrice={handleUpdateCostPrice}
-          onUpdateSalePrice={handleUpdateSalePrice}
-          onRemoveItem={handleRemoveItem}
-          onClearList={handleClearList}
-          onConfirm={handleConfirmEntry}
-          isConfirming={isConfirming}
-        />
+        <div className="flex-1 min-h-0">
+          <EntryList
+            entryList={entryList}
+            onUpdateQuantity={handleUpdateQuantity}
+            onUpdateCostPrice={handleUpdateCostPrice}
+            onUpdateSalePrice={handleUpdateSalePrice}
+            onRemoveItem={handleRemoveItem}
+            onClearList={handleClearList}
+            onConfirm={handleConfirmEntry}
+            isConfirming={isConfirming}
+          />
+        </div>
       </div>
     </div>
   );

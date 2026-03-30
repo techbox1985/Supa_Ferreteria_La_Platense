@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Product } from '../../types';
+import { Product, Supplier } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { generateProductDescription } from '../../services/geminiService';
@@ -7,6 +7,20 @@ import { calculateFinalPriceFromSupplierTaxes } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 
 const normalize = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+const toInputValue = (value: string | number | undefined | null) => value ?? '';
+
+type CategoryOption = {
+  id: string;
+  name: string;
+};
+
+type SupplierOption = Supplier & {
+  nombre?: string;
+  activo?: boolean;
+};
+
+const getSupplierId = (supplier: SupplierOption) => String(supplier.id || supplier.ID_Proveedor || '').trim();
+const getSupplierName = (supplier: SupplierOption) => String(supplier.nombre || supplier.name || supplier.Nombre || '').trim();
 
 interface CollapsibleSectionProps {
   title: string;
@@ -42,8 +56,8 @@ interface ProductEditModalProps {
   categoriesData: { [key: string]: string[] };
   providers: string[];
   allProducts: Product[];
-  categories?: any[];
-  suppliers?: any[];
+  categories?: CategoryOption[];
+  suppliers?: SupplierOption[];
 }
 
 const newProductInitialState: Partial<Product> = {
@@ -102,10 +116,11 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   onSave,
   categoriesData,
   providers,
-    // ...existing code...
+  allProducts,
   categories = [],
   suppliers = [],
 }) => {
+  void allProducts;
   const [formData, setFormData] = useState<Partial<Product>>(newProductInitialState);
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
@@ -136,26 +151,17 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
           matchedSubCategory = subCategories.find(subCat => normalize(subCat) === normalizedProductSubCategory) || '';
         }
 
-        console.log("[EDIT] productToEdit keys:", Object.keys(product||{}));
-        console.log("[EDIT] productToEdit snapshot:", JSON.stringify(product||{}, null, 2));
-        console.log("[EDIT] categoriesData type:", typeof categoriesData, Array.isArray(categoriesData));
-        console.log("[EDIT] categoriesData keys/sample:", categoriesData ? Object.keys(categoriesData).slice(0,10) : null);
-        if (categoriesData[matchedCategory]) {
-          console.log("[EDIT] categoriesData[selectedCategory] type:", typeof categoriesData[matchedCategory], Array.isArray(categoriesData[matchedCategory]));
-          console.log("[EDIT] categoriesData[selectedCategory] sample:", categoriesData[matchedCategory].slice(0,10));
-        }
-
         setFormData({
           ...product,
-          Categoria: matchedCategory || (product.Categoria || '').trim().toUpperCase(), // Usar la matched o la original normalizada como fallback
-          'Sub Categoria': matchedSubCategory || (product['Sub Categoria'] || '').trim().toUpperCase(), // Usar la matched o la original normalizada como fallback
+          Categoria: matchedCategory || (product.Categoria || '').trim().toUpperCase(),
+          'Sub Categoria': matchedSubCategory || (product['Sub Categoria'] || '').trim().toUpperCase(),
         });
       }
 
       setIsSaving(false);
       setIsGeneratingDesc(false);
     }
-  }, [isOpen, product, isCreating]);
+  }, [isOpen, product, isCreating, categoriesData]);
 
   const stockActual = useMemo(() => {
     const stockInicial = Math.max(0, Number(formData['Stock-Inicial'] || 0));
@@ -173,9 +179,9 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
     const supplierName = String(formData.Proveedor || '').trim().toLowerCase();
     if (!supplierId && !supplierName) return null;
 
-    return suppliers.find((s: any) => {
-      const currentId = String(s?.id || s?.ID_Proveedor || '').trim();
-      const currentName = String(s?.nombre || s?.name || s?.Nombre || '').trim().toLowerCase();
+    return suppliers.find((supplier) => {
+      const currentId = getSupplierId(supplier);
+      const currentName = getSupplierName(supplier).toLowerCase();
       return (supplierId && currentId === supplierId) || (supplierName && currentName === supplierName);
     }) || null;
   }, [formData.Proveedor, formData.supplier_id, suppliers]);
@@ -268,7 +274,14 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   const handleGenerateDescription = async () => {
     setIsGeneratingDesc(true);
     try {
-      const newDescription = await generateProductDescription(formData as Product);
+      const productForDescription: Product = {
+        ...newProductInitialState,
+        ...formData,
+        cod: String(formData.cod || 'TEMP').trim() || 'TEMP',
+        Producto: String(formData.Producto || 'Producto sin nombre').trim() || 'Producto sin nombre',
+      };
+
+      const newDescription = await generateProductDescription(productForDescription);
       setFormData(prev => ({ ...prev, Descripcion: newDescription }));
       addToast('Descripción generada con IA.', 'success');
     } catch (error) {
@@ -308,15 +321,16 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
       // Ensure Precio Final is set to the computed active selling price
       savePayload['Precio Final'] = activeSellPrice;
         
-        // Lookup de IDs antes de enviar
-        const category = categories.find(c => c.name.toUpperCase() === (formData.Categoria || '').toUpperCase());
-        const supplier = suppliers.find(s => s.nombre.toUpperCase() === (formData.Proveedor || '').toUpperCase());
+        const selectedCategoryName = normalize(String(formData.Categoria || ''));
+        const selectedSupplierName = normalize(String(formData.Proveedor || ''));
+        const category = categories.find((item) => normalize(item.name) === selectedCategoryName);
+        const supplier = suppliers.find((item) => normalize(getSupplierName(item)) === selectedSupplierName);
 
         await onSave({ 
           ...savePayload, 
           cod: formData.cod as string,
           category_id: category?.id,
-          supplier_id: supplier?.id
+          supplier_id: supplier ? getSupplierId(supplier) || undefined : undefined
         });
     } catch (error) {
       // Error is handled by the parent component, which will show an alert.
@@ -336,20 +350,20 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
                     <div className="md:col-span-3">
                         <label className="block text-sm font-medium">Nombre del Producto</label>
-                        <input type="text" name="Producto" value={formData.Producto || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} required />
+                        <input type="text" name="Producto" value={toInputValue(formData.Producto)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} required />
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Código</label>
-                        <input type="text" name="cod" value={formData.cod || ''} onChange={handleChange} className={`mt-1 block w-full border-gray-300 rounded-md ${!isCreating ? 'bg-gray-100' : ''}`} readOnly={!isCreating} required={isCreating} />
+                        <input type="text" name="cod" value={toInputValue(formData.cod)} onChange={handleChange} className={`mt-1 block w-full border-gray-300 rounded-md ${!isCreating ? 'bg-gray-100' : ''}`} readOnly={!isCreating} required={isCreating} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Cód. Barras</label>
-                        <input type="text" name="cod.barras" value={formData['cod.barras'] || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                        <input type="text" name="cod.barras" value={toInputValue(formData['cod.barras'])} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                     </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium">Descripción</label>
-                  <textarea name="Descripcion" value={formData.Descripcion || ''} onChange={handleChange} rows={3} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving || isGeneratingDesc}></textarea>
+                      <textarea name="Descripcion" value={toInputValue(formData.Descripcion)} onChange={handleChange} rows={3} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving || isGeneratingDesc}></textarea>
                   <button type="button" onClick={handleGenerateDescription} className="mt-2 text-sm text-blue-600 hover:text-blue-800 flex items-center space-x-1 disabled:text-gray-400" disabled={isSaving || isGeneratingDesc}>
                      {isGeneratingDesc ? ( <> <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-4 h-4 animate-spin"/> <span>Generando...</span></> ) : ( <> <Icon path="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 01-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 013.09-3.09L12 5.25l.813 2.846a4.5 4.5 0 013.09 3.09L18.75 12l-2.846.813a4.5 4.5 0 01-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.898 20.572L16.5 21.75l-.398-1.178a3.375 3.375 0 00-2.455-2.456L12.5 18l1.178-.398a3.375 3.375 0 002.455-2.456L16.5 14.25l.398 1.178a3.375 3.375 0 002.456 2.456L20.25 18l-1.178.398a3.375 3.375 0 00-2.456 2.456z" className="w-4 h-4" /> <span>Generar con IA (Gemini)</span></> )}
                   </button>
@@ -357,7 +371,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium">URL de la Foto</label>
-                    <input type="text" name="FOTOGRAFIA" value={formData.FOTOGRAFIA || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="https://ejemplo.com/imagen.jpg"/>
+                    <input type="text" name="FOTOGRAFIA" value={toInputValue(formData.FOTOGRAFIA)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="https://ejemplo.com/imagen.jpg"/>
                   </div>
                   <div className="md:col-span-1">
                     <p className="block text-sm font-medium text-center">Vista Previa</p>
@@ -398,11 +412,11 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium">P. Costo (Editable)</label>
-                        <input type="text" inputMode="decimal" name="P.Costo" value={formData['P.Costo'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                        <input type="text" inputMode="decimal" name="P.Costo" value={toInputValue(formData['P.Costo'])} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-600">Precio Base (Lista) - Referencia</label>
-                        <input type="text" inputMode="decimal" name="Precio" value={formData.Precio || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="Informativo, no afecta el precio final" />
+                        <input type="text" inputMode="decimal" name="Precio" value={toInputValue(formData.Precio)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="Informativo, no afecta el precio final" />
                         <p className="mt-1 text-xs text-gray-500">Solo informativo, no afecta el precio de venta real.</p>
                     </div>
                 </div>
@@ -421,7 +435,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     
                     <div className="bg-amber-50 border border-amber-300 p-3 rounded-lg">
                         <label className="block text-sm font-medium text-amber-800">Precio de Oferta (Manual Override)</label>
-                        <input type="text" inputMode="decimal" name="Precio de Oferta" value={formData['Precio de Oferta'] || ''} onChange={handleNumericChange} className="mt-2 block w-full border-amber-300 rounded-md text-lg font-semibold text-amber-900" disabled={isSaving} placeholder="Dejar vacío para usar automático" />
+                        <input type="text" inputMode="decimal" name="Precio de Oferta" value={toInputValue(formData['Precio de Oferta'])} onChange={handleNumericChange} className="mt-2 block w-full border-amber-300 rounded-md text-lg font-semibold text-amber-900" disabled={isSaving} placeholder="Dejar vacío para usar automático" />
                         <p className="mt-1 text-xs text-amber-700">
                             Si tiene valor, OVERRIDE el precio automático
                         </p>
@@ -486,18 +500,18 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
             <div className={`grid grid-cols-2 ${!isCreating ? 'md:grid-cols-5' : 'md:grid-cols-3'} gap-4`}>
                  <div>
                     <label className="block text-sm font-medium">Stock Inicial</label>
-                    <input type="text" inputMode="decimal" name="Stock-Inicial" value={formData['Stock-Inicial'] || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" inputMode="decimal" name="Stock-Inicial" value={toInputValue(formData['Stock-Inicial'])} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 
             {!isCreating && (
               <>
                 <div>
                   <label className="block text-sm font-medium text-slate-600">Ingresos (Automático)</label>
-                  <input type="text" inputMode="decimal" name="Ingresos" value={formData.Ingresos || 0} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 text-slate-700" readOnly />
+                  <input type="text" inputMode="decimal" name="Ingresos" value={toInputValue(formData.Ingresos ?? 0)} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 text-slate-700" readOnly />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-600">Ventas (Automático)</label>
-                  <input type="text" inputMode="decimal" name="Venta.PV" value={formData['Venta.PV'] || 0} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 text-slate-700" readOnly />
+                  <input type="text" inputMode="decimal" name="Venta.PV" value={toInputValue(formData['Venta.PV'] ?? 0)} className="mt-1 block w-full border-gray-300 rounded-md bg-gray-100 text-slate-700" readOnly />
                 </div>
               </>
             )}
@@ -508,7 +522,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 </div>
                  <div>
                     <label className="block text-sm font-medium">Stock Mínimo</label>
-                    <input type="number" name="Minimo" value={formData.Minimo || 0} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="number" name="Minimo" value={toInputValue(formData.Minimo)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
             </div>
             {!isCreating && (
@@ -528,7 +542,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Categoría</label>
-                    <select name="Categoria" value={formData.Categoria || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
+                    <select name="Categoria" value={toInputValue(formData.Categoria)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
                         <option value="">Seleccionar Categoría</option>
                         {Object.keys(categoriesData).sort().map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
@@ -537,7 +551,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     <label className="block text-sm font-medium">Subcategoría</label>
                     <select 
                         name="Sub Categoria" 
-                        value={formData['Sub Categoria'] || ''} 
+                        value={toInputValue(formData['Sub Categoria'])} 
                         onChange={handleChange} 
                         className="mt-1 block w-full border-gray-300 rounded-md" 
                         disabled={isSaving || !formData.Categoria || displayableSubCategories.length === 0}
@@ -548,7 +562,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 </div>
                  <div>
                     <label className="block text-sm font-medium">Proveedor</label>
-                     <select name="Proveedor" value={formData.Proveedor || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
+                     <select name="Proveedor" value={toInputValue(formData.Proveedor)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
                         <option value="">Seleccionar Proveedor</option>
                         {providers.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
@@ -580,31 +594,31 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Marca</label>
-                    <input type="text" name="Marca" value={formData.Marca || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" name="Marca" value={toInputValue(formData.Marca)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Modelo Compatible</label>
-                    <input type="text" name="Modelo_Compatible" value={formData.Modelo_Compatible || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" name="Modelo_Compatible" value={toInputValue(formData.Modelo_Compatible)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Tipo Técnico</label>
-                    <input type="text" name="Tipo_Tecnico" value={formData.Tipo_Tecnico || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" name="Tipo_Tecnico" value={toInputValue(formData.Tipo_Tecnico)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div className="md:col-span-3">
                     <label className="block text-sm font-medium">Especificaciones</label>
-                    <textarea name="Especificaciones" value={formData.Especificaciones || ''} onChange={handleChange} rows={2} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}></textarea>
+                    <textarea name="Especificaciones" value={toInputValue(formData.Especificaciones)} onChange={handleChange} rows={2} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}></textarea>
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Garantía (Meses)</label>
-                    <input type="number" name="Garantia_Meses" value={formData.Garantia_Meses || 0} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="number" name="Garantia_Meses" value={toInputValue(formData.Garantia_Meses)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium">URL Ficha Técnica</label>
-                    <input type="text" name="Ficha_Tecnica_URL" value={formData.Ficha_Tecnica_URL || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="https://..."/>
+                    <input type="text" name="Ficha_Tecnica_URL" value={toInputValue(formData.Ficha_Tecnica_URL)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="https://..."/>
                 </div>
                 <div className="md:col-span-3">
                     <label className="block text-sm font-medium">Notas Internas</label>
-                    <textarea name="Notas_Internas" value={formData.Notas_Internas || ''} onChange={handleChange} rows={2} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}></textarea>
+                    <textarea name="Notas_Internas" value={toInputValue(formData.Notas_Internas)} onChange={handleChange} rows={2} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}></textarea>
                 </div>
             </div>
             </CollapsibleSection>
@@ -614,11 +628,11 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium">Título Web</label>
-                    <input type="text" name="Titulo_Web" value={formData.Titulo_Web || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" name="Titulo_Web" value={toInputValue(formData.Titulo_Web)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Slug URL</label>
-                    <input type="text" name="Slug_URL" value={formData.Slug_URL || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="ej-producto-slug"/>
+                    <input type="text" name="Slug_URL" value={toInputValue(formData.Slug_URL)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="ej-producto-slug"/>
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Estado Publicación</label>
@@ -630,19 +644,19 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 </div>
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium">Descripción Corta</label>
-                    <input type="text" name="Descripcion_Corta" value={formData.Descripcion_Corta || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" name="Descripcion_Corta" value={toInputValue(formData.Descripcion_Corta)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium">Descripción Larga (HTML/Texto)</label>
-                    <textarea name="Descripcion_Larga" value={formData.Descripcion_Larga || ''} onChange={handleChange} rows={4} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}></textarea>
+                    <textarea name="Descripcion_Larga" value={toInputValue(formData.Descripcion_Larga)} onChange={handleChange} rows={4} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}></textarea>
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Imágenes Extra (URLs separadas por coma)</label>
-                    <textarea name="Imagenes_Extra_URLs" value={formData.Imagenes_Extra_URLs || ''} onChange={handleChange} rows={2} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="url1, url2..."></textarea>
+                    <textarea name="Imagenes_Extra_URLs" value={toInputValue(formData.Imagenes_Extra_URLs)} onChange={handleChange} rows={2} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="url1, url2..."></textarea>
                 </div>
                 <div>
                     <label className="block text-sm font-medium">URL Video (YouTube/Vimeo)</label>
-                    <input type="text" name="Video_URL" value={formData.Video_URL || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" name="Video_URL" value={toInputValue(formData.Video_URL)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Destacado</label>
@@ -654,7 +668,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Orden en Catálogo</label>
-                    <input type="number" name="Orden_Catalogo" value={formData.Orden_Catalogo || 0} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="number" name="Orden_Catalogo" value={toInputValue(formData.Orden_Catalogo)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
             </div>
             </CollapsibleSection>
@@ -664,11 +678,11 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="md:col-span-2">
                     <label className="block text-sm font-medium">Clase de Envío</label>
-                    <input type="text" name="Clase_Envio" value={formData.Clase_Envio || ''} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" name="Clase_Envio" value={toInputValue(formData.Clase_Envio)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Peso (kg)</label>
-                    <input type="text" inputMode="decimal" name="Peso_kg" value={formData.Peso_kg || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" inputMode="decimal" name="Peso_kg" value={toInputValue(formData.Peso_kg)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Frágil</label>
@@ -680,15 +694,15 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Alto (cm)</label>
-                    <input type="text" inputMode="decimal" name="Alto_cm" value={formData.Alto_cm || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" inputMode="decimal" name="Alto_cm" value={toInputValue(formData.Alto_cm)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Ancho (cm)</label>
-                    <input type="text" inputMode="decimal" name="Ancho_cm" value={formData.Ancho_cm || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" inputMode="decimal" name="Ancho_cm" value={toInputValue(formData.Ancho_cm)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Profundidad (cm)</label>
-                    <input type="text" inputMode="decimal" name="Profundidad_cm" value={formData.Profundidad_cm || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" inputMode="decimal" name="Profundidad_cm" value={toInputValue(formData.Profundidad_cm)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Embalaje Especial</label>
@@ -706,7 +720,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                     <label className="block text-sm font-medium">Stock Online</label>
-                    <input type="text" inputMode="decimal" name="Stock_Online" value={formData.Stock_Online || ''} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="text" inputMode="decimal" name="Stock_Online" value={toInputValue(formData.Stock_Online)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Permitir Venta Sin Stock</label>
@@ -718,7 +732,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Plazo Reposición (Días)</label>
-                    <input type="number" name="Plazo_Reposicion_Dias" value={formData.Plazo_Reposicion_Dias || 0} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
+                    <input type="number" name="Plazo_Reposicion_Dias" value={toInputValue(formData.Plazo_Reposicion_Dias)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
             </div>
             </CollapsibleSection>

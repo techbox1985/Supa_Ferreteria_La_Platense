@@ -61,17 +61,6 @@ export const deleteProductSupabase = async (cod: string): Promise<any> => {
     if (error) throw error;
     return data?.[0] || null;
 };
-// --- Helpers mínimos para destrabar build ---
-// Implementación temporal de postToScript: simula una llamada y devuelve un objeto vacío o echo
-async function postToScript(_action: string, _payload: any, _options?: any): Promise<any> {
-    // Puedes personalizar el mock según la acción si lo necesitas
-    return { data: {} };
-}
-
-// Implementación temporal de formatDateForSheet: retorna fecha en formato ISO simple
-function formatDateForSheet(date: Date): string {
-    return date.toISOString().split('T')[0];
-}
 // FIX: Imported all necessary types from the central types file.
 import {
     AccountTransaction,
@@ -115,6 +104,169 @@ const viteEnv = (import.meta as ImportMeta & {
 
 const SUPABASE_URL = viteEnv.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = viteEnv.VITE_SUPABASE_ANON_KEY;
+
+const mapUserRowToUser = (item: any): User => {
+    const nombre = item?.nombre ?? item?.Nombre ?? item?.name ?? item?.full_name ?? '';
+    const pin = item?.pin ?? item?.PIN ?? '';
+    const rol = item?.rol ?? item?.Rol ?? item?.role ?? '';
+    const activoRaw = item?.activo ?? item?.is_active ?? item?.active ?? item?.Activo ?? item?.estado ?? true;
+    const activo =
+        activoRaw === true ||
+        activoRaw === 'SI' ||
+        activoRaw === 'si' ||
+        activoRaw === 'Sí' ||
+        activoRaw === 'sí' ||
+        activoRaw === 1 ||
+        activoRaw === '1';
+
+    return {
+        ID_Usuario: String(item?.id ?? item?.ID_Usuario ?? ''),
+        Nombre: String(nombre || ''),
+        PIN: String(pin || ''),
+        Rol: String(rol || '') as User['Rol'],
+        Activo: activo ? 'SI' : 'NO'
+    } as User;
+};
+
+const persistInvoiceForSale = async (
+    saleId: string,
+    facturaInfo: Sale['facturaInfo'],
+    facturacion?: string
+): Promise<void> => {
+    if (!supabase || !saleId || !facturaInfo?.cae) return;
+
+    const invoicePayload = {
+        sale_id: saleId,
+        cae: facturaInfo.cae,
+        nro: facturaInfo.nro,
+        vto_cae: facturaInfo.vtoCae,
+        qr_data: facturaInfo.qrData,
+        pdf_url: facturaInfo.url ?? null,
+        url: facturaInfo.url ?? null,
+        ticket_url: facturaInfo.ticketUrl ?? null,
+        comprobante_ticket_url: facturaInfo.ticketUrl ?? null,
+        invoice_type: facturacion || null,
+        issued_at: new Date().toISOString(),
+    };
+
+    const { data: existingInvoice, error: existingInvoiceError } = await supabase
+        .from('invoices')
+        .select('id')
+        .eq('sale_id', saleId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (existingInvoiceError) throw existingInvoiceError;
+
+    if (existingInvoice?.id) {
+        const { error } = await supabase
+            .from('invoices')
+            .update({ ...invoicePayload, updated_at: new Date().toISOString() })
+            .eq('id', existingInvoice.id);
+
+        if (error) throw error;
+        return;
+    }
+
+    const { error } = await supabase
+        .from('invoices')
+        .insert([invoicePayload]);
+
+    if (error) throw error;
+};
+
+const buildSaleItemsPayload = (saleId: string, items: CartItem[], productMap: Map<string, string>) => (
+    items.map((item) => ({
+        sale_id: saleId,
+        product_id: productMap.get(item.product.cod) || null,
+        product_code: item.product.cod || null,
+        product_name_snapshot: item.product.Producto || 'Producto',
+        quantity: Number(item.quantity ?? 0),
+        unit_price: Number(item.price ?? 0),
+        line_total: Number(item.quantity ?? 0) * Number(item.price ?? 0)
+    }))
+);
+
+const getProductIdMap = async (items: CartItem[]): Promise<Map<string, string>> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const productCodes = items.map((item) => item.product?.cod).filter(Boolean);
+    if (productCodes.length === 0) return new Map<string, string>();
+
+    const { data: productRows, error: productError } = await supabase
+        .from('st_products')
+        .select('id, cod')
+        .in('cod', productCodes);
+
+    if (productError) throw productError;
+    return new Map((productRows || []).map((product: any) => [product.cod, product.id]));
+};
+
+const syncSaleAccountTransaction = async (sale: Sale, shiftId?: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const customerId =
+        sale.customer?.Id_Cliente &&
+        sale.customer.Id_Cliente !== '0' &&
+        !String(sale.customer.Id_Cliente).startsWith('CLAD')
+            ? sale.customer.Id_Cliente
+            : null;
+
+    const creditAmount = Number(sale.payment?.credit ?? 0);
+    const { data: existingTx, error: existingTxError } = await supabase
+        .from('st_account_transactions')
+        .select('id')
+        .eq('original_sale_id', sale.id)
+        .eq('type', 'Venta')
+        .limit(1)
+        .maybeSingle();
+
+    if (existingTxError) throw existingTxError;
+
+    if (!customerId || creditAmount <= 0) {
+        if (existingTx?.id) {
+            const { error } = await supabase
+                .from('st_account_transactions')
+                .delete()
+                .eq('id', existingTx.id);
+
+            if (error) throw error;
+        }
+        return;
+    }
+
+    const soldAt = sale.date instanceof Date ? sale.date.toISOString() : new Date(sale.date).toISOString();
+    const payload = {
+        customer_id: customerId,
+        type: 'Venta',
+        description: 'Venta a cuenta corriente',
+        debit: creditAmount,
+        credit: 0,
+        original_sale_id: sale.id,
+        shift_id: shiftId || sale.shiftId || null,
+        items: sale.items ? JSON.stringify(sale.items) : null,
+        factura_info: sale.facturaInfo ? JSON.stringify(sale.facturaInfo) : null,
+        date: soldAt,
+        updated_at: new Date().toISOString(),
+    };
+
+    if (existingTx?.id) {
+        const { error } = await supabase
+            .from('st_account_transactions')
+            .update(payload)
+            .eq('id', existingTx.id);
+
+        if (error) throw error;
+        return;
+    }
+
+    const { error } = await supabase
+        .from('st_account_transactions')
+        .insert([{ ...payload, created_at: new Date().toISOString() }]);
+
+    if (error) throw error;
+};
 
 const calculateFinalPriceFromCost = (costPrice: number, markupPct: number): number => {
     return Number((costPrice * (1 + markupPct / 100)).toFixed(2));
@@ -240,7 +392,6 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'image_url',
         'is_deleted',
         'updated_at',
-        'legacy_last_update',
         'final_price'
     ];
     while (true) {
@@ -378,7 +529,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',
             Imagen: item.image_url ?? item.photo_url ?? '',
             Eliminado: Boolean(item.is_deleted ?? false),
-            'Ultima.Actualizacion': item.updated_at ?? item.legacy_last_update ?? '',
+            'Ultima.Actualizacion': item.updated_at ?? '',
             'Precio Final': Number(item.final_price ?? 0)
         } as any;
         });
@@ -416,8 +567,7 @@ export const getProductsForPOS = async (): Promise<Product[]> => {
         'photo_url',
         'image_url',
         'is_deleted',
-        'updated_at',
-        'legacy_last_update'
+        'updated_at'
     ];
 
     while (true) {
@@ -450,7 +600,7 @@ export const getProductsForPOS = async (): Promise<Product[]> => {
         FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',
         Imagen: item.image_url ?? item.photo_url ?? '',
         Eliminado: Boolean(item.is_deleted ?? false),
-        'Ultima.Actualizacion': item.updated_at ?? item.legacy_last_update ?? '',
+        'Ultima.Actualizacion': item.updated_at ?? '',
     }));
 };
 
@@ -920,7 +1070,6 @@ export const addCustomerSupabase = async (customerData: any): Promise<any> => {
             document_type: customerData['Tipo.Documento'],
             document_number: customerData.Documento,
             iva_condition: customerData.Condicion_IVA,
-            legacy_customer_id: customerData.Id_Cliente || null,
             is_deleted: false
         }])
         .select();
@@ -941,17 +1090,6 @@ export const updateCustomerSupabase = async (customerData: any): Promise<any> =>
             iva_condition: customerData.Condicion_IVA
         })
         .eq('id', Id_Cliente)
-        .select();
-    if (error) throw error;
-    return data[0];
-};
-
-export const deleteCustomerSupabase = async (id: string): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    const { data, error } = await supabase
-        .from('st_customers')
-        .update({ is_deleted: true, updated_at: new Date() })
-        .eq('id', id)
         .select();
     if (error) throw error;
     return data[0];
@@ -1182,22 +1320,22 @@ export const generateElectronicCreditNote = async (sale: Sale, items: CartItem[]
 
 // --- TURNOS SUPABASE ---
 
-export const getUserProfileByLegacyId = async (legacyUserId: string): Promise<any> => {
+export const getUserProfileById = async (userId: string): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
     const { data, error } = await supabase
         .from('st_user_profiles')
-        .select('id, nombre, rol, activo, legacy_user_id')
-        .eq('legacy_user_id', legacyUserId)
+        .select('id, nombre, rol, activo')
+        .eq('id', userId)
         .maybeSingle();
     
     if (error) {
-        console.error(`Error buscando perfil para legacy_user_id: ${legacyUserId}`, error);
-        throw new Error(`No se encontró un perfil de usuario migrado para el ID: ${legacyUserId}.`);
+        console.error(`Error buscando perfil para user id: ${userId}`, error);
+        throw new Error(`No se encontró un perfil de usuario para el ID: ${userId}.`);
     }
 
     if (!data) {
-        throw new Error(`No se encontró un perfil de usuario migrado para el ID: ${legacyUserId}.`);
+        throw new Error(`No se encontró un perfil de usuario para el ID: ${userId}.`);
     }
     
     return data;
@@ -1210,8 +1348,8 @@ export const getShiftsSupabase = async (): Promise<Shift[]> => {
         .select(`
             *,
             st_user_profiles (
-                nombre,
-                legacy_user_id
+                id,
+                nombre
             )
         `)
         .order('opened_at', { ascending: false });
@@ -1220,7 +1358,7 @@ export const getShiftsSupabase = async (): Promise<Shift[]> => {
     
     return (data || []).map(item => ({
         ID_Turno: item.id,
-        ID_Usuario: item.st_user_profiles?.legacy_user_id || 'Unknown',
+        ID_Usuario: item.st_user_profiles?.id || 'Unknown',
         Fecha_Apertura: new Date(item.opened_at),
         Fecha_Cierre: item.closed_at ? new Date(item.closed_at) : null,
         Monto_Apertura: Number(item.opening_amount),
@@ -1234,10 +1372,10 @@ export const getShiftsSupabase = async (): Promise<Shift[]> => {
     } as Shift));
 };
 
-export const openShiftSupabase = async (legacyUserId: string, openingAmount: number): Promise<Shift> => {
+export const openShiftSupabase = async (userId: string, openingAmount: number): Promise<Shift> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     
-    const profile = await getUserProfileByLegacyId(legacyUserId);
+    const profile = await getUserProfileById(userId);
     
     const { data, error } = await supabase
         .from('st_shifts')
@@ -1250,7 +1388,7 @@ export const openShiftSupabase = async (legacyUserId: string, openingAmount: num
         .select(`
             *,
             st_user_profiles (
-                legacy_user_id
+                id
             )
         `)
         .single();
@@ -1259,7 +1397,7 @@ export const openShiftSupabase = async (legacyUserId: string, openingAmount: num
     
     return {
         ID_Turno: data.id,
-        ID_Usuario: data.st_user_profiles?.legacy_user_id || legacyUserId,
+        ID_Usuario: data.st_user_profiles?.id || userId,
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: null,
         Monto_Apertura: Number(data.opening_amount),
@@ -1308,8 +1446,7 @@ export const addExpenseSupabase = async (expenseData: { detalle: string; monto: 
             detail: expenseData.detalle,
             category: expenseData.tipo || 'Otros',
             payment_cash: expenseData.paymentType === 'Efectivo' ? expenseData.monto : 0,
-            payment_digital: expenseData.paymentType === 'Digital' ? expenseData.monto : 0,
-            legacy_expense_id: null
+            payment_digital: expenseData.paymentType === 'Digital' ? expenseData.monto : 0
         }])
         .select();
     
@@ -1363,7 +1500,7 @@ export const closeShiftSupabase = async (shiftId: string, closingAmount: number)
         .select(`
             *,
             st_user_profiles (
-                legacy_user_id
+                id
             )
         `)
         .single();
@@ -1372,7 +1509,7 @@ export const closeShiftSupabase = async (shiftId: string, closingAmount: number)
     
     return {
         ID_Turno: data.id,
-        ID_Usuario: data.st_user_profiles?.legacy_user_id || 'Unknown',
+        ID_Usuario: data.st_user_profiles?.id || 'Unknown',
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: new Date(data.closed_at),
         Monto_Apertura: Number(data.opening_amount),
@@ -1385,17 +1522,17 @@ export const closeShiftSupabase = async (shiftId: string, closingAmount: number)
     } as Shift;
 };
 
-export const getActiveShiftSupabase = async (legacyUserId: string): Promise<Shift | null> => {
+export const getActiveShiftSupabase = async (userId: string): Promise<Shift | null> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     
-    const profile = await getUserProfileByLegacyId(legacyUserId);
+    const profile = await getUserProfileById(userId);
     
     const { data, error } = await supabase
         .from('st_shifts')
         .select(`
             *,
             st_user_profiles (
-                legacy_user_id
+                id
             )
         `)
         .eq('user_profile_id', profile.id)
@@ -1407,7 +1544,7 @@ export const getActiveShiftSupabase = async (legacyUserId: string): Promise<Shif
     
     return {
         ID_Turno: data.id,
-        ID_Usuario: data.st_user_profiles?.legacy_user_id || legacyUserId,
+        ID_Usuario: data.st_user_profiles?.id || userId,
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: null,
         Monto_Apertura: Number(data.opening_amount),
@@ -1428,7 +1565,7 @@ export const getAnyActiveShiftSupabase = async (): Promise<Shift | null> => {
         .select(`
             *,
             st_user_profiles (
-                legacy_user_id
+                id
             )
         `)
         .eq('status', 'open')
@@ -1441,7 +1578,7 @@ export const getAnyActiveShiftSupabase = async (): Promise<Shift | null> => {
 
     return {
         ID_Turno: data.id,
-        ID_Usuario: data.st_user_profiles?.legacy_user_id || 'Unknown',
+        ID_Usuario: data.st_user_profiles?.id || 'Unknown',
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: null,
         Monto_Apertura: Number(data.opening_amount),
@@ -1470,136 +1607,9 @@ export const getUsersSupabase = async (onlyActive = true): Promise<User[]> => {
 
     const rows = Array.isArray(data) ? data : [];
 
-    const normalized: User[] = rows
-        .map((item: any) => {
-            const nombre =
-                item?.nombre ??
-                item?.Nombre ??
-                item?.name ??
-                item?.full_name ??
-                '';
-
-            const pin =
-                item?.pin ??
-                item?.PIN ??
-                '';
-
-            const rol =
-                item?.rol ??
-                item?.Rol ??
-                item?.role ??
-                '';
-
-            const activoRaw =
-                item?.activo ??
-                item?.is_active ??
-                item?.active ??
-                item?.Activo ??
-                item?.estado ??
-                true;
-
-            const activo =
-                activoRaw === true ||
-                activoRaw === 'SI' ||
-                activoRaw === 'si' ||
-                activoRaw === 'Sí' ||
-                activoRaw === 'sí' ||
-                activoRaw === 1 ||
-                activoRaw === '1';
-
-            return {
-                ID_Usuario:
-                    item?.legacy_user_id ||
-                    item?.id ||
-                    item?.ID_Usuario ||
-                    '',
-                Nombre: String(nombre || ''),
-                PIN: String(pin || ''),
-                Rol: String(rol || ''),
-                Activo: activo ? 'SI' : 'NO'
-            } as User;
-        })
-        .filter((u) => !!u.ID_Usuario);
+    const normalized: User[] = rows.map((item: any) => mapUserRowToUser(item)).filter((u) => !!u.ID_Usuario);
 
     return onlyActive ? normalized.filter((u) => u.Activo === 'SI') : normalized;
-};
-
-export const getSalesSupabase = async (statusFilter: string[] = ['active', 'annulled']): Promise<Sale[]> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-    const { data, error } = await supabase
-        .from('st_sales')
-        .select(`
-            *,
-            st_sale_items (
-                *,
-                st_products (
-                    name,
-                    cod
-                    
-                )
-            ),
-            st_customers (
-                full_name,
-                whatsapp,
-                document_type,
-                document_number,
-                iva_condition
-            )
-        `)
-        .in('status', statusFilter)
-        .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    
-    return (data || []).map(item => {
-        const items: CartItem[] = (item.st_sale_items || []).map((si: any) => ({
-    product: {
-        cod: si.st_products?.cod || si.product_cod_legacy,
-        Producto: si.st_products?.name || si.product_name_legacy,
-        Categoria: ''
-    } as Product,
-    quantity: si.quantity,
-    price: si.unit_price
-}));
-
-        const customer: Customer | null = item.st_customers ? {
-            Id_Cliente: item.customer_id,
-            'Nombre y Apellido': item.st_customers.full_name,
-            Whatsapp: item.st_customers.whatsapp || '',
-            'Tipo.Documento': item.st_customers.document_type || 'DNI',
-            Documento: item.st_customers.document_number || '',
-            Condicion_IVA: item.st_customers.iva_condition || 'Consumidor Final',
-            Deuda: 0,
-            Pagos: 0
-        } : null;
-
-        return {
-            id: item.id,
-            date: new Date(item.created_at),
-            customer,
-            items,
-            itemCount: items.reduce((acc, i) => acc + i.quantity, 0),
-            subtotal: Number(item.subtotal),
-            total: Number(item.total),
-            payment: {
-                cash: Number(item.payment_cash || 0),
-                digital: Number(item.payment_digital || 0),
-                credit: Number(item.payment_credit || 0),
-                echeqs: item.payment_echeqs || []
-            },
-            facturacion: item.billing_type || 'N',
-            status: item.status === 'active' ? 'active' : 'annulled',
-            facturaInfo: item.billing_cae ? {
-                cae: item.billing_cae,
-                nro: item.billing_number,
-                vtoCae: item.billing_vto_cae,
-                qrData: item.billing_qr_data,
-                fecha: item.billing_date,
-                url: item.billing_pdf_url,
-                ticketUrl: item.billing_ticket_url
-            } : undefined
-        } as Sale;
-    });
 };
 
 export const addBudgetSupabase = async (budget: Budget): Promise<void> => {
@@ -1790,24 +1800,21 @@ const buildInvoiceData = (item: any, linkedInvoice: any) => {
         invoiceTypeRaw.includes('NOTA') ||
         invoiceTypeRaw.includes('CREDITO');
 
-    const cae = (isCreditNoteInvoice ? undefined : linkedInvoice?.cae) || item.billing_cae || item.legacy_cae || '';
-    const nro = (isCreditNoteInvoice ? undefined : linkedInvoice?.nro) || item.billing_number || item.legacy_invoice_number || '';
-    const vtoCae = linkedInvoice?.vto_cae || item.billing_vto_cae || '';
-    const qrData = linkedInvoice?.qr_data || item.billing_qr_data || '';
+    const cae = (isCreditNoteInvoice ? undefined : linkedInvoice?.cae) || '';
+    const nro = (isCreditNoteInvoice ? undefined : linkedInvoice?.nro) || '';
+    const vtoCae = linkedInvoice?.vto_cae || '';
+    const qrData = linkedInvoice?.qr_data || '';
     const pdfUrl =
         (isCreditNoteInvoice ? undefined : linkedInvoice?.pdf_url) ||
-        item.billing_pdf_url ||
         (isCreditNoteInvoice ? undefined : linkedInvoice?.url) ||
-        item.legacy_invoice_url ||
         undefined;
     const ticketUrl =
         (isCreditNoteInvoice ? undefined : linkedInvoice?.comprobante_ticket_url) ||
         (isCreditNoteInvoice ? undefined : linkedInvoice?.ticket_url) ||
         (isCreditNoteInvoice ? undefined : linkedInvoice?.url) ||
-        item.billing_ticket_url ||
         undefined;
-    const invoiceType = linkedInvoice?.invoice_type || item.billing_type || item.invoice_type || 'N';
-    const fecha = linkedInvoice?.issued_at || linkedInvoice?.created_at || item.billing_date || item.sold_at;
+    const invoiceType = linkedInvoice?.invoice_type || item.invoice_type || 'N';
+    const fecha = linkedInvoice?.issued_at || linkedInvoice?.created_at || item.sold_at;
 
     return {
         cae,
@@ -1972,24 +1979,23 @@ export const getUsers = async (): Promise<User[]> => {
 };
 
 export const login = async (userId: string, pin: string): Promise<{user: User, activeShift: Shift | null}> => {
-    const response = await postToScript('login', { userId, pin }, { allowQueue: false });
-    return response.data || response;
+    const users = await getUsersSupabase(true);
+    const user = users.find((item) => item.ID_Usuario === userId && item.PIN === pin);
+    if (!user) throw new Error('Usuario o PIN incorrecto.');
+
+    const activeShift = user.Rol === 'Admin'
+        ? await getAnyActiveShiftSupabase()
+        : await getActiveShiftSupabase(user.ID_Usuario);
+
+    return { user, activeShift };
 };
 
 export const openShift = async (userId: string, openingAmount: number): Promise<Shift> => {
-    const response = await postToScript('openShift', { userId, openingAmount });
-    const shift = response.data;
-    return { ...shift, Fecha_Apertura: new Date(shift.Fecha_Apertura) };
+    return openShiftSupabase(userId, openingAmount);
 };
 
 export const closeShift = async (shiftId: string, closingAmount: number): Promise<Shift> => {
-    const response = await postToScript('closeShift', { shiftId, closingAmount });
-    const shift = response.data;
-    return { 
-      ...shift, 
-      Fecha_Apertura: new Date(shift.Fecha_Apertura),
-      Fecha_Cierre: shift.Fecha_Cierre ? new Date(shift.Fecha_Cierre) : null,
-    };
+    return closeShiftSupabase(shiftId, closingAmount);
 };
 
 export const getShifts = async (): Promise<Shift[]> => {
@@ -2070,41 +2076,7 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
 
     const hasFiscalData = Boolean(sale.facturaInfo);
     if (hasFiscalData) {
-        const facturaInfo: any = sale.facturaInfo || {};
-        const billingUpdate = {
-            billing_cae: facturaInfo?.cae ?? null,
-            billing_number: facturaInfo?.nro ?? null,
-            billing_vto_cae: facturaInfo?.vtoCae ?? facturaInfo?.vto_cae ?? null,
-            billing_qr_data: facturaInfo?.qrData ?? facturaInfo?.qr_data ?? null,
-            billing_pdf_url: facturaInfo?.url ?? facturaInfo?.pdf_url ?? null,
-            billing_ticket_url: facturaInfo?.ticketUrl ?? facturaInfo?.ticket_url ?? null,
-            billing_date: new Date().toISOString(),
-            legacy_cae: facturaInfo?.cae ?? null,
-            legacy_invoice_number: facturaInfo?.nro ?? null,
-            legacy_invoice_url: facturaInfo?.url ?? facturaInfo?.pdf_url ?? null,
-            updated_at: new Date().toISOString(),
-        };
-
-        const { error: billingUpdateError } = await supabase
-            .from('st_sales')
-            .update(billingUpdate)
-            .eq('id', insertedSale.id);
-
-        if (billingUpdateError) {
-            console.error('[DIAG098][api.addSale billing persist error]', {
-                saleId: insertedSale.id,
-                message: billingUpdateError.message,
-            });
-        } else {
-            Object.assign(insertedSale, billingUpdate);
-            console.log('[DIAG098][api.addSale billing persisted]', {
-                saleId: insertedSale.id,
-                cae: billingUpdate.billing_cae,
-                nro: billingUpdate.billing_number,
-                hasPdfUrl: Boolean(billingUpdate.billing_pdf_url),
-                hasTicketUrl: Boolean(billingUpdate.billing_ticket_url),
-            });
-        }
+        await persistInvoiceForSale(insertedSale.id, sale.facturaInfo, sale.facturacion);
     }
 
     if ((sale.facturacion || 'N') !== 'N') {
@@ -2131,32 +2103,8 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
         }
     }
 
-    const productCodes = sale.items
-        .map(i => i.product?.cod)
-        .filter(Boolean);
-
-    let productMap = new Map<string, string>();
-
-    if (productCodes.length > 0) {
-        const { data: productRows, error: productError } = await supabase
-            .from('st_products')
-            .select('id, cod')
-            .in('cod', productCodes);
-
-        if (productError) throw productError;
-
-        productMap = new Map((productRows || []).map((p: any) => [p.cod, p.id]));
-    }
-
-    const itemsToInsert = sale.items.map(item => ({
-        sale_id: insertedSale.id,
-        product_id: productMap.get(item.product.cod) || null,
-        product_code: item.product.cod || null,
-        product_name_snapshot: item.product.Producto || 'Producto',
-        quantity: Number(item.quantity ?? 0),
-        unit_price: Number(item.price ?? 0),
-        line_total: Number(item.quantity ?? 0) * Number(item.price ?? 0)
-    }));
+    const productMap = await getProductIdMap(sale.items);
+    const itemsToInsert = buildSaleItemsPayload(insertedSale.id, sale.items, productMap);
 
     if (itemsToInsert.length > 0) {
         const { error: itemsError } = await supabase
@@ -2201,7 +2149,62 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
 };
 
 export const updateSale = async (originalSale: Sale, updatedSale: Sale): Promise<void> => {
-    await postToScript('updateSale', { originalSale, updatedSale });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const customerId =
+        updatedSale.customer?.Id_Cliente &&
+        updatedSale.customer.Id_Cliente !== '0' &&
+        !String(updatedSale.customer.Id_Cliente).startsWith('CLAD')
+            ? updatedSale.customer.Id_Cliente
+            : null;
+
+    const soldAt = updatedSale.date instanceof Date ? updatedSale.date.toISOString() : new Date(updatedSale.date).toISOString();
+    const updatePayload = {
+        sold_at: soldAt,
+        customer_id: customerId,
+        subtotal: Number(updatedSale.subtotal ?? 0),
+        adjustment_amount: Number(updatedSale.adjustmentAmount ?? 0),
+        total: Number(updatedSale.total ?? 0),
+        payment_cash: Number(updatedSale.payment?.cash ?? 0),
+        payment_digital: Number(updatedSale.payment?.digital ?? 0),
+        payment_credit: Number(updatedSale.payment?.credit ?? 0),
+        invoice_type: updatedSale.facturacion || 'N',
+        customer_name_snapshot: updatedSale.customer?.['Nombre y Apellido'] || 'Consumidor Final',
+        customer_document_snapshot: updatedSale.customer?.Documento || null,
+        notes: updatedSale.adjustmentDescription || null,
+        updated_at: new Date().toISOString(),
+    };
+
+    const { error: saleError } = await supabase
+        .from('st_sales')
+        .update(updatePayload)
+        .eq('id', originalSale.id);
+
+    if (saleError) throw saleError;
+
+    const { error: deleteItemsError } = await supabase
+        .from('st_sale_items')
+        .delete()
+        .eq('sale_id', originalSale.id);
+
+    if (deleteItemsError) throw deleteItemsError;
+
+    const productMap = await getProductIdMap(updatedSale.items);
+    const itemsToInsert = buildSaleItemsPayload(originalSale.id, updatedSale.items, productMap);
+
+    if (itemsToInsert.length > 0) {
+        const { error: insertItemsError } = await supabase
+            .from('st_sale_items')
+            .insert(itemsToInsert);
+
+        if (insertItemsError) throw insertItemsError;
+    }
+
+    await syncSaleAccountTransaction({ ...updatedSale, id: originalSale.id }, updatedSale.shiftId);
+
+    if (updatedSale.facturaInfo?.cae) {
+        await persistInvoiceForSale(originalSale.id, updatedSale.facturaInfo, updatedSale.facturacion);
+    }
 };
 
 export const updateSalePaymentAllocationSupabase = async (
@@ -2235,16 +2238,45 @@ export const addCustomer = async (customerData: any): Promise<void> => {
     await addCustomerSupabase(customerData);
 };
 
-export const updateCustomer = async (customerData: any): Promise<void> => {
-    await updateCustomerSupabase(customerData);
-};
-
 export const recordPayment = async (customerId: string, amount: number, description: string, paymentMethod: string, shiftId: string): Promise<void> => {
-    await postToScript('recordPayment', { customerId, amount, paymentMethod, description, date: formatDateForSheet(new Date()), shiftId });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { error } = await supabase
+        .from('st_account_transactions')
+        .insert([{
+            customer_id: customerId,
+            type: 'Pago',
+            description: description || `Pago registrado (${paymentMethod})`,
+            debit: 0,
+            credit: Number(amount || 0),
+            shift_id: shiftId || null,
+            date: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+        }]);
+
+    if (error) throw error;
 };
 
 export const createCreditNote = async (payload: any): Promise<void> => {
-    await postToScript('createCreditNote', { ...payload, date: formatDateForSheet(new Date()) });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { error } = await supabase
+        .from('st_account_transactions')
+        .insert([{
+            customer_id: payload.customerId,
+            type: 'Nota de Crédito',
+            description: payload.description || 'Nota de crédito',
+            debit: 0,
+            credit: Number(payload.total || 0),
+            original_sale_id: payload.originalSaleId || null,
+            shift_id: payload.shiftId || null,
+            items: payload.items ? JSON.stringify(payload.items) : null,
+            factura_info: payload.facturaInfo ? JSON.stringify(payload.facturaInfo) : null,
+            date: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+        }]);
+
+    if (error) throw error;
 };
 
 export const annulSaleSupabase = async (saleId: string): Promise<void> => {
@@ -2300,10 +2332,6 @@ export const getAccountTransactions = async (): Promise<any[]> => {
         .order('date', { ascending: false });
     if (error) throw error;
     return data || [];
-};
-
-export const getBudgets = async (): Promise<Budget[]> => {
-    return getBudgetsSupabase();
 };
 
 export const addBudget = async (budget: Budget): Promise<void> => {
@@ -2752,33 +2780,115 @@ export const deleteSupplierInvoiceSupabase = async (invoiceId: string): Promise<
     if (invoiceError) throw invoiceError;
 };
 
-export const getAllUsersForAdmin = async (): Promise<User[]> => {
-    return getUsersSupabase(false);
-};
-
 export const addUser = async (userData: any): Promise<User> => {
-    const res = await postToScript('addUser', userData);
-    return res.data;
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('st_user_profiles')
+        .insert([{
+            nombre: userData.Nombre,
+            pin: userData.PIN,
+            rol: userData.Rol,
+            activo: userData.Activo === 'SI',
+            updated_at: new Date().toISOString(),
+        }])
+        .select()
+        .single();
+
+    if (error) throw error;
+    return mapUserRowToUser(data);
 };
 
 export const updateUser = async (userData: any): Promise<any> => {
-    return postToScript('updateUser', userData);
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('st_user_profiles')
+        .update({
+            nombre: userData.Nombre,
+            pin: userData.PIN,
+            rol: userData.Rol,
+            activo: userData.Activo === 'SI',
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', userData.ID_Usuario)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return mapUserRowToUser(data);
 };
 
 export const addProduct = async (productData: any): Promise<any> => {
-    return postToScript('addProduct', productData);
+    return addProductSupabase(productData);
 };
 
 export const updateProduct = async (productData: any): Promise<any> => {
-    return postToScript('updateProduct', productData);
+    return updateProductSupabase(productData);
 };
 
 export const deleteProduct = async (cod: string): Promise<any> => {
-    return postToScript('deleteProduct', { cod });
+    return deleteProductSupabase(cod);
 };
 
 export const massUpdatePrices = async (data: any): Promise<any> => {
-    return postToScript('massUpdatePrices', data);
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    let categoryId: string | null = null;
+    let supplierId: string | null = null;
+
+    if (data.filterBy === 'Categoria' && data.filterValue && data.filterValue !== 'All') {
+        const { data: category, error } = await supabase
+            .from('st_categories')
+            .select('id')
+            .ilike('name', String(data.filterValue).trim())
+            .limit(1)
+            .maybeSingle();
+
+        if (error) throw error;
+        categoryId = category?.id || null;
+        if (!categoryId) return { updated: 0 };
+    }
+
+    if (data.filterBy === 'Proveedor' && data.filterValue && data.filterValue !== 'All') {
+        const { data: supplier, error } = await supabase
+            .from('st_suppliers')
+            .select('id')
+            .ilike('nombre', String(data.filterValue).trim())
+            .limit(1)
+            .maybeSingle();
+
+        if (error) throw error;
+        supplierId = supplier?.id || null;
+        if (!supplierId) return { updated: 0 };
+    }
+
+    let query = supabase.from('st_products').select('id, cost_price, list_price').eq('is_deleted', false);
+    if (categoryId) query = query.eq('category_id', categoryId);
+    if (supplierId) query = query.eq('supplier_id', supplierId);
+
+    const { data: productsToUpdate, error: productsError } = await query;
+    if (productsError) throw productsError;
+
+    const rows = Array.isArray(productsToUpdate) ? productsToUpdate : [];
+    const fieldName = data.targetPrice === 'P.Costo' ? 'cost_price' : 'list_price';
+    const updateValue = Number(data.updateValue || 0);
+
+    await Promise.all(rows.map(async (row: any) => {
+        const currentValue = Number(row?.[fieldName] ?? 0);
+        const nextValue = data.updateType === 'percentage'
+            ? Number((currentValue * (1 + updateValue / 100)).toFixed(2))
+            : Number((currentValue + updateValue).toFixed(2));
+
+        const { error } = await supabase
+            .from('st_products')
+            .update({ [fieldName]: nextValue, updated_at: new Date().toISOString() })
+            .eq('id', row.id);
+
+        if (error) throw error;
+    }));
+
+    return { updated: rows.length };
 };
 
 export const getCategoriesData = async (): Promise<any[]> => {
@@ -2823,7 +2933,29 @@ export const getCategoriesData = async (): Promise<any[]> => {
 };
 
 export const addCategory = async (name: string): Promise<any> => {
-    return postToScript('addCategory', { name });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const categoryName = String(name || '').trim();
+    if (!categoryName) throw new Error('El nombre de la categoría es obligatorio.');
+
+    const { data: existing, error: existingError } = await supabase
+        .from('st_categories')
+        .select('id')
+        .ilike('name', categoryName)
+        .limit(1)
+        .maybeSingle();
+
+    if (existingError) throw existingError;
+    if (existing?.id) throw new Error(`La categoría '${categoryName}' ya existe.`);
+
+    const { data, error } = await supabase
+        .from('st_categories')
+        .insert([{ name: categoryName }])
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
 };
 
 export const addSubCategory = async (category: string, name: string): Promise<any> => {
@@ -2875,7 +3007,42 @@ export const addSubCategory = async (category: string, name: string): Promise<an
 };
 
 export const renameCategory = async (oldName: string, newName: string): Promise<any> => {
-    return postToScript('renameCategory', { oldName, newName });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const previousName = String(oldName || '').trim();
+    const nextName = String(newName || '').trim();
+    if (!previousName || !nextName) throw new Error('Nombre actual y nuevo nombre son obligatorios.');
+
+    const { data: category, error: categoryError } = await supabase
+        .from('st_categories')
+        .select('id, name')
+        .ilike('name', previousName)
+        .limit(1)
+        .maybeSingle();
+
+    if (categoryError) throw categoryError;
+    if (!category?.id) throw new Error(`No se encontró la categoría '${previousName}'.`);
+
+    const { data: duplicate, error: duplicateError } = await supabase
+        .from('st_categories')
+        .select('id')
+        .ilike('name', nextName)
+        .neq('id', category.id)
+        .limit(1)
+        .maybeSingle();
+
+    if (duplicateError) throw duplicateError;
+    if (duplicate?.id) throw new Error(`La categoría '${nextName}' ya existe.`);
+
+    const { data, error } = await supabase
+        .from('st_categories')
+        .update({ name: nextName, updated_at: new Date().toISOString() })
+        .eq('id', category.id)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
 };
 
 export const renameSubCategory = async (category: string, oldName: string, newName: string): Promise<any> => {
@@ -2947,7 +3114,44 @@ export const renameSubCategory = async (category: string, oldName: string, newNa
 };
 
 export const deleteCategory = async (name: string): Promise<any> => {
-    return postToScript('deleteCategory', { name });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const categoryName = String(name || '').trim();
+    if (!categoryName) throw new Error('El nombre de la categoría es obligatorio.');
+
+    const { data: category, error: categoryError } = await supabase
+        .from('st_categories')
+        .select('id, name')
+        .ilike('name', categoryName)
+        .limit(1)
+        .maybeSingle();
+
+    if (categoryError) throw categoryError;
+    if (!category?.id) throw new Error(`No se encontró la categoría '${categoryName}'.`);
+
+    const { error: productsError } = await supabase
+        .from('st_products')
+        .update({ category_id: null, sub_category: null, updated_at: new Date().toISOString() })
+        .eq('category_id', category.id);
+
+    if (productsError) throw productsError;
+
+    const { error: subcategoriesError } = await supabase
+        .from('st_subcategories')
+        .delete()
+        .eq('category_id', category.id);
+
+    if (subcategoriesError) throw subcategoriesError;
+
+    const { data, error } = await supabase
+        .from('st_categories')
+        .delete()
+        .eq('id', category.id)
+        .select()
+        .single();
+
+    if (error) throw error;
+    return data;
 };
 
 export const deleteSubCategory = async (category: string, name: string): Promise<any> => {
@@ -3057,18 +3261,53 @@ export const searchProducts = async (params: {
         online?: 'All'|'Yes'|'No';
     };
 }): Promise<{ items: Product[]; total:number; page:number; pageSize:number }> => {
-    const response = await postToScript('searchProducts', params);
-    if (response.status === 'error') throw new Error(response.message);
-    return response.data;
+    const allProducts = await getProductsSupabase();
+    const searchTerm = String(params.searchTerm || '').trim().toLowerCase();
+    const page = Math.max(1, Number(params.page || 1));
+    const pageSize = Math.max(1, Number(params.pageSize || 20));
+
+    const filtered = allProducts.filter((product: any) => {
+        const matchesCategory = !params.filters?.categoria || params.filters.categoria === 'All' || product.Categoria === params.filters.categoria;
+        const matchesProvider = !params.filters?.proveedor || params.filters.proveedor === 'All' || product.Proveedor === params.filters.proveedor;
+        const matchesActive = !params.filters?.activo || params.filters.activo === 'All' || (params.filters.activo === 'Active' ? !!product.Activo : !product.Activo);
+        const matchesOnline = !params.filters?.online || params.filters.online === 'All' || (params.filters.online === 'Yes' ? !!product.Online : !product.Online);
+        const matchesSearch = !searchTerm || [product.Producto, product.cod, product.Descripcion, product['cod.barras']]
+            .some((value) => String(value || '').toLowerCase().includes(searchTerm));
+
+        return matchesCategory && matchesProvider && matchesActive && matchesOnline && matchesSearch;
+    });
+
+    const start = (page - 1) * pageSize;
+    return {
+        items: filtered.slice(start, start + pageSize),
+        total: filtered.length,
+        page,
+        pageSize,
+    };
 };
 
-// =============================================================================
-// --- LEGACY INFRASTRUCTURE (SHEETS / APPS SCRIPT) ---
-// =============================================================================
-
-
 export const markSaleAsBilled = async (saleId: string, cae: string, nro: string, vtoCae: string, qrData: string, date: Date, url: string, ticketUrl?: string, facturacion?: string): Promise<void> => {
-    await postToScript('markSaleAsBilled', { saleId, cae, nro, vtoCae, qrData, date: formatDateForSheet(date), url, ticketUrl, facturacion });
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { error: saleError } = await supabase
+        .from('st_sales')
+        .update({
+            invoice_type: facturacion || 'N',
+            updated_at: date.toISOString(),
+        })
+        .eq('id', saleId);
+
+    if (saleError) throw saleError;
+
+    await persistInvoiceForSale(saleId, {
+        cae,
+        nro,
+        vtoCae,
+        qrData,
+        fecha: date.toISOString(),
+        url,
+        ticketUrl,
+    }, facturacion);
 };
 
 // Helper para calcular el balance de un cliente a partir de sus transacciones

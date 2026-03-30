@@ -3,6 +3,7 @@ import { Product } from '../../types';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
+import { matchesProductSearch } from '../../utils/productFilters';
 
 interface QuickPriceEditorViewProps {
     products: Product[];
@@ -60,10 +61,7 @@ export const QuickPriceEditorView: React.FC<QuickPriceEditorViewProps> = ({ prod
         return products.filter(p => (
             (categoryFilter === 'All' || p.Categoria === categoryFilter) &&
             (providerFilter === 'All' || p.Proveedor === providerFilter) &&
-            (
-                String(p.Producto || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                String(p.cod || '').toLowerCase().includes(searchTerm.toLowerCase())
-            )
+            matchesProductSearch(p, searchTerm)
         )).sort((a,b) => (a.Producto || '').localeCompare(b.Producto || ''));
     }, [products, searchTerm, categoryFilter, providerFilter]);
 

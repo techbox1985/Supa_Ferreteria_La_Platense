@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Product, Supplier } from '../../types';
-import { isDeleted } from '../../utils/productFilters';
+import { isDeleted, matchesProductSearch } from '../../utils/productFilters';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { ProductEditModal } from './ProductEditModal';
@@ -8,6 +8,23 @@ import { MassPriceUpdateModal } from './MassPriceUpdateModal';
 import { CategoryManagerModal } from './CategoryManagerModal';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
+
+type CategoryRow = {
+  id: string;
+  name: string;
+};
+
+type SupplierRow = Supplier & {
+  id?: string;
+  nombre?: string;
+  activo?: boolean;
+  name?: string;
+};
+
+type ProductRow = Product & {
+  category_id?: string;
+  supplier_id?: string;
+};
 
 interface ProductAdminViewProps {
   products: Product[];
@@ -18,6 +35,23 @@ interface ProductAdminViewProps {
 
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+const normalize = (value: string) =>
+  value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+const getSupplierName = (supplier: SupplierRow): string =>
+  String(supplier.nombre || supplier.name || supplier.Nombre || '').trim();
+
+const resolveProductProviderName = (
+  product: ProductRow,
+  supplierNameById: Map<string, string>
+): string => {
+  const directName = String(product.Proveedor || '').trim();
+  if (directName) return directName;
+  const supplierId = String(product.supplier_id || '').trim();
+  if (!supplierId) return '';
+  return String(supplierNameById.get(supplierId) || '').trim();
+};
 
 const formatDateTime = (value: any): string => {
   if (!value) return '-';
@@ -33,23 +67,25 @@ const formatDateTime = (value: any): string => {
 };
 
 export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
-  products: _legacyProducts,
-  suppliers: _legacySuppliers,
-  refreshProducts: _legacyRefreshProducts,
-  isLoading: _legacyIsLoading,
+  products: initialProducts,
+  suppliers: initialSuppliers,
 }) => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-const [, setIsLoading] = useState(true);
+  const [products, setProducts] = useState<ProductRow[]>(
+    Array.isArray(initialProducts) ? (initialProducts as ProductRow[]) : []
+  );
+  const [suppliers, setSuppliers] = useState<SupplierRow[]>(
+    Array.isArray(initialSuppliers) ? (initialSuppliers as SupplierRow[]) : []
+  );
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [categoryFilterId, setCategoryFilterId] = useState('All');
   const [providerFilter, setProviderFilter] = useState('All');
   const [onlineFilter, setOnlineFilter] = useState('All');
   const [activeFilter, setActiveFilter] = useState('All');
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [productToEdit, setProductToEdit] = useState<Product | null>(null);
+  const [productToEdit, setProductToEdit] = useState<ProductRow | null>(null);
 
   const [isMassUpdateOpen, setIsMassUpdateOpen] = useState(false);
   const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
@@ -74,49 +110,97 @@ const [, setIsLoading] = useState(true);
   const isSyncingScroll = useRef(false);
   const [tableWidth, setTableWidth] = useState(0);
 
+  const categoryNameById = useMemo(() => {
+    const entries = categories
+      .map((category) => [String(category.id || '').trim(), String(category.name || '').trim()] as const)
+      .filter(([id, name]) => id !== '' && name !== '');
+    return new Map(entries);
+  }, [categories]);
+
+  const supplierNameById = useMemo(() => {
+    const entries = suppliers
+      .map((supplier) => [String(supplier.id || '').trim(), getSupplierName(supplier)] as const)
+      .filter(([id, name]) => id !== '' && name !== '');
+    return new Map(entries);
+  }, [suppliers]);
+
   const refreshProducts = async () => {
     setIsLoading(true);
     try {
-      const [p, s, c, categoryDataLegacy] = await Promise.all([
+      const [p, s, c] = await Promise.all([
         api.getProductsSupabase(),
         api.getSuppliersSupabase(),
         api.getCategoriesSupabase(),
-        api.getCategoriesData(),
       ]);
 
-      setProducts(p);
-      setSuppliers(s);
-      const validCategories = Array.isArray(c)
-        ? c.filter((cat: any) => typeof cat?.name === 'string' && cat.name.trim() !== '')
+      const normalizedCategories: CategoryRow[] = Array.isArray(c)
+        ? c
+            .map((item: any) => ({
+              id: String(item?.id || '').trim(),
+              name: String(item?.name || '').trim(),
+            }))
+            .filter((item) => item.id !== '' && item.name !== '')
         : [];
-      setCategories(validCategories);
+
+      const normalizedSuppliers: SupplierRow[] = Array.isArray(s)
+        ? s.map((item: any) => item as SupplierRow)
+        : [];
+
+      const localCategoryIdByName = new Map(
+        normalizedCategories.map((category) => [normalize(category.name), category.id])
+      );
+      const localCategoryNameById = new Map(
+        normalizedCategories.map((category) => [category.id, category.name])
+      );
+
+      const normalizedProducts: ProductRow[] = (Array.isArray(p) ? p : []).map((item: any) => {
+        const explicitCategoryId = String(item?.category_id || '').trim();
+        const inferredCategoryId = explicitCategoryId || localCategoryIdByName.get(normalize(String(item?.Categoria || ''))) || '';
+        const categoryName = inferredCategoryId
+          ? localCategoryNameById.get(inferredCategoryId) || String(item?.Categoria || '').trim()
+          : String(item?.Categoria || '').trim();
+        const supplierId = String(item?.supplier_id || '').trim();
+        const supplierName = supplierId
+          ? getSupplierName((normalizedSuppliers.find((supplier) => String(supplier.id || '').trim() === supplierId) || {}) as SupplierRow)
+          : '';
+
+        return {
+          ...(item as Product),
+          category_id: inferredCategoryId || undefined,
+          supplier_id: supplierId || undefined,
+          Categoria: categoryName,
+          Proveedor: String(item?.Proveedor || '').trim() || supplierName,
+        };
+      });
 
       const structuredData: { [key: string]: string[] } = {};
-      
-      // PASO A: Inicializar todas las categorías desde Supabase
-      validCategories.forEach((cat: any) => {
-        const name = cat.name.trim().toUpperCase();
-        if (!structuredData[name]) structuredData[name] = [];
+      normalizedCategories.forEach((category) => {
+        structuredData[category.name] = [];
       });
-      
-      // PASO B: Rellenar subcategorías desde datos legacy
-      if (Array.isArray(categoryDataLegacy)) {
-        categoryDataLegacy.forEach((item: any) => {
-          if (!item || typeof item !== 'object') return;
 
-          const categoria = typeof item.categoria === 'string' ? item.categoria : '';
-          const subCategoria = typeof item.subCategoria === 'string' ? item.subCategoria : '';
-          const catKey = categoria.trim().toUpperCase();
-          const subCat = subCategoria.trim();
-          
-          if (catKey && subCat && subCat !== '-' && Object.prototype.hasOwnProperty.call(structuredData, catKey)) {
-            if (!structuredData[catKey].includes(subCat)) {
-              structuredData[catKey].push(subCat);
-            }
-          }
-        });
-      }
-      
+      normalizedProducts.forEach((item) => {
+        const categoryName = item.category_id
+          ? localCategoryNameById.get(item.category_id) || ''
+          : String(item.Categoria || '').trim();
+        const subCategory = String(item['Sub Categoria'] || '').trim();
+        if (!categoryName || !subCategory || subCategory === '-') return;
+
+        if (!Object.prototype.hasOwnProperty.call(structuredData, categoryName)) {
+          structuredData[categoryName] = [];
+        }
+
+        if (!structuredData[categoryName].includes(subCategory)) {
+          structuredData[categoryName].push(subCategory);
+        }
+      });
+
+      Object.keys(structuredData).forEach((key) => {
+        structuredData[key] = [...structuredData[key]].sort((a, b) => a.localeCompare(b));
+      });
+
+      setProducts(normalizedProducts);
+      setSuppliers(normalizedSuppliers);
+      setCategories(normalizedCategories);
       setCategoriesData(structuredData);
     } catch (error) {
       console.error('Error fetching Supabase data:', error);
@@ -130,37 +214,82 @@ const [, setIsLoading] = useState(true);
     refreshProducts();
   }, []);
 
-  const { providers } = useMemo(() => {
-    const uniqueProviders = new Set(products.map((p) => p.Proveedor).filter(Boolean));
-    return { providers: ['All', ...Array.from(uniqueProviders).sort()] };
-  }, [products]);
+  const allProviderOptions = useMemo(() => {
+    const uniqueProviders = new Set(
+      suppliers
+        .filter((supplier) => supplier.activo !== false)
+        .map((supplier) => getSupplierName(supplier))
+        .filter((name) => name !== '')
+    );
+    return ['All', ...Array.from(uniqueProviders).sort((a, b) => a.localeCompare(b))];
+  }, [suppliers]);
+
+  const baseFilteredProducts = useMemo(() => {
+    return products.filter((product) => {
+      if (isDeleted(product.Eliminado)) return false;
+      const matchesOnline =
+        onlineFilter === 'All' || (onlineFilter === 'Yes' ? !!product.Online : !product.Online);
+      const matchesActive =
+        activeFilter === 'All' || (activeFilter === 'Active' ? !!product.Activo : !product.Activo);
+      const matchesSearch = matchesProductSearch(product, searchTerm);
+      return matchesOnline && matchesActive && matchesSearch;
+    });
+  }, [products, onlineFilter, activeFilter, searchTerm]);
+
+  const categoryFilterOptions = useMemo(() => {
+    const allowedCategoryIds = new Set(
+      baseFilteredProducts
+        .filter((product) => {
+          if (providerFilter === 'All') return true;
+          return resolveProductProviderName(product, supplierNameById) === providerFilter;
+        })
+        .map((product) => String(product.category_id || '').trim())
+        .filter((id) => id !== '')
+    );
+
+    return categories
+      .filter((category) => allowedCategoryIds.has(category.id))
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [baseFilteredProducts, categories, providerFilter, supplierNameById]);
+
+  const providerFilterOptions = useMemo(() => {
+    const allowedProviders = new Set(
+      baseFilteredProducts
+        .filter((product) => {
+          if (categoryFilterId === 'All') return true;
+          return String(product.category_id || '') === categoryFilterId;
+        })
+        .map((product) => resolveProductProviderName(product, supplierNameById))
+        .filter((name) => name !== '')
+    );
+
+    return ['All', ...Array.from(allowedProviders).sort((a, b) => a.localeCompare(b))];
+  }, [baseFilteredProducts, categoryFilterId, supplierNameById]);
+
+  useEffect(() => {
+    if (categoryFilterId === 'All') return;
+    const exists = categoryFilterOptions.some((category) => category.id === categoryFilterId);
+    if (!exists) setCategoryFilterId('All');
+  }, [categoryFilterId, categoryFilterOptions]);
+
+  useEffect(() => {
+    if (providerFilter === 'All') return;
+    const exists = providerFilterOptions.includes(providerFilter);
+    if (!exists) setProviderFilter('All');
+  }, [providerFilter, providerFilterOptions]);
 
   const filteredProducts = useMemo(() => {
-    const lowerSearchTerm = searchTerm.toLowerCase();
-
-    return products
+    return baseFilteredProducts
       .filter((p) => {
-        if (isDeleted(p.Eliminado)) return false;
+        const matchesCategory = categoryFilterId === 'All' || p.category_id === categoryFilterId;
+        const matchesProvider =
+          providerFilter === 'All' || resolveProductProviderName(p, supplierNameById) === providerFilter;
 
-        const matchesOnline =
-          onlineFilter === 'All' || (onlineFilter === 'Yes' ? !!p.Online : !p.Online);
-
-        const matchesActive =
-          activeFilter === 'All' || (activeFilter === 'Active' ? !!p.Activo : !p.Activo);
-
-        const matchesCategory = categoryFilter === 'All' || p.Categoria === categoryFilter;
-        const matchesProvider = providerFilter === 'All' || p.Proveedor === providerFilter;
-
-        const matchesSearch =
-          String(p.Producto || '').toLowerCase().includes(lowerSearchTerm) ||
-          String(p.cod || '').toLowerCase().includes(lowerSearchTerm) ||
-          String(p.Descripcion || '').toLowerCase().includes(lowerSearchTerm) ||
-          String((p as any)['cod.barras'] || '').toLowerCase().includes(lowerSearchTerm);
-
-        return matchesCategory && matchesProvider && matchesOnline && matchesActive && matchesSearch;
+        return matchesCategory && matchesProvider;
       })
       .sort((a, b) => (a.Producto || '').localeCompare(b.Producto || ''));
-  }, [products, searchTerm, categoryFilter, providerFilter, onlineFilter, activeFilter]);
+  }, [baseFilteredProducts, categoryFilterId, providerFilter, supplierNameById]);
 
   useEffect(() => {
     const updateWidth = () => {
@@ -211,7 +340,7 @@ const [, setIsLoading] = useState(true);
     });
   };
 
-  const handleEditProduct = (product: Product) => {
+  const handleEditProduct = (product: ProductRow) => {
     setProductToEdit(product);
     setIsEditModalOpen(true);
   };
@@ -221,32 +350,61 @@ const [, setIsLoading] = useState(true);
     setIsEditModalOpen(true);
   };
 
-  const handleSaveProduct = async (productData: Partial<Product> & { cod: string }) => {
+  const handleSaveProduct = async (
+    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string }
+  ) => {
     try {
       setIsProcessingAction(true);
 
-      const category = categories.find(
-        (c) => c.name.toUpperCase() === (productData.Categoria || '').toUpperCase()
-      );
-      const supplier = suppliers.find(
-        (s) => s.nombre.toUpperCase() === (productData.Proveedor || '').toUpperCase()
-      );
+      const resolvedCategoryId = String(productData.category_id || '').trim();
+      const resolvedSupplierId = String(productData.supplier_id || '').trim();
+      const resolvedCategoryName = resolvedCategoryId
+        ? categoryNameById.get(resolvedCategoryId) || productData.Categoria
+        : productData.Categoria;
 
       const dataWithIds = {
         ...productData,
-        category_id: category?.id,
-        supplier_id: supplier?.id,
+        Categoria: resolvedCategoryName,
+        category_id: resolvedCategoryId || undefined,
+        supplier_id: resolvedSupplierId || undefined,
       };
+
+      const resolvedSupplierName = resolvedSupplierId
+        ? supplierNameById.get(resolvedSupplierId) || productData.Proveedor || ''
+        : productData.Proveedor || '';
 
       if (productToEdit) {
         await api.updateProductSupabase(dataWithIds);
+        setProducts((prev) =>
+          prev.map((item) =>
+            item.cod === dataWithIds.cod
+              ? {
+                  ...item,
+                  ...dataWithIds,
+                  Proveedor: resolvedSupplierName,
+                  'Ultima.Actualizacion': new Date().toISOString(),
+                }
+              : item
+          )
+        );
       } else {
         await api.addProductSupabase(dataWithIds);
+        const newProduct: ProductRow = {
+          ...dataWithIds,
+          cod: dataWithIds.cod,
+          Producto: String(dataWithIds.Producto || '').trim(),
+          Categoria: String(dataWithIds.Categoria || '').trim(),
+          Proveedor: String(resolvedSupplierName || '').trim(),
+          Activo: dataWithIds.Activo ?? true,
+          Eliminado: false,
+          'Ultima.Actualizacion': new Date().toISOString(),
+        } as ProductRow;
+        setProducts((prev) => [...prev, newProduct]);
       }
 
-      await refreshProducts();
-      addToast('Producto guardado en Supabase con éxito.', 'success');
       setIsEditModalOpen(false);
+      addToast('Producto guardado en Supabase con éxito.', 'success');
+      void refreshProducts();
     } catch (error) {
       console.error('Failed to save product to Supabase:', error);
       addToast(
@@ -362,16 +520,15 @@ const [, setIsLoading] = useState(true);
           />
 
           <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
+            value={categoryFilterId}
+            onChange={(e) => setCategoryFilterId(e.target.value)}
             className="border border-slate-300 rounded-lg px-4 py-2"
           >
             <option value="All">Todas las Categorías</option>
-            {Object.keys(categoriesData)
-              .sort()
+            {categoryFilterOptions
               .map((category) => (
-                <option key={category} value={category}>
-                  {category}
+                <option key={category.id} value={category.id}>
+                  {category.name}
                 </option>
               ))}
           </select>
@@ -382,7 +539,7 @@ const [, setIsLoading] = useState(true);
             className="border border-slate-300 rounded-lg px-4 py-2"
           >
             <option value="All">Todos los Proveedores</option>
-            {providers
+            {providerFilterOptions
               .filter((provider) => provider !== 'All')
               .map((provider) => (
                 <option key={provider} value={provider}>
@@ -441,6 +598,7 @@ const [, setIsLoading] = useState(true);
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stock</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Mínimo</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Última actualización</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="relative px-4 py-3">
@@ -450,7 +608,7 @@ const [, setIsLoading] = useState(true);
             </thead>
 
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredProducts.map((product: Product) => {
+              {filteredProducts.map((product: ProductRow) => {
                 const hasPhoto =
                   typeof (product as any).FOTOGRAFIA === 'string' &&
                   (product as any).FOTOGRAFIA.trim() !== '';
@@ -540,6 +698,10 @@ const [, setIsLoading] = useState(true);
                       {product.Categoria}
                     </td>
 
+                    <td className="px-4 py-3 text-sm text-gray-600">
+                      {resolveProductProviderName(product, supplierNameById) || '-'}
+                    </td>
+
                     <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">
                       {formatDateTime((product as any)['Ultima.Actualizacion'])}
                     </td>
@@ -591,10 +753,10 @@ const [, setIsLoading] = useState(true);
         categoriesData={categoriesData}
         allProducts={products}
         providers={suppliers
-          .filter((s: any) => s.activo !== false && typeof s.nombre === 'string')
-          .map((s: any) => s.nombre as string)
+          .filter((s) => s.activo !== false)
+          .map((s) => getSupplierName(s))
           .filter((n: string) => !!n)
-          .sort()}
+          .sort((a, b) => a.localeCompare(b))}
         categories={categories}
         suppliers={suppliers}
       />
@@ -602,8 +764,8 @@ const [, setIsLoading] = useState(true);
       <MassPriceUpdateModal
         isOpen={isMassUpdateOpen}
         onClose={() => setIsMassUpdateOpen(false)}
-        categories={Object.keys(categoriesData)}
-        providers={providers.filter((p): p is string => p !== 'All' && typeof p === 'string')}
+        categories={categories.map((category) => category.name).sort((a, b) => a.localeCompare(b))}
+        providers={allProviderOptions.filter((p): p is string => p !== 'All' && typeof p === 'string')}
         onUpdate={refreshProducts}
       />
 

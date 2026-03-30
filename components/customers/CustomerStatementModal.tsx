@@ -97,12 +97,20 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         return { totalDebit, totalCredit, finalBalance: debt };
     }, [transactions]);
 
+    const sortedTransactions = useMemo(() => {
+        return [...transactions].sort((left, right) => {
+            const leftDate = left.date instanceof Date ? left.date : new Date(left.date);
+            const rightDate = right.date instanceof Date ? right.date : new Date(right.date);
+            return rightDate.getTime() - leftDate.getTime();
+        });
+    }, [transactions]);
+
     const handlePrint = () => {
         if (!Array.isArray(transactions) || transactions.length === 0) {
             alert("No hay transacciones para generar el resumen.");
             return;
         }
-        const statementHtml = generateCustomerStatementHtml(customer, transactions);
+        const statementHtml = generateCustomerStatementHtml(customer, sortedTransactions);
         const printWindow = window.open('', '_blank');
         if (printWindow) {
             printWindow.document.write(statementHtml);
@@ -213,7 +221,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
-                                    {transactions.map((tx, idx) => {
+                                    {sortedTransactions.map((tx, idx) => {
                                         if (!tx || typeof tx !== 'object') return null;
                                         const safeDebit = Number(tx.debit ?? 0) || 0;
                                         const safeCredit = Number(tx.credit ?? 0) || 0;

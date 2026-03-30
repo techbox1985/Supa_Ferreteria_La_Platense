@@ -4,6 +4,7 @@ import { Icon } from './Icon';
 interface Option {
   value: string;
   label: string;
+  searchText?: string;
 }
 
 interface SearchableSelectProps {
@@ -47,7 +48,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         return options;
     }
     return options.filter(option =>
-      option.label.toLowerCase().includes(searchTerm.toLowerCase())
+      (option.searchText ?? option.label).toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [options, searchTerm, selectedOption]);
 

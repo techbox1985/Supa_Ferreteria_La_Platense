@@ -48,8 +48,9 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
                     openOpenShiftModal();
                 }
             } else {
-                // Admin no participa del flujo de caja
-                setActiveShift(null);
+                // Admin can operate using any currently open shift (no forced personal shift).
+                const anyOpenShift = await api.getAnyActiveShiftSupabase();
+                setActiveShift(anyOpenShift);
                 setShiftModalState({ type: 'closed' });
             }
 
@@ -81,9 +82,7 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
 
     const handleCloseShiftAndLogout = async (closingAmount: number) => {
         if (!activeShift) throw new Error("No hay turno activo para cerrar.");
-        const closedShift = await api.closeShiftSupabase(activeShift.ID_Turno, closingAmount);
-        // You can use the `closedShift` data to show a final summary if you want
-        console.log("Turno cerrado en Supabase:", closedShift);
+        await api.closeShiftSupabase(activeShift.ID_Turno, closingAmount);
         logout();
         closeShiftModal();
     };

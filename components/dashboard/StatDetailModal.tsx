@@ -15,6 +15,7 @@ interface StatDetailModalProps<T> {
   columns: Column<T>[];
   data: T[];
   summary?: ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
 }
 
 const get = <T,>(obj: T, path: keyof T | ((item: T) => ReactNode)): ReactNode => {
@@ -25,9 +26,9 @@ const get = <T,>(obj: T, path: keyof T | ((item: T) => ReactNode)): ReactNode =>
 }
 
 
-export const StatDetailModal = <T extends object>({ isOpen, onClose, title, columns, data, summary }: StatDetailModalProps<T>) => {
+export const StatDetailModal = <T extends object>({ isOpen, onClose, title, columns, data, summary, size = 'xl' }: StatDetailModalProps<T>) => {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={title} size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title={title} size={size}>
       <div className="max-h-[70vh] flex flex-col">
         <div className="overflow-y-auto flex-grow pr-2">
           {data.length > 0 ? (
@@ -35,7 +36,7 @@ export const StatDetailModal = <T extends object>({ isOpen, onClose, title, colu
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr>
                   {columns.map((col, index) => (
-                    <th key={index} scope="col" className={`px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${col.headerClassName || ''}`}>
+                    <th key={index} scope="col" className={`px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${col.headerClassName || ''}`}>
                       {col.header}
                     </th>
                   ))}
@@ -45,7 +46,7 @@ export const StatDetailModal = <T extends object>({ isOpen, onClose, title, colu
                 {data.map((item, rowIndex) => (
                   <tr key={rowIndex} className="hover:bg-gray-50">
                     {columns.map((col, colIndex) => (
-                      <td key={colIndex} className={`px-4 py-3 text-sm text-gray-700 ${col.className || ''}`}>
+                      <td key={colIndex} className={`px-3 py-2 text-sm text-gray-700 ${col.className || ''}`}>
                         {get(item, col.accessor)}
                       </td>
                     ))}

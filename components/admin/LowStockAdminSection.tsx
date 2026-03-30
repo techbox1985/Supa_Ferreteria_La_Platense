@@ -13,6 +13,18 @@ interface LowStockAdminSectionProps {
 export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ products }) => {
   const [providerFilter, setProviderFilter] = useState('All');
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const NO_PROVIDER_FILTER = '__NO_PROVIDER__';
+
+  const getProviderFilterValue = (provider?: string): string => {
+    const raw = String(provider || '').trim();
+    return raw ? raw : NO_PROVIDER_FILTER;
+  };
+
+  const getProviderLabel = (filterValue: string): string => {
+    if (filterValue === 'All') return 'Todos';
+    if (filterValue === NO_PROVIDER_FILTER) return 'Sin proveedor';
+    return filterValue;
+  };
 
   // Filtrar productos que están bajo stock o sin stock
   const allLowStockProducts = useMemo(() => {
@@ -27,7 +39,7 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
   const filteredLowStock = useMemo(() => {
     const filtered = providerFilter === 'All'
       ? allLowStockProducts
-      : allLowStockProducts.filter(p => p.Proveedor === providerFilter);
+      : allLowStockProducts.filter(p => getProviderFilterValue(p.Proveedor) === providerFilter);
 
     return [...filtered].sort((a, b) => {
       const aStock = a.stockk ?? 0;
@@ -42,9 +54,48 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
   }, [allLowStockProducts, providerFilter]);
 
   const activeProviders = useMemo(() => {
-    const providerNames = new Set(allLowStockProducts.map(p => p.Proveedor).filter(Boolean));
-    return ['All', ...Array.from(providerNames).sort()];
+    const providerValues = Array.from(
+      new Set(allLowStockProducts.map((p) => getProviderFilterValue(p.Proveedor)))
+    );
+
+    const namedProviders = providerValues
+      .filter((value) => value !== NO_PROVIDER_FILTER)
+      .sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+    const hasNoProvider = providerValues.includes(NO_PROVIDER_FILTER);
+    return ['All', ...namedProviders, ...(hasNoProvider ? [NO_PROVIDER_FILTER] : [])];
   }, [allLowStockProducts]);
+
+  const providerCards = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    allLowStockProducts.forEach((product) => {
+      const key = getProviderFilterValue(product.Proveedor);
+      counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    const providerItems = Array.from(counts.entries())
+      .filter(([key]) => key !== NO_PROVIDER_FILTER)
+      .sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        return a[0].localeCompare(b[0], 'es', { sensitivity: 'base' });
+      })
+      .map(([key, count]) => ({ key, label: getProviderLabel(key), count }));
+
+    const cards = [...providerItems];
+
+    if (counts.has(NO_PROVIDER_FILTER)) {
+      cards.push({
+        key: NO_PROVIDER_FILTER,
+        label: 'Sin proveedor',
+        count: counts.get(NO_PROVIDER_FILTER) || 0,
+      });
+    }
+
+    return cards;
+  }, [allLowStockProducts]);
+
+  const providerFilterLabel = getProviderLabel(providerFilter);
 
   const downloadExcel = (onlyFiltered: boolean) => {
     const dataToExport = onlyFiltered ? filteredLowStock : allLowStockProducts;
@@ -77,7 +128,7 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Bajo_Stock_${onlyFiltered ? providerFilter : 'Total'}_${new Date().toLocaleDateString()}.csv`);
+    link.setAttribute('download', `Bajo_Stock_${onlyFiltered ? providerFilterLabel : 'Total'}_${new Date().toLocaleDateString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -103,7 +154,7 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
           >
             <option value="All">Todos los proveedores</option>
             {activeProviders.filter(p => p !== 'All').map(p => (
-              <option key={p} value={p}>{p}</option>
+              <option key={p} value={p}>{getProviderLabel(p)}</option>
             ))}
           </select>
           
@@ -119,12 +170,31 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
 
       <div className="max-w-xs">
         <StatCard 
-          title={`Bajos de Stock ${providerFilter !== 'All' ? `(${providerFilter})` : ''}`}
+          title={`Bajos de Stock ${providerFilter !== 'All' ? `(${providerFilterLabel})` : ''}`}
           value={filteredLowStock.length.toString()}
           iconPath="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
           iconBgColor="bg-orange-500"
           description="Productos que requieren reposición inmediata"
         />
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {providerCards.map((card) => {
+          const isActive = providerFilter === card.key;
+          return (
+            <button
+              key={card.key}
+              type="button"
+              onClick={() => setProviderFilter(card.key)}
+              className={`text-left rounded-lg border p-3 transition-colors ${isActive ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+            >
+              <p className={`text-xs font-semibold uppercase tracking-wide ${isActive ? 'text-blue-700' : 'text-gray-500'}`}>
+                {card.label}
+              </p>
+              <p className={`text-2xl font-bold mt-1 ${isActive ? 'text-blue-900' : 'text-gray-900'}`}>{card.count}</p>
+            </button>
+          );
+        })}
       </div>
 
       <div className="bg-white shadow-md rounded-lg overflow-hidden">
@@ -172,7 +242,7 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
                 onClick={() => downloadExcel(true)}
                 className="w-full bg-blue-600 text-white py-2 rounded-md font-medium hover:bg-blue-700 flex items-center justify-center gap-2"
               >
-                Solo de &quot;{providerFilter}&quot;
+                Solo de &quot;{providerFilterLabel}&quot;
               </button>
             )}
             <button 

@@ -28,6 +28,17 @@ import { BillingModal } from './BillingModal';
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
+const parseMoneyInput = (value: string): number => {
+  const normalized = String(value ?? '').trim().replace(/\./g, '').replace(',', '.');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatMoneyInput = (value: number): string => {
+  if (!Number.isFinite(value)) return '0';
+  return String(value).replace('.', ',');
+};
+
 const openHtmlInNewWindow = (
   html: string,
   features = 'width=900,height=700,scrollbars=yes,resizable=yes'
@@ -53,6 +64,7 @@ const CreditNoteRow: React.FC<{
       <td className="px-4 py-2 text-center w-12 min-w-[48px]">
         <Icon path="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" className="w-5 h-5 text-red-500 mx-auto" />
       </td>
+      <td className="px-4 py-2 text-center w-24 min-w-[96px]"></td>
       <td className="px-4 py-2 whitespace-nowrap text-sm font-mono text-gray-500 w-24 min-w-[96px]">
         {note.id.slice(0, 8)}
       </td>
@@ -78,7 +90,7 @@ const CreditNoteRow: React.FC<{
       <td className="px-4 py-2 w-24 min-w-[96px]"></td>
       <td className="px-4 py-2 w-24 min-w-[96px]"></td>
       <td className="px-4 py-2 w-24 min-w-[96px]"></td>
-      <td className="px-4 py-2 whitespace-nowrap text-right text-sm font-medium w-16 min-w-[64px]">
+      <td className="px-4 py-2 whitespace-nowrap text-right text-sm font-medium w-40 min-w-[160px]">
         <button
           onClick={e => {
             e.stopPropagation();
@@ -102,6 +114,14 @@ const SaleRow: React.FC<{
   onOpenActions: (sale: Sale) => void;
 }> = React.memo(({ sale, onOpenActions }) => {
   const isAnnulled = sale.status === 'annulled';
+  const isBudget = sale.document_type === 'budget';
+  const hasOfficialInvoice = Boolean(sale.facturaInfo);
+  const isBilled = !isBudget && hasOfficialInvoice;
+  const showBilledBadge = hasOfficialInvoice;
+  const hasTicket80 = Boolean(sale.facturaInfo?.ticketUrl);
+  const hasA4 = Boolean(sale.facturaInfo?.url);
+  const officialTicket80Url = sale.facturaInfo?.ticketUrl;
+  const officialTicketA4Url = sale.facturaInfo?.url;
   const hasPartialReturn = !isAnnulled && (sale.returnedTotal || 0) > 0;
   const finalTotal = sale.total - (sale.returnedTotal || 0);
 
@@ -118,8 +138,8 @@ const SaleRow: React.FC<{
       className={`${rowBg} ${hoverBg} transition-colors border-b cursor-pointer select-none`}
       onClick={() => onOpenActions(sale)}
     >
-      <td className="px-4 py-4 text-center w-12 min-w-[48px]">
-        {sale.document_type === 'budget' ? (
+      <td className="px-4 py-4 text-center w-20 min-w-[80px]">
+        {isBudget ? (
           <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800">
             Presupuesto
           </span>
@@ -127,6 +147,17 @@ const SaleRow: React.FC<{
           <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-800">
             Venta
           </span>
+        )}
+      </td>
+      <td className="px-4 py-4 text-center w-24 min-w-[96px]">
+        {showBilledBadge ? (
+          <span
+            className="inline-block px-2 py-1 text-xs font-semibold rounded bg-emerald-100 text-emerald-800"
+          >
+            Facturada
+          </span>
+        ) : (
+          <span className="text-xs text-gray-400">-</span>
         )}
       </td>
       <td className="px-4 py-4 whitespace-nowrap text-sm font-mono w-24 min-w-[96px]">{sale.id.slice(0, 8)}</td>
@@ -168,21 +199,30 @@ const SaleRow: React.FC<{
       <td className="px-4 py-4 whitespace-nowrap text-sm w-24 min-w-[96px]">
         {isAnnulled ? '-' : formatCurrency(sale.payment.credit)}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium w-16 min-w-[64px]">
+      <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium w-40 min-w-[160px]">
         <div className="flex items-center justify-end space-x-2">
-          {sale.document_type !== 'budget' && sale.facturaInfo && (sale.facturaInfo.url || sale.facturaInfo.ticketUrl) && (
+          {isBilled && hasTicket80 && officialTicket80Url && (
             <a
-              href={sale.facturaInfo.ticketUrl || sale.facturaInfo.url}
+              href={officialTicket80Url}
               target="_blank"
               rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
-              className="text-blue-600 hover:text-blue-800"
-              title={`Abrir Documento Oficial de la Factura ${sale.facturaInfo.nro}`}
+              className="px-2 py-1 text-[11px] rounded border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+              title={`Ver/Reimprimir ticket oficial 80 mm ${sale.facturaInfo?.nro || ''}`}
             >
-              <Icon
-                path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                className="w-5 h-5"
-              />
+              80mm
+            </a>
+          )}
+          {isBilled && hasA4 && officialTicketA4Url && (
+            <a
+              href={officialTicketA4Url}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="px-2 py-1 text-[11px] rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+              title={`Ver/Reimprimir ticket oficial A4 ${sale.facturaInfo?.nro || ''}`}
+            >
+              A4
             </a>
           )}
           <button
@@ -228,10 +268,12 @@ export const SalesDashboard: React.FC<
   noDataMessage,
   statTitlePrefix = '',
   showStats = true,
+  onEditSale,
   searchTerm: externalSearchTerm,
   stickyStats = false,
   stickyFilters = false,
 }) => {
+  void onEditSale;
   const [internalSearchTerm] = useState('');
   const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
@@ -244,6 +286,7 @@ export const SalesDashboard: React.FC<
     columns: any[];
     data: any[];
     summary?: React.ReactNode;
+    size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
   }>({
     isOpen: false,
     title: '',
@@ -270,7 +313,23 @@ export const SalesDashboard: React.FC<
     isOpen: false,
     budget: null,
   });
-const [isConvertingBudget, setIsConvertingBudget] = useState(false);
+  const [isConvertingBudget, setIsConvertingBudget] = useState(false);
+  const [paymentEditState, setPaymentEditState] = useState<{
+    isOpen: boolean;
+    sale: Sale | null;
+    cash: string;
+    digital: string;
+    credit: string;
+    isSaving: boolean;
+  }>({
+    isOpen: false,
+    sale: null,
+    cash: '0',
+    digital: '0',
+    credit: '0',
+    isSaving: false,
+  });
+  const [patchedPayments, setPatchedPayments] = useState<Map<string, { cash: number; digital: number; credit: number }>>(new Map());
   const { activeShift } = useContext(AuthContext);
   const { addToast } = useToast();
 
@@ -291,8 +350,48 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
     setSelectedItemForActions({ type, item });
   }, []);
 
+  // Clear optimistic patches when parent provides fresh salesData after a real refresh
+  useEffect(() => {
+    setPatchedPayments(prev => (prev.size === 0 ? prev : new Map()));
+  }, [salesData]);
+
+  // Apply optimistic payment patches so the UI updates immediately after save
+  const effectiveSalesData = useMemo(() => {
+    if (patchedPayments.size === 0) return salesData;
+    return salesData.map(sale => {
+      const patch = patchedPayments.get(sale.id);
+      if (!patch) return sale;
+      return { ...sale, payment: { ...sale.payment, cash: patch.cash, digital: patch.digital, credit: patch.credit } };
+    });
+  }, [salesData, patchedPayments]);
+
+  const filteredSales = useMemo(() => {
+    if (!effectiveSalesData) return [];
+    const term = debouncedSearchTerm.toLowerCase().trim();
+    if (!term) return effectiveSalesData;
+
+    return effectiveSalesData.filter(s => {
+      const customer = s.customer;
+      const customerName = customer ? customer['Nombre y Apellido'] : 'Consumidor Final';
+      const customerDoc = customer?.Documento || '';
+      const customerId = customer?.Id_Cliente || '';
+      const saleId = s.id || '';
+      const invoiceNro = s.facturaInfo?.nro || '';
+      const whatsapp = customer?.Whatsapp || '';
+
+      return (
+        customerName.toLowerCase().includes(term) ||
+        customerDoc.toLowerCase().includes(term) ||
+        customerId.toLowerCase().includes(term) ||
+        saleId.toLowerCase().includes(term) ||
+        invoiceNro.toLowerCase().includes(term) ||
+        whatsapp.toLowerCase().includes(term)
+      );
+    });
+  }, [effectiveSalesData, debouncedSearchTerm]);
+
   const stats = useMemo(() => {
-    const completedSales = salesData.filter(sale => sale.status !== 'annulled');
+    const completedSales = filteredSales.filter(sale => sale.status !== 'annulled');
     const totalRevenue = completedSales.reduce((sum, sale) => sum + (sale.total - (sale.returnedTotal || 0)), 0);
 
     const totalProductsSold = completedSales.reduce((sum, sale) => {
@@ -321,32 +420,37 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
       totalCredit,
       totalEcheq,
     };
-  }, [salesData]);
+  }, [filteredSales]);
 
-  const filteredSales = useMemo(() => {
-    if (!salesData) return [];
-    const term = debouncedSearchTerm.toLowerCase().trim();
-    if (!term) return salesData;
+  const differenceData = useMemo(() => {
+    const completedSales = filteredSales.filter(sale => sale.status !== 'annulled');
 
-    return salesData.filter(s => {
-      const customer = s.customer;
-      const customerName = customer ? customer['Nombre y Apellido'] : 'Consumidor Final';
-      const customerDoc = customer?.Documento || '';
-      const customerId = customer?.Id_Cliente || '';
-      const saleId = s.id || '';
-      const invoiceNro = s.facturaInfo?.nro || '';
-      const whatsapp = customer?.Whatsapp || '';
+    const saleDiffRows = completedSales
+      .map(sale => {
+        const echeqTotal = sale.payment.echeqs?.reduce((sum, e) => sum + e.amount, 0) || 0;
+        const paymentSum = sale.payment.cash + sale.payment.digital + sale.payment.credit + echeqTotal;
+        const difference = sale.total - paymentSum;
+        const absDifference = Math.abs(difference);
 
-      return (
-        customerName.toLowerCase().includes(term) ||
-        customerDoc.toLowerCase().includes(term) ||
-        customerId.toLowerCase().includes(term) ||
-        saleId.toLowerCase().includes(term) ||
-        invoiceNro.toLowerCase().includes(term) ||
-        whatsapp.toLowerCase().includes(term)
-      );
-    });
-  }, [salesData, debouncedSearchTerm]);
+        return {
+          sale,
+          paymentSum,
+          difference,
+          absDifference,
+        };
+      })
+      .filter(item => item.absDifference > 1)
+      .sort((a, b) => b.absDifference - a.absDifference);
+
+    const detailRows = saleDiffRows;
+    const differenceTotal = detailRows.reduce((sum, item) => sum + item.difference, 0);
+
+    return {
+      differenceTotal,
+      isMinorOnly: Math.abs(differenceTotal) <= 1,
+      detailRows,
+    };
+  }, [filteredSales]);
 
   const whatsAppCustomers = useMemo(
     () =>
@@ -499,6 +603,139 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
       summary: <p>Total Unidades: {stats.totalProductsSold}</p>,
     });
   }, [salesData, statTitlePrefix, stats.totalProductsSold]);
+
+  const handleShowDifferenceDetails = useCallback(() => {
+    setModalConfig({
+      isOpen: true,
+      title: `Detalle de Diferencias ${statTitlePrefix}`,
+      size: '5xl',
+      columns: [
+        {
+          header: 'ID Venta',
+          accessor: (item: { sale: Sale }) => item.sale.id.slice(0, 8),
+          className: 'whitespace-nowrap font-mono text-xs',
+        },
+        {
+          header: 'Fecha',
+          accessor: (item: { sale: Sale }) => new Date(item.sale.date).toLocaleDateString('es-AR'),
+          className: 'whitespace-nowrap text-xs',
+        },
+        {
+          header: 'Cliente',
+          accessor: (item: { sale: Sale }) => item.sale.customer?.['Nombre y Apellido'] || 'Cons. Final',
+          className: 'max-w-[160px] truncate text-xs',
+        },
+        {
+          header: 'Total',
+          accessor: (item: { sale: Sale }) => formatCurrency(item.sale.total),
+          className: 'text-right font-medium whitespace-nowrap text-xs',
+          headerClassName: 'text-right',
+        },
+        {
+          header: 'Suma Pagos',
+          accessor: (item: { paymentSum: number }) => formatCurrency(item.paymentSum),
+          className: 'text-right font-medium whitespace-nowrap text-xs',
+          headerClassName: 'text-right',
+        },
+        {
+          header: 'Diferencia',
+          accessor: (item: { difference: number }) => formatCurrency(item.difference),
+          className: 'text-right font-bold whitespace-nowrap text-xs',
+          headerClassName: 'text-right',
+        },
+        {
+          header: 'Acción',
+          accessor: (item: { sale: Sale }) => (
+            <button
+              type="button"
+              onClick={() => {
+                setModalConfig(prev => ({ ...prev, isOpen: false }));
+                const sale = item.sale;
+                setPaymentEditState({
+                  isOpen: true,
+                  sale,
+                  cash: formatMoneyInput(Number(sale.payment.cash || 0)),
+                  digital: formatMoneyInput(Number(sale.payment.digital || 0)),
+                  credit: formatMoneyInput(Number(sale.payment.credit || 0)),
+                  isSaving: false,
+                });
+              }}
+              className="px-2 py-1 text-xs font-medium rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+            >
+              Editar
+            </button>
+          ),
+          className: 'text-center',
+          headerClassName: 'text-center',
+        },
+      ],
+      data: differenceData.detailRows,
+      summary: <p>Diferencia total: {formatCurrency(differenceData.differenceTotal)}</p>,
+    });
+  }, [differenceData.detailRows, differenceData.differenceTotal, statTitlePrefix]);
+
+  const paymentEditTotals = useMemo(() => {
+    const sumPayments =
+      parseMoneyInput(paymentEditState.cash) +
+      parseMoneyInput(paymentEditState.digital) +
+      parseMoneyInput(paymentEditState.credit);
+
+    const total = Number(paymentEditState.sale?.total || 0);
+    return {
+      sumPayments,
+      difference: total - sumPayments,
+    };
+  }, [paymentEditState.cash, paymentEditState.credit, paymentEditState.digital, paymentEditState.sale]);
+
+  const handleClosePaymentEditModal = useCallback(() => {
+    if (paymentEditState.isSaving) return;
+    setPaymentEditState({
+      isOpen: false,
+      sale: null,
+      cash: '0',
+      digital: '0',
+      credit: '0',
+      isSaving: false,
+    });
+  }, [paymentEditState.isSaving]);
+
+  const handleSavePaymentEdit = useCallback(async () => {
+    if (!paymentEditState.sale) return;
+
+    const cash = parseMoneyInput(paymentEditState.cash);
+    const digital = parseMoneyInput(paymentEditState.digital);
+    const credit = parseMoneyInput(paymentEditState.credit);
+
+    setPaymentEditState(prev => ({ ...prev, isSaving: true }));
+
+    try {
+      await api.updateSalePaymentAllocation(paymentEditState.sale.id, { cash, digital, credit });
+
+      // Optimistic update: reflect new payments immediately without waiting for parent re-render
+      const savedSaleId = paymentEditState.sale.id;
+      setPatchedPayments(prev => { const next = new Map(prev); next.set(savedSaleId, { cash, digital, credit }); return next; });
+
+      addToast('Pagos de la venta actualizados correctamente.', 'success');
+      setPaymentEditState({
+        isOpen: false,
+        sale: null,
+        cash: '0',
+        digital: '0',
+        credit: '0',
+        isSaving: false,
+      });
+      await refreshData();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : typeof (error as any)?.message === 'string'
+            ? (error as any).message
+            : JSON.stringify(error);
+      addToast(`No se pudo actualizar los pagos: ${errMsg}`, 'error');
+      setPaymentEditState(prev => ({ ...prev, isSaving: false }));
+    }
+  }, [addToast, paymentEditState.cash, paymentEditState.credit, paymentEditState.digital, paymentEditState.sale, refreshData]);
 
   const handleView = useCallback(
     (sale: Sale) => {
@@ -880,6 +1117,14 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
               iconBgColor="bg-indigo-500"
               onClick={handleShowEcheqDetails}
             />
+            <StatCard
+              title={`Diferencia ${statTitlePrefix}`}
+              value={formatCurrency(differenceData.differenceTotal)}
+              iconPath="M18 12H6m0 0l3-3m-3 3l3 3m12 0H9m12 0l-3-3m3 3l-3 3"
+              iconBgColor={differenceData.isMinorOnly ? 'bg-emerald-500' : 'bg-red-500'}
+              description="Ingresos - suma de medios de pago"
+              onClick={handleShowDifferenceDetails}
+            />
           </div>
         </div>
       )}
@@ -904,7 +1149,8 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
               <table className="min-w-full divide-y divide-gray-200" style={{ tableLayout: 'fixed' }}>
                 <thead className="bg-gray-50 z-10 md:sticky md:top-[104px]" style={{ zIndex: 11, background: '#f9fafb' }}>
                   <tr>
-                    <th scope="col" className="px-4 py-3 w-12 min-w-[48px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                    <th scope="col" className="px-4 py-3 w-20 min-w-[80px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doc</th>
                     <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Venta</th>
                     <th scope="col" className="px-4 py-3 w-40 min-w-[160px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
                     <th scope="col" className="px-4 py-3 max-w-[200px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
@@ -916,7 +1162,7 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
                     <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Digital</th>
                     <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-Cheq</th>
                     <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cta. Cte.</th>
-                    <th scope="col" className="px-4 py-3 w-16 min-w-[64px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider"></th>
+                    <th scope="col" className="px-4 py-3 w-40 min-w-[160px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                   </tr>
                 </thead>
               </table>
@@ -936,7 +1182,7 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={13} className="text-center py-10 text-gray-500">
+                        <td colSpan={14} className="text-center py-10 text-gray-500">
                           {noDataMessage}
                         </td>
                       </tr>
@@ -968,7 +1214,106 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
         columns={modalConfig.columns}
         data={modalConfig.data}
         summary={modalConfig.summary}
+        size={modalConfig.size}
       />
+
+      {paymentEditState.isOpen && paymentEditState.sale && (
+        <Modal
+          isOpen={paymentEditState.isOpen}
+          onClose={handleClosePaymentEditModal}
+          title={`Editar Pagos Venta #${paymentEditState.sale.id.slice(0, 8)}`}
+          size="lg"
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
+                <p className="text-gray-500 text-xs">ID Venta</p>
+                <p className="font-semibold text-gray-800 font-mono">{paymentEditState.sale.id.slice(0, 8)}</p>
+              </div>
+              <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
+                <p className="text-gray-500 text-xs">Fecha</p>
+                <p className="font-semibold text-gray-800">{new Date(paymentEditState.sale.date).toLocaleString('es-AR')}</p>
+              </div>
+              <div className="bg-gray-50 rounded-md border border-gray-200 p-3 md:col-span-2">
+                <p className="text-gray-500 text-xs">Cliente</p>
+                <p className="font-semibold text-gray-800">{paymentEditState.sale.customer?.['Nombre y Apellido'] || 'Consumidor Final'}</p>
+              </div>
+              <div className="bg-blue-50 rounded-md border border-blue-200 p-3 md:col-span-2">
+                <p className="text-blue-700 text-xs">Total de la venta</p>
+                <p className="font-bold text-blue-900 text-lg">{formatCurrency(paymentEditState.sale.total)}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Efectivo</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={paymentEditState.cash}
+                  onChange={(e) => setPaymentEditState(prev => ({ ...prev, cash: e.target.value }))}
+                  disabled={paymentEditState.isSaving}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Digital</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={paymentEditState.digital}
+                  onChange={(e) => setPaymentEditState(prev => ({ ...prev, digital: e.target.value }))}
+                  disabled={paymentEditState.isSaving}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Cta. Cte.</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={paymentEditState.credit}
+                  onChange={(e) => setPaymentEditState(prev => ({ ...prev, credit: e.target.value }))}
+                  disabled={paymentEditState.isSaving}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="rounded-md border border-gray-200 bg-gray-50 p-3 space-y-1">
+              <div className="flex items-center justify-between text-sm text-gray-700">
+                <span>Suma de pagos</span>
+                <span className="font-semibold">{formatCurrency(paymentEditTotals.sumPayments)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-700">Diferencia actual</span>
+                <span className={`font-semibold ${Math.abs(paymentEditTotals.difference) <= 1 ? 'text-emerald-700' : 'text-red-700'}`}>
+                  {formatCurrency(paymentEditTotals.difference)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={handleClosePaymentEditModal}
+                disabled={paymentEditState.isSaving}
+                className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSavePaymentEdit}
+                disabled={paymentEditState.isSaving}
+                className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {paymentEditState.isSaving ? 'Guardando...' : 'Guardar pagos'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {saleToBill && (
         <BillingModal
@@ -1221,36 +1566,47 @@ const [isConvertingBudget, setIsConvertingBudget] = useState(false);
                           Facturado: {(selectedItemForActions.item as Sale).facturaInfo?.nro}
                         </span>
                       </div>
-                      {((selectedItemForActions.item as Sale).facturaInfo?.url ||
-                        (selectedItemForActions.item as Sale).facturaInfo?.ticketUrl) && (
-                        <a
-                          href={
-                            (selectedItemForActions.item as Sale).facturaInfo?.ticketUrl ||
-                            (selectedItemForActions.item as Sale).facturaInfo?.url
-                          }
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="p-2 hover:bg-green-100 rounded-lg transition-colors"
-                        >
-                          <Icon
-                            path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"
-                            className="w-5 h-5"
-                          />
-                        </a>
-                      )}
                     </div>
                   )}
 
-                  <button
-                    onClick={() => {
-                      handleView(selectedItemForActions.item as Sale);
-                      setSelectedItemForActions(null);
-                    }}
-                    className="flex items-center space-x-3 w-full p-3 text-left hover:bg-indigo-50 text-indigo-700 rounded-xl transition-colors"
-                  >
-                    <Icon path="M2.036 12.322a1.012 1.012 0 010-.639l4.418-5.523A1.012 1.012 0 017.5 6h9a1.012 1.012 0 01.946.689l4.418 5.523a1.012 1.012 0 010 .639l-4.418 5.523A1.012 1.012 0 0116.5 18h-9a1.012 1.012 0 01-.946-.689L2.036 12.322zM15 12a3 3 0 11-6 0 3 3 0 016 0z" className="w-6 h-6" />
-                    <span className="font-medium">Ver Ticket Interno</span>
-                  </button>
+                  {(selectedItemForActions.item as Sale).facturaInfo?.ticketUrl && (
+                    <a
+                      href={(selectedItemForActions.item as Sale).facturaInfo?.ticketUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setSelectedItemForActions(null)}
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
+                    >
+                      <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
+                      <span className="font-medium">Ver Ticket Oficial 80 mm</span>
+                    </a>
+                  )}
+
+                  {(selectedItemForActions.item as Sale).facturaInfo?.url && (
+                    <a
+                      href={(selectedItemForActions.item as Sale).facturaInfo?.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setSelectedItemForActions(null)}
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-indigo-50 text-indigo-700 rounded-xl transition-colors"
+                    >
+                      <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
+                      <span className="font-medium">Ver Ticket Oficial A4</span>
+                    </a>
+                  )}
+
+                  {!(selectedItemForActions.item as Sale).facturaInfo && (
+                    <button
+                      onClick={() => {
+                        handleView(selectedItemForActions.item as Sale);
+                        setSelectedItemForActions(null);
+                      }}
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-indigo-50 text-indigo-700 rounded-xl transition-colors"
+                    >
+                      <Icon path="M2.036 12.322a1.012 1.012 0 010-.639l4.418-5.523A1.012 1.012 0 017.5 6h9a1.012 1.012 0 01.946.689l4.418 5.523a1.012 1.012 0 010 .639l-4.418 5.523A1.012 1.012 0 0116.5 18h-9a1.012 1.012 0 01-.946-.689L2.036 12.322zM15 12a3 3 0 11-6 0 3 3 0 016 0z" className="w-6 h-6" />
+                      <span className="font-medium">Ver Ticket Interno</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {
