@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Sale } from '../../types';
+import { Customer, Sale } from '../../types';
 import { StatCard } from '../dashboard/StatCard';
 import { Icon } from '../ui/Icon';
 import { BillingModal } from '../shared/BillingModal';
@@ -31,7 +31,17 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
     const [lastBillingIncidents, setLastBillingIncidents] = useState<Array<{ saleId: string; customerName: string; reason: string }>>([]);
     const { addToast } = useToast();
 
-    const hasInvoiceCae = useCallback((sale: Sale) => Boolean(sale.facturaInfo?.cae), []);
+    const isSaleBilled = useCallback((sale: Sale) => {
+        const invoiceType = String(sale.facturacion || '').toUpperCase();
+        const hasInvoiceType = invoiceType !== '' && invoiceType !== 'N';
+        const hasFiscalInfo = Boolean(
+            sale.facturaInfo?.cae ||
+            sale.facturaInfo?.nro ||
+            sale.facturaInfo?.url ||
+            sale.facturaInfo?.ticketUrl
+        );
+        return hasFiscalInfo || hasInvoiceType;
+    }, []);
 
     const filteredSales = useMemo(() => {
         if (!startDate || !endDate || !processedSales.length) return [];
@@ -56,16 +66,16 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
         // FIX: Sum the amounts from the echeqs array for accurate total digital income.
         const totalDigitalIncome = digitalSales.reduce((sum, s) => sum + s.payment.digital + (s.payment.echeqs?.reduce((eSum, e) => eSum + e.amount, 0) || 0), 0);
         
-        const billedSales = digitalSales.filter(hasInvoiceCae);
+        const billedSales = digitalSales.filter(isSaleBilled);
         // FIX: Sum the amounts from the echeqs array for accurate total billed amount.
         const totalBilled = billedSales.reduce((sum, s) => sum + s.payment.digital + (s.payment.echeqs?.reduce((eSum, e) => eSum + e.amount, 0) || 0), 0);
         
         const pendingToBill = totalDigitalIncome - totalBilled;
 
         return { totalDigitalIncome, totalBilled, pendingToBill };
-    }, [filteredSales, hasInvoiceCae]);
+    }, [filteredSales, isSaleBilled]);
 
-    const pendingSales = useMemo(() => filteredSales.filter(s => !hasInvoiceCae(s)), [filteredSales, hasInvoiceCae]);
+    const pendingSales = useMemo(() => filteredSales.filter(s => !isSaleBilled(s)), [filteredSales, isSaleBilled]);
     const selectedPendingCount = useMemo(
         () => selectedSaleIds.filter(id => pendingSales.some(sale => sale.id === id)).length,
         [pendingSales, selectedSaleIds]
@@ -124,7 +134,55 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
             }
 
             try {
-                const apiResponse = await api.generateElectronicInvoice(sale);
+                                const baseCustomer: Customer = {
+                                    ...(sale.customer || {
+                                        Id_Cliente: '0',
+                                        'Nombre y Apellido': '',
+                                        Whatsapp: '',
+                                        'Tipo.Documento': '',
+                                        Documento: '',
+                                        Condicion_IVA: 'Consumidor Final',
+                                        Deuda: 0,
+                                        Pagos: 0,
+                                    }),
+                                };
+
+                                const inferredFacturacion: 'A' | 'B' =
+                                    baseCustomer.Condicion_IVA === 'Responsable Inscripto' ? 'A' : 'B';
+                                const effectiveFacturacion: 'A' | 'B' =
+                                    sale.facturacion === 'A' || sale.facturacion === 'B' ? sale.facturacion : inferredFacturacion;
+
+                                const effectiveDocType =
+                                    effectiveFacturacion === 'A'
+                                        ? 'CUIT'
+                                        : String(baseCustomer['Tipo.Documento'] || 'DNI');
+
+                                const saleForBilling: Sale = {
+                                    ...sale,
+                                    facturacion: effectiveFacturacion,
+                                    paymentCondition: sale.paymentCondition || 'Transferencia Bancaria',
+                                    customer: {
+                                        ...baseCustomer,
+                                        'Nombre y Apellido': customerName,
+                                        'Tipo.Documento': effectiveDocType,
+                                        Documento: String(baseCustomer.Documento || '').trim(),
+                                    },
+                                    items: (sale.items || []).map((item) => {
+                                        const unitPrice = Number(
+                                            (item as any).price ?? item?.product?.Precio ?? item?.product?.['Precio Final'] ?? 0
+                                        );
+                                        return {
+                                            ...item,
+                                            price: Number.isFinite(unitPrice) ? unitPrice : 0,
+                                            product: {
+                                                ...item.product,
+                                                Precio: Number.isFinite(unitPrice) ? unitPrice : 0,
+                                            },
+                                        };
+                                    }),
+                                };
+
+                                const apiResponse = await api.generateElectronicInvoice(saleForBilling);
                 if (apiResponse.status !== 'facturado' || !apiResponse.data) {
                     failed += 1;
                     incidents.push({
@@ -150,7 +208,7 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                     continue;
                 }
 
-                const effectiveType = apiResponse.data?.effectiveType || sale.facturacion;
+                const effectiveType = apiResponse.data?.effectiveType || saleForBilling.facturacion;
                 await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url, ticketUrl, effectiveType);
                 successful += 1;
             } catch (err) {
@@ -285,7 +343,7 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                         <tbody className="bg-white divide-y divide-gray-200">
                             {filteredSales.length > 0 ? filteredSales.map(sale => {
                                 const invoiceInfo = sale.facturaInfo;
-                                const isBilled = hasInvoiceCae(sale);
+                                const isBilled = isSaleBilled(sale);
 
                                 return (
                                 <tr key={sale.id}>

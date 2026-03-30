@@ -39,6 +39,18 @@ const formatMoneyInput = (value: number): string => {
   return String(value).replace('.', ',');
 };
 
+const isSaleAlreadyBilled = (sale: Sale): boolean => {
+  const invoiceType = String(sale.facturacion || '').toUpperCase();
+  const hasInvoiceType = invoiceType !== '' && invoiceType !== 'N';
+  const hasFiscalInfo = Boolean(
+    sale.facturaInfo?.cae ||
+    sale.facturaInfo?.nro ||
+    sale.facturaInfo?.url ||
+    sale.facturaInfo?.ticketUrl
+  );
+  return hasFiscalInfo || hasInvoiceType;
+};
+
 const openHtmlInNewWindow = (
   html: string,
   features = 'width=900,height=700,scrollbars=yes,resizable=yes'
@@ -115,7 +127,7 @@ const SaleRow: React.FC<{
 }> = React.memo(({ sale, onOpenActions }) => {
   const isAnnulled = sale.status === 'annulled';
   const isBudget = sale.document_type === 'budget';
-  const hasOfficialInvoice = Boolean(sale.facturaInfo);
+  const hasOfficialInvoice = isSaleAlreadyBilled(sale);
   const isBilled = !isBudget && hasOfficialInvoice;
   const showBilledBadge = hasOfficialInvoice;
   const hasTicket80 = Boolean(sale.facturaInfo?.ticketUrl);
@@ -1546,7 +1558,7 @@ export const SalesDashboard: React.FC<
                 </>
               ) : selectedItemForActions.type === 'sale' ? (
                 <>
-                  {!(selectedItemForActions.item as Sale).facturaInfo ? (
+                  {!isSaleAlreadyBilled(selectedItemForActions.item as Sale) ? (
                     <button
                       onClick={() => {
                         setSaleToBill(selectedItemForActions.item as Sale);
@@ -1595,7 +1607,7 @@ export const SalesDashboard: React.FC<
                     </a>
                   )}
 
-                  {!(selectedItemForActions.item as Sale).facturaInfo && (
+                  {!isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
                     <button
                       onClick={() => {
                         handleView(selectedItemForActions.item as Sale);

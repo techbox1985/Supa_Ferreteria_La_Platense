@@ -1392,19 +1392,50 @@ export const generateElectronicInvoice = async (sale: Sale): Promise<any> => {
         });
 
         if (error) {
+            const parseMaybeJson = (value: any) => {
+                if (value == null) return null;
+                if (typeof value === 'string') {
+                    try {
+                        return JSON.parse(value);
+                    } catch {
+                        return value;
+                    }
+                }
+                return value;
+            };
+
+            const errorAny = error as any;
+            const edgeBody =
+                parseMaybeJson(errorAny?.body) ??
+                parseMaybeJson(errorAny?.context?.body) ??
+                parseMaybeJson(errorAny?.context?.responseBody) ??
+                null;
+            const edgeMessage =
+                (typeof edgeBody === 'object' && (edgeBody?.message || edgeBody?.error || edgeBody?.detail)) ||
+                error.message ||
+                'Respuesta non-2xx sin detalle explícito.';
             const invokeErrorInfo = {
                 status: error.status,
                 message: error.message,
-                body: (error as any).body,
-                context: (error as any).context,
+                body: edgeBody,
+                context: errorAny?.context,
             };
             console.error('Error al invocar Edge Function create-electronic-invoice-tolosa:', invokeErrorInfo);
+            console.error('[DIAG132][api.generateElectronicInvoice][edge non-2xx]', {
+                saleId: sale.id,
+                httpStatus: error.status || null,
+                edgeBody,
+                readableMessage: edgeMessage,
+            });
             return {
                 status: 'facturación pendiente',
                 reason: 'INVOKE_ERROR',
-                message: `Error al invocar facturación electrónica: ${error.message || 'sin mensaje'}`,
+                message: `Error al invocar facturación electrónica (HTTP ${error.status || 'desconocido'}): ${edgeMessage}`,
                 debug: [
                     'Invoke error en create-electronic-invoice-tolosa.',
+                    `HTTP Status: ${error.status || 'desconocido'}`,
+                    `Edge Body: ${JSON.stringify(edgeBody)}`,
+                    `Mensaje legible: ${String(edgeMessage)}`,
                     JSON.stringify(invokeErrorInfo),
                     JSON.stringify(payloadSummary),
                 ],
@@ -2038,8 +2069,8 @@ export const getSales = async (): Promise<any[]> => {
     // If this query fails for any reason, we keep legacy st_sales fields as fallback.
     if (saleIds.length > 0) {
         const baseOrder = { ascending: false };
-        const primarySelect = 'sale_id, cae, nro, qr_data, pdf_url, ticket_url, comprobante_ticket_url, url, vto_cae, invoice_type, created_at, issued_at';
-        const fallbackSelect = 'sale_id, cae, nro, qr_data, pdf_url, created_at';
+        const primarySelect = 'sale_id, cae, nro, qr_data, pdf_url, ticket_url, comprobante_ticket_url, url, vto_cae, invoice_type, created_at';
+        const fallbackSelect = 'sale_id, cae, nro, qr_data, pdf_url, url, ticket_url, invoice_type, created_at';
 
         let invoicesData: any[] = [];
         let invoicesError: any = null;

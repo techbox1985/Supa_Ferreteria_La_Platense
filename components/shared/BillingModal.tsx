@@ -87,10 +87,23 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, sal
         return;
     }
 
-    const saleForBilling: Sale = {
-        id: sale.id,
-        date: sale.date,
-        items: sale.items,
+        const normalizedItems = (sale.items || []).map((item) => {
+            const unitPrice = Number((item as any).price ?? item?.product?.Precio ?? item?.product?.['Precio Final'] ?? 0);
+            const safePrice = Number.isFinite(unitPrice) ? unitPrice : 0;
+            return {
+                ...item,
+                price: safePrice,
+                product: {
+                    ...item.product,
+                    Precio: safePrice,
+                }
+            };
+        });
+
+        const saleForBilling: Sale = {
+                id: sale.id,
+                date: sale.date,
+                items: normalizedItems,
         itemCount: sale.itemCount || sale.items.reduce((sum, item) => sum + item.quantity, 0),
         subtotal: sale.subtotal,
         adjustmentAmount: sale.adjustmentAmount || 0,
@@ -99,7 +112,7 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, sal
         payment: sale.payment,
         shiftId: sale.shiftId,
         facturacion: billingData.facturacionType,
-        paymentCondition: billingData.paymentCondition,
+                paymentCondition: billingData.paymentCondition || 'Transferencia Bancaria',
         customer: {
             ...(sale.customer || {
                 Id_Cliente: '0',
@@ -111,8 +124,8 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, sal
                 Deuda: 0,
                 Pagos: 0
             }),
-            'Nombre y Apellido': billingData.customerName,
-            Documento: billingData.customerDoc,
+            'Nombre y Apellido': String(billingData.customerName || '').trim() || 'Consumidor Final',
+            Documento: String(billingData.customerDoc || '').trim(),
             Condicion_IVA: billingData.condicionIVA,
             'Tipo.Documento': billingData.customerDocType
         } as Customer
