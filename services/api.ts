@@ -2016,6 +2016,7 @@ export const getBudgetsSupabase = async (): Promise<Budget[]> => {
             adjustment_amount,
             total,
             status,
+                converted_to_sale_id,
             customer_name_snapshot,
             customer_document_snapshot,
             st_budget_items (
@@ -2057,6 +2058,7 @@ export const getBudgetsSupabase = async (): Promise<Budget[]> => {
         })),
         total: Number(b.total ?? 0),
         status: b.status,
+        converted_to_sale_id: b.converted_to_sale_id || null,
         shiftId: '',
         subtotal: typeof b.subtotal === 'number' ? b.subtotal : undefined,
         adjustmentAmount: typeof b.adjustment_amount === 'number' ? b.adjustment_amount : undefined,

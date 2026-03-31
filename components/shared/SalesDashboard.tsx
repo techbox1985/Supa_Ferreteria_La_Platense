@@ -71,36 +71,41 @@ const CreditNoteRow: React.FC<{
       className="bg-red-50 hover:bg-red-100 transition-colors cursor-pointer select-none"
       onClick={() => onOpenActions(note)}
     >
-      <td className="px-4 py-2 text-center w-12 min-w-[48px]">
+      <td className="px-2 py-4 text-center min-w-[140px] whitespace-nowrap">
         <Icon path="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" className="w-5 h-5 text-red-500 mx-auto" />
       </td>
-      <td className="px-4 py-2 text-center w-24 min-w-[96px]"></td>
-      <td className="px-4 py-2 whitespace-nowrap text-sm font-mono text-gray-500 w-24 min-w-[96px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm font-mono text-gray-500 w-20 min-w-[80px]">
         {note.id.slice(0, 8)}
       </td>
-      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 w-40 min-w-[160px]">
-        {new Date(note.date).toLocaleString('es-AR')}
-      </td>
-      <td
-        className="px-4 py-2 whitespace-nowrap text-sm font-medium text-red-700 italic max-w-[200px] truncate"
-        colSpan={4}
-      >
-        Nota de Crédito {note.facturaInfo ? `(Oficial ${note.facturaInfo.nro})` : `(Ref: ${note.originalSaleId?.slice(0, 8)})`}
-        <div
-          className="text-xs font-normal text-gray-600 truncate max-w-xs"
-          title={note.items?.map(i => `${i.quantity}x ${i.product.Producto}`).join(', ')}
-        >
-          {note.items?.map(i => `${i.quantity}x ${i.product.Producto}`).join(', ')}
+      <td className="px-2 py-4 whitespace-nowrap text-sm min-w-[200px]">
+        <div className="flex flex-col">
+          <span className="text-xs text-gray-500">{new Date(note.date).toLocaleString('es-AR')}</span>
+          <span className="font-medium text-red-700 italic">Nota de Crédito</span>
+          <div
+            className="text-xs font-normal text-gray-600 truncate"
+            title={note.facturaInfo ? `(Oficial ${note.facturaInfo.nro})` : `(Ref: ${note.originalSaleId?.slice(0, 8)})`}
+          >
+            {note.facturaInfo ? `(Oficial ${note.facturaInfo.nro})` : `(Ref: ${note.originalSaleId?.slice(0, 8)})`}
+          </div>
+          <div
+            className="text-xs font-normal text-gray-600 truncate"
+            title={note.items?.map(i => `${i.quantity}x ${i.product.Producto}`).join(', ')}
+          >
+            {note.items?.map(i => `${i.quantity}x ${i.product.Producto}`).join(', ')}
+          </div>
         </div>
       </td>
-      <td className="px-4 py-2 whitespace-nowrap text-sm font-bold text-red-700 text-right w-28 min-w-[112px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-center w-16 min-w-[60px]"></td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]"></td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-16 min-w-[70px]"></td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right font-bold text-red-700 w-20 min-w-[90px]">
         -${note.credit.toLocaleString('es-AR')}
       </td>
-      <td className="px-4 py-2 w-24 min-w-[96px]"></td>
-      <td className="px-4 py-2 w-24 min-w-[96px]"></td>
-      <td className="px-4 py-2 w-24 min-w-[96px]"></td>
-      <td className="px-4 py-2 w-24 min-w-[96px]"></td>
-      <td className="px-4 py-2 whitespace-nowrap text-right text-sm font-medium w-40 min-w-[160px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]"></td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]"></td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]"></td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]"></td>
+      <td className="px-2 py-4 whitespace-nowrap text-right text-sm font-medium w-32 min-w-[120px]">
         <button
           onClick={e => {
             e.stopPropagation();
@@ -148,46 +153,35 @@ const SaleRow: React.FC<{
       className={`${rowBg} ${hoverBg} transition-colors border-b cursor-pointer select-none`}
       onClick={() => onOpenActions(sale)}
     >
-      <td className="px-4 py-4 text-center w-20 min-w-[80px]">
-        {isBudget ? (
-          <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800">
-            Presupuesto
+      <td className="px-2 py-4 text-center min-w-[140px]">
+        <div className="flex flex-col items-center gap-1">
+          <span className="inline-block px-2 py-1 text-xs font-semibold rounded" style={{background: isBudget ? '#dbeafe' : '#dcfce7', color: isBudget ? '#1e40af' : '#166534'}}>
+            {isBudget ? 'Presupuesto' : 'Venta'}
           </span>
-        ) : (
-          <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-800">
-            Venta
+          {showBilledBadge && (
+            <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-emerald-100 text-emerald-800">
+              Facturada
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm font-mono w-20 min-w-[80px]">{sale.id.slice(0, 8)}</td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm min-w-[200px]">
+        <div className="flex flex-col">
+          <span className="text-xs text-gray-500">{new Date(sale.date).toLocaleString('es-AR')}</span>
+          <span className="font-medium truncate" title={sale.customer ? sale.customer['Nombre y Apellido'] : 'Consumidor Final'}>
+            {sale.customer ? sale.customer['Nombre y Apellido'] : 'Consumidor Final'}
           </span>
-        )}
+        </div>
       </td>
-      <td className="px-4 py-4 text-center w-24 min-w-[96px]">
-        {showBilledBadge ? (
-          <span
-            className="inline-block px-2 py-1 text-xs font-semibold rounded bg-emerald-100 text-emerald-800"
-          >
-            Facturada
-          </span>
-        ) : (
-          <span className="text-xs text-gray-400">-</span>
-        )}
-      </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm font-mono w-24 min-w-[96px]">{sale.id.slice(0, 8)}</td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm w-40 min-w-[160px]">
-        {new Date(sale.date).toLocaleString('es-AR')}
-      </td>
-      <td
-        className="px-4 py-4 whitespace-nowrap text-sm font-medium max-w-[200px] truncate"
-        title={sale.customer ? sale.customer['Nombre y Apellido'] : 'Consumidor Final'}
-      >
-        {sale.customer ? sale.customer['Nombre y Apellido'] : 'Consumidor Final'}
-      </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm text-center w-16 min-w-[64px]">{sale.itemCount}</td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm text-right w-24 min-w-[96px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-center w-16 min-w-[60px]">{sale.itemCount}</td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
         {isAnnulled ? '-' : formatCurrency(sale.subtotal)}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-16 min-w-[70px]">
         {isAnnulled ? '-' : formatCurrency(sale.adjustmentAmount || 0)}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm w-28 min-w-[112px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[90px]">
         {hasPartialReturn || isAnnulled ? (
           <div>
             <span className="line-through text-gray-400 mr-2">${sale.total.toLocaleString('es-AR')}</span>
@@ -197,19 +191,19 @@ const SaleRow: React.FC<{
           <span className="font-bold text-gray-900">${sale.total.toLocaleString('es-AR')}</span>
         )}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm w-24 min-w-[96px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
         {isAnnulled ? '-' : formatCurrency(sale.payment.cash)}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm w-24 min-w-[96px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
         {isAnnulled ? '-' : formatCurrency(sale.payment.digital)}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm w-24 min-w-[96px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
         {isAnnulled ? '-' : formatCurrency(totalEcheqs)}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-sm w-24 min-w-[96px]">
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
         {isAnnulled ? '-' : formatCurrency(sale.payment.credit)}
       </td>
-      <td className="px-4 py-4 whitespace-nowrap text-right text-sm font-medium w-40 min-w-[160px]">
+      <td className="px-2 py-4 whitespace-nowrap text-right text-sm font-medium w-32 min-w-[120px]">
         <div className="flex items-center justify-end space-x-2">
           {isBilled && hasTicket80 && officialTicket80Url && (
             <a
@@ -1168,20 +1162,18 @@ export const SalesDashboard: React.FC<
               <table className="min-w-full divide-y divide-gray-200" style={{ tableLayout: 'fixed' }}>
                 <thead className="bg-gray-50 z-10 md:sticky md:top-[104px]" style={{ zIndex: 11, background: '#f9fafb' }}>
                   <tr>
-                    <th scope="col" className="px-4 py-3 w-20 min-w-[80px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
-                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Doc</th>
-                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Venta</th>
-                    <th scope="col" className="px-4 py-3 w-40 min-w-[160px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                    <th scope="col" className="px-4 py-3 max-w-[200px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
-                    <th scope="col" className="px-4 py-3 w-16 min-w-[64px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
-                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Subtotal</th>
-                    <th scope="col" className="px-4 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Desc</th>
-                    <th scope="col" className="px-4 py-3 w-28 min-w-[112px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total</th>
-                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Efectivo</th>
-                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Digital</th>
-                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">E-Cheq</th>
-                    <th scope="col" className="px-4 py-3 w-24 min-w-[96px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cta. Cte.</th>
-                    <th scope="col" className="px-4 py-3 w-40 min-w-[160px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
+                    <th scope="col" className="px-2 py-3 min-w-[140px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Tipo / Doc</th>
+                    <th scope="col" className="px-2 py-3 w-20 min-w-[80px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">ID Venta</th>
+                    <th scope="col" className="px-2 py-3 min-w-[200px] text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Fecha / Cliente</th>
+                    <th scope="col" className="px-2 py-3 w-16 min-w-[60px] text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Items</th>
+                    <th scope="col" className="px-2 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Subtotal</th>
+                    <th scope="col" className="px-2 py-3 w-16 min-w-[70px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Desc</th>
+                    <th scope="col" className="px-2 py-3 w-20 min-w-[90px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Total</th>
+                    <th scope="col" className="px-2 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Efectivo</th>
+                    <th scope="col" className="px-2 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Digital</th>
+                    <th scope="col" className="px-2 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">E-Cheq</th>
+                    <th scope="col" className="px-2 py-3 w-20 min-w-[80px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Cta. Cte.</th>
+                    <th scope="col" className="px-2 py-3 w-32 min-w-[120px] text-right text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">Acciones</th>
                   </tr>
                 </thead>
               </table>
@@ -1201,7 +1193,7 @@ export const SalesDashboard: React.FC<
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={14} className="text-center py-10 text-gray-500">
+                        <td colSpan={12} className="text-center py-10 text-gray-500">
                           {noDataMessage}
                         </td>
                       </tr>
@@ -1413,7 +1405,7 @@ export const SalesDashboard: React.FC<
         >
           <div className="space-y-4">
             <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
-              Modal simple listo. La conversión real todavía no ejecuta lógica de venta.
+              Esta acción genera una venta real en el sistema y marca el presupuesto como convertido.
             </div>
 
             <div>

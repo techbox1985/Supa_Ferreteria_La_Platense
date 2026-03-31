@@ -523,6 +523,7 @@ const AppContent: React.FC = () => {
             shiftId: budget.shiftId || undefined,
             facturacion: 'N',
             isPendingSync: false,
+            converted_to_sale_id: budget.converted_to_sale_id || null,
             document_type: 'budget',
         }));
 
@@ -672,6 +673,7 @@ const AppContent: React.FC = () => {
             shiftId: budget.shiftId || undefined,
             facturacion: 'N',
             isPendingSync: false,
+            converted_to_sale_id: budget.converted_to_sale_id || null,
             document_type: 'budget',
         }));
 
