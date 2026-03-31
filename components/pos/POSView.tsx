@@ -12,7 +12,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { sendTicketViaWhatsApp } from '../../utils/whatsappHelper';
 import { ProductDetailModal } from './ProductDetailModal';
 import { getPrintStyles } from '../../utils/printStyles';
-import { matchesProductSearch, sanitizeProductDisplayText } from '../../utils/productFilters';
+import { getProductSearchRelevance, matchesProductSearch, sanitizeProductDisplayText } from '../../utils/productFilters';
 
 interface POSViewProps {
     onNavigateBudgets: () => void;
@@ -154,11 +154,26 @@ const categoryOptions = useMemo(() => {
 }, [categories]);
 
   const filteredProducts = useMemo(() => {
-    return products.filter(p => {
+    const filtered = products.filter(p => {
       const matchesCategory = selectedCategory === 'All' || p.Categoria === selectedCategory;
       const matchesSearch = matchesProductSearch(p, debouncedSearchTerm);
       return matchesCategory && matchesSearch;
     });
+
+    const normalizedSearch = debouncedSearchTerm.trim();
+    if (!normalizedSearch) return filtered;
+
+    return filtered
+      .map((product, index) => ({
+        product,
+        index,
+        relevance: getProductSearchRelevance(product, normalizedSearch),
+      }))
+      .sort((a, b) => {
+        if (a.relevance !== b.relevance) return a.relevance - b.relevance;
+        return a.index - b.index;
+      })
+      .map((entry) => entry.product);
   }, [products, debouncedSearchTerm, selectedCategory]);
 
   const hasActiveSearch = debouncedSearchTerm.trim().length > 0;

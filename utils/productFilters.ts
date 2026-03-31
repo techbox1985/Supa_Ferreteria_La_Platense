@@ -90,6 +90,50 @@ export const matchesProductSearch = (product: ProductSearchCandidate, query: str
   return false;
 };
 
+const getQueryVariants = (normalizedQuery: string): string[] => {
+  if (!normalizedQuery) return [];
+  const variants = new Set<string>([normalizedQuery]);
+  if (normalizedQuery.endsWith('s')) {
+    variants.add(normalizedQuery.slice(0, -1));
+  } else {
+    variants.add(`${normalizedQuery}s`);
+  }
+  return Array.from(variants).filter(Boolean);
+};
+
+const matchesAnyVariant = (value: string, variants: string[]): boolean => {
+  if (!value || variants.length === 0) return false;
+  return variants.some((variant) => value.includes(variant));
+};
+
+export const getProductSearchRelevance = (product: ProductSearchCandidate, query: string): number => {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) return 99;
+
+  const variants = getQueryVariants(normalizedQuery);
+  const productName = normalizeSearchText(product.Producto || product.name || '');
+
+  // 0: nombre empieza exactamente con la búsqueda.
+  if (variants.some((variant) => productName.startsWith(variant))) return 0;
+
+  // 1: alguna palabra del nombre empieza con la búsqueda.
+  const productNameWords = productName.split(' ').filter(Boolean);
+  if (productNameWords.some((word) => variants.some((variant) => word.startsWith(variant)))) return 1;
+
+  // 2: nombre contiene la búsqueda.
+  if (matchesAnyVariant(productName, variants)) return 2;
+
+  // 3: coincidencias en campos secundarios ya usados por el filtro actual.
+  const secondaryFields = [
+    normalizeSearchText(product.cod || ''),
+    normalizeSearchText(product['cod.barras'] || product.barcode || ''),
+    normalizeSearchText(product.Descripcion || product.description || ''),
+  ];
+  if (secondaryFields.some((field) => matchesAnyVariant(field, variants))) return 3;
+
+  return 4;
+};
+
 export const sanitizeProductDisplayText = (value: unknown): string => {
   const raw = String(value ?? '');
   if (!raw) return '';

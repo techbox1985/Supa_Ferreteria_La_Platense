@@ -128,6 +128,66 @@ const mapUserRowToUser = (item: any): User => {
     } as User;
 };
 
+type ECheqSnapshot = { amount: number; days: number };
+
+const ECHEQ_NOTES_PREFIX = '[ECHEQS_JSON]:';
+
+const normalizeEcheqs = (value: any): ECheqSnapshot[] => {
+    if (!Array.isArray(value)) return [];
+
+    return value
+        .map((item: any) => ({
+            amount: Number(item?.amount ?? 0),
+            days: Number(item?.days ?? 0),
+        }))
+        .filter((item: ECheqSnapshot) => Number.isFinite(item.amount) && item.amount > 0)
+        .map((item: ECheqSnapshot) => ({
+            amount: Number(item.amount),
+            days: Number.isFinite(item.days) ? Number(item.days) : 0,
+        }));
+};
+
+const buildSaleNotesWithEcheqs = (adjustmentDescription: string | null | undefined, echeqs: any): string | null => {
+    const baseDescription = String(adjustmentDescription || '').trim();
+    const normalizedEcheqs = normalizeEcheqs(echeqs);
+
+    if (normalizedEcheqs.length === 0) {
+        return baseDescription || null;
+    }
+
+    const serialized = JSON.stringify(normalizedEcheqs);
+    return baseDescription
+        ? `${baseDescription}\n${ECHEQ_NOTES_PREFIX}${serialized}`
+        : `${ECHEQ_NOTES_PREFIX}${serialized}`;
+};
+
+const extractSaleNotesAndEcheqs = (notesRaw: any): { adjustmentDescription: string; echeqs: ECheqSnapshot[] } => {
+    const notesText = String(notesRaw || '');
+    const markerIndex = notesText.indexOf(ECHEQ_NOTES_PREFIX);
+
+    if (markerIndex === -1) {
+        return {
+            adjustmentDescription: notesText.trim(),
+            echeqs: [],
+        };
+    }
+
+    const descriptionPart = notesText.slice(0, markerIndex).trim();
+    const jsonPart = notesText.slice(markerIndex + ECHEQ_NOTES_PREFIX.length).trim();
+
+    try {
+        return {
+            adjustmentDescription: descriptionPart,
+            echeqs: normalizeEcheqs(JSON.parse(jsonPart)),
+        };
+    } catch {
+        return {
+            adjustmentDescription: notesText.trim(),
+            echeqs: [],
+        };
+    }
+};
+
 const persistInvoiceForSale = async (
     saleId: string,
     facturaInfo: Sale['facturaInfo'],
@@ -135,45 +195,53 @@ const persistInvoiceForSale = async (
 ): Promise<void> => {
     if (!supabase || !saleId || !facturaInfo?.cae) return;
 
-    const invoicePayload = {
-        sale_id: saleId,
-        cae: facturaInfo.cae,
-        nro: facturaInfo.nro,
-        vto_cae: facturaInfo.vtoCae,
-        qr_data: facturaInfo.qrData,
-        pdf_url: facturaInfo.url ?? null,
-        url: facturaInfo.url ?? null,
-        ticket_url: facturaInfo.ticketUrl ?? null,
-        comprobante_ticket_url: facturaInfo.ticketUrl ?? null,
-        invoice_type: facturacion || null,
-        issued_at: new Date().toISOString(),
+    const normalizedInvoiceType = String(facturacion || '').trim() || 'N';
+    const normalizedPdfUrl = String(facturaInfo.url || '').trim() || null;
+    const normalizedTicketUrl = String(facturaInfo.ticketUrl || '').trim() || null;
+    const normalizedCae = String(facturaInfo.cae || '').trim();
+    const normalizedNro = String(facturaInfo.nro || '').trim();
+    const normalizedVtoCae = String(facturaInfo.vtoCae || '').trim() || null;
+    const normalizedQrData = String(facturaInfo.qrData || '').trim() || null;
+
+    const salesBillingPayload = {
+        invoice_type: normalizedInvoiceType,
+        billing_cae: normalizedCae || null,
+        billing_number: normalizedNro || null,
+        billing_pdf_url: normalizedPdfUrl,
+        billing_ticket_url: normalizedTicketUrl,
+        billing_qr_data: normalizedQrData,
+        billing_vto_cae: normalizedVtoCae,
     };
 
-    const { data: existingInvoice, error: existingInvoiceError } = await supabase
-        .from('invoices')
-        .select('id')
-        .eq('sale_id', saleId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const { error: saleUpdateError } = await supabase
+        .from('st_sales')
+        .update(salesBillingPayload)
+        .eq('id', saleId);
 
-    if (existingInvoiceError) throw existingInvoiceError;
-
-    if (existingInvoice?.id) {
-        const { error } = await supabase
-            .from('invoices')
-            .update({ ...invoicePayload })
-            .eq('id', existingInvoice.id);
-
-        if (error) throw error;
-        return;
+    if (saleUpdateError) {
+        throw new Error(`Factura emitida pero no persistida en st_sales: ${saleUpdateError.message}`);
     }
 
-    const { error } = await supabase
-        .from('invoices')
-        .insert([invoicePayload]);
+    const { data: persistedSale, error: persistedSaleError } = await supabase
+        .from('st_sales')
+        .select('billing_cae, billing_number, billing_pdf_url, billing_ticket_url')
+        .eq('id', saleId)
+        .maybeSingle();
 
-    if (error) throw error;
+    if (persistedSaleError) {
+        throw new Error(`No se pudo validar persistencia de factura en st_sales: ${persistedSaleError.message}`);
+    }
+
+    const hasBillingEvidence = Boolean(
+        String(persistedSale?.billing_cae || '').trim() ||
+        String(persistedSale?.billing_number || '').trim() ||
+        String(persistedSale?.billing_pdf_url || '').trim() ||
+        String(persistedSale?.billing_ticket_url || '').trim()
+    );
+
+    if (!hasBillingEvidence) {
+        throw new Error('Persistencia incompleta de factura en st_sales.');
+    }
 };
 
 const buildSaleItemsPayload = (saleId: string, items: CartItem[], productMap: Map<string, string>) => (
@@ -2023,28 +2091,16 @@ const buildInvoiceData = (item: any, linkedInvoice: any) => {
         '';
     const vtoCae = linkedInvoice?.vto_cae || billingVtoCae || '';
     const qrData = linkedInvoice?.qr_data || billingQrData || '';
-    const canonicalPdfUrl =
-        linkedInvoice?.pdf_url ||
-        linkedInvoice?.comprobante_pdf_url ||
-        linkedInvoice?.url ||
-        linkedInvoice?.comprobante_url ||
-        undefined;
-    const canonicalTicketUrl =
-        linkedInvoice?.comprobante_ticket_url ||
-        linkedInvoice?.ticket_url ||
-        undefined;
+    const canonicalPdfUrl = linkedInvoice?.pdf_url || undefined;
+    const canonicalTicketUrl = linkedInvoice?.ticket_url || undefined;
 
     const pdfUrl =
         (isCreditNoteInvoice ? undefined : canonicalPdfUrl) ||
         billingPdfUrl ||
-        (isCreditNoteInvoice ? undefined : canonicalTicketUrl) ||
-        billingTicketUrl ||
         undefined;
     const ticketUrl =
         (isCreditNoteInvoice ? undefined : canonicalTicketUrl) ||
         billingTicketUrl ||
-        (isCreditNoteInvoice ? undefined : canonicalPdfUrl) ||
-        billingPdfUrl ||
         undefined;
     const hasBillingEvidence = Boolean(
         billingCae ||
@@ -2192,6 +2248,7 @@ export const getSales = async (): Promise<any[]> => {
     return salesRows.map((item: any) => {
         const linkedInvoice = invoiceBySaleId.get(String(item.id || ''));
         const invoiceData = buildInvoiceData(item, linkedInvoice);
+        const parsedNotes = extractSaleNotesAndEcheqs(item.notes);
         const items = (item.st_sale_items || []).map((si: any) => ({
             product: {
                 cod: si.st_products?.cod || si.product_code || '',
@@ -2222,12 +2279,12 @@ export const getSales = async (): Promise<any[]> => {
             Subtotal: Number(item.subtotal ?? 0),
             Total: Number(item.total ?? 0),
             Monto_Ajuste: Number(item.adjustment_amount ?? 0),
-            Descripcion_Ajuste: item.notes || '',
+            Descripcion_Ajuste: parsedNotes.adjustmentDescription,
             Pago_Efectivo: Number(item.payment_cash ?? 0),
             Pago_Digital: Number(item.payment_digital ?? 0),
             Pago_Cuenta_Corriente: Number(item.payment_credit ?? 0),
             'Productos (JSON)': JSON.stringify(items),
-            'Echeqs (JSON)': JSON.stringify([]),
+            'Echeqs (JSON)': JSON.stringify(parsedNotes.echeqs),
             Estado: estado,
             ID_Turno: item.shift_id || undefined,
             Facturacion: invoiceData.invoiceType,
@@ -2347,7 +2404,7 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
         status: 'active',
         customer_name_snapshot: sale.customer?.['Nombre y Apellido'] || 'Consumidor Final',
         customer_document_snapshot: sale.customer?.Documento || null,
-        notes: sale.adjustmentDescription || null
+        notes: buildSaleNotesWithEcheqs(sale.adjustmentDescription, sale.payment?.echeqs)
     };
 
     const { data: insertedSale, error: saleError } = await supabase
@@ -2461,7 +2518,7 @@ export const updateSale = async (originalSale: Sale, updatedSale: Sale): Promise
         invoice_type: updatedSale.facturacion || 'N',
         customer_name_snapshot: updatedSale.customer?.['Nombre y Apellido'] || 'Consumidor Final',
         customer_document_snapshot: updatedSale.customer?.Documento || null,
-        notes: updatedSale.adjustmentDescription || null,
+        notes: buildSaleNotesWithEcheqs(updatedSale.adjustmentDescription, updatedSale.payment?.echeqs),
         updated_at: new Date().toISOString(),
     };
 
@@ -2697,7 +2754,7 @@ export const convertBudgetToSaleSupabase = async (
         status: 'active',
         customer_name_snapshot: customer?.['Nombre y Apellido'] || 'Consumidor Final',
         customer_document_snapshot: customer?.Documento || null,
-        notes: adjustmentDescription || null
+        notes: buildSaleNotesWithEcheqs(adjustmentDescription, payment?.echeqs)
     };
 
     const { data: insertedSale, error: saleError } = await supabase
@@ -3766,15 +3823,6 @@ export const searchProducts = async (params: {
 export const markSaleAsBilled = async (saleId: string, cae: string, nro: string, vtoCae: string, qrData: string, date: Date, url: string, ticketUrl?: string, facturacion?: string): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
-    const { error: saleError } = await supabase
-        .from('st_sales')
-        .update({
-            invoice_type: facturacion || 'N',
-        })
-        .eq('id', saleId);
-
-    if (saleError) throw saleError;
-
     await persistInvoiceForSale(saleId, {
         cae,
         nro,
@@ -3784,6 +3832,222 @@ export const markSaleAsBilled = async (saleId: string, cae: string, nro: string,
         url,
         ticketUrl,
     }, facturacion);
+};
+
+const extractRegeneratedBillingUrlsFromPayload = (
+    payload: any,
+    saleId: string
+): { pdf_url: string | null; ticket_url: string | null } => {
+    const targetSaleId = String(saleId || '').trim();
+    const candidateCollections = [
+        payload,
+        payload?.data,
+        payload?.result,
+        payload?.item,
+        payload?.row,
+        Array.isArray(payload?.results) ? payload.results : null,
+        Array.isArray(payload?.items) ? payload.items : null,
+        Array.isArray(payload?.rows) ? payload.rows : null,
+        Array.isArray(payload?.data) ? payload.data : null,
+    ].filter(Boolean);
+
+    const flatCandidates = candidateCollections.flatMap((candidate: any) =>
+        Array.isArray(candidate) ? candidate : [candidate]
+    );
+
+    const matchingCandidate = flatCandidates.find((candidate: any) => {
+        const candidateSaleId = String(candidate?.sale_id || candidate?.saleId || candidate?.id || '').trim();
+        if (!targetSaleId || !candidateSaleId) return false;
+        return candidateSaleId === targetSaleId;
+    }) || flatCandidates[0];
+
+    if (!matchingCandidate) {
+        return { pdf_url: null, ticket_url: null };
+    }
+
+    return {
+        pdf_url:
+            String(
+                matchingCandidate?.pdf_url ||
+                matchingCandidate?.billing_pdf_url ||
+                matchingCandidate?.comprobante_pdf_url ||
+                matchingCandidate?.url ||
+                ''
+            ).trim() || null,
+        ticket_url:
+            String(
+                matchingCandidate?.ticket_url ||
+                matchingCandidate?.billing_ticket_url ||
+                matchingCandidate?.comprobante_ticket_url ||
+                matchingCandidate?.ticketUrl ||
+                ''
+            ).trim() || null,
+    };
+};
+
+export const regenerateBillingUrlsForSale = async (
+    saleId: string
+): Promise<{ pdf_url: string | null; ticket_url: string | null }> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const normalizedSaleId = String(saleId || '').trim();
+    if (!normalizedSaleId) throw new Error('ID de venta inválido.');
+
+    const { data, error } = await supabase.functions.invoke('regenerate-billing-urls-tolosa', {
+        body: {
+            dryRun: false,
+            force: true,
+            limit: 1,
+            saleIds: [normalizedSaleId],
+        },
+    });
+
+    if (error) {
+        throw new Error(`No se pudo regenerar los links fiscales: ${error.message}`);
+    }
+
+    const payloadErrorMessage =
+        (typeof data?.error === 'string' && data.error.trim()) ||
+        (typeof data?.detail === 'string' && data.detail.trim()) ||
+        (data?.success === false && typeof data?.message === 'string' ? data.message.trim() : '') ||
+        '';
+
+    if (payloadErrorMessage) {
+        throw new Error(payloadErrorMessage);
+    }
+
+    const urlsFromPayload = extractRegeneratedBillingUrlsFromPayload(data, normalizedSaleId);
+
+    const { data: persistedSale, error: persistedSaleError } = await supabase
+        .from('st_sales')
+        .select('billing_pdf_url, billing_ticket_url')
+        .eq('id', normalizedSaleId)
+        .maybeSingle();
+
+    if (persistedSaleError) throw persistedSaleError;
+
+    const pdf_url =
+        String((persistedSale as any)?.billing_pdf_url || '').trim() ||
+        urlsFromPayload.pdf_url ||
+        null;
+    const ticket_url =
+        String((persistedSale as any)?.billing_ticket_url || '').trim() ||
+        urlsFromPayload.ticket_url ||
+        null;
+
+    if (!pdf_url && !ticket_url) {
+        throw new Error('La regeneración no devolvió URLs fiscales válidas para la venta.');
+    }
+
+    return { pdf_url, ticket_url };
+};
+
+const extractInvoiceNumberParts = (nro: string): { puntoVenta: string; numero: string } => {
+    const raw = String(nro || '').trim();
+    const splitMatch = raw.match(/^(\d{1,5})\s*[-/]\s*(\d{1,12})$/);
+    if (splitMatch) {
+        return {
+            puntoVenta: splitMatch[1],
+            numero: splitMatch[2],
+        };
+    }
+
+    const digits = raw.replace(/\D/g, '');
+    if (!digits || digits.length <= 8) {
+        throw new Error('Número fiscal inválido para regeneración histórica.');
+    }
+
+    return {
+        puntoVenta: digits.slice(0, digits.length - 8),
+        numero: digits.slice(-8),
+    };
+};
+
+export const regenerateHistoricalInvoiceLinksSupabase = async (
+    sale: Sale
+): Promise<{ billing_pdf_url: string | null; billing_ticket_url: string | null }> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const saleId = String(sale?.id || '').trim();
+    if (!saleId) throw new Error('ID de venta inválido.');
+
+    const invoiceType = String(sale?.facturacion || '').trim().toUpperCase();
+    const cae = String(sale?.facturaInfo?.cae || '').trim();
+    const nro = String(sale?.facturaInfo?.nro || '').trim();
+
+    if (!cae || !nro) {
+        throw new Error('La venta no tiene CAE y número fiscal válidos para regeneración histórica.');
+    }
+
+    const { puntoVenta, numero } = extractInvoiceNumberParts(nro);
+
+    const { data: currentSale, error: currentSaleError } = await supabase
+        .from('st_sales')
+        .select('billing_pdf_url, billing_ticket_url')
+        .eq('id', saleId)
+        .maybeSingle();
+
+    if (currentSaleError) throw currentSaleError;
+
+    const invokeBody = {
+        saleId,
+        tipo: invoiceType,
+        operacion: 'V',
+        punto_venta: puntoVenta,
+        numero,
+        cae,
+    };
+
+    const { data, error } = await supabase.functions.invoke('regenerate-historical-invoice-links-tolosa', {
+        body: invokeBody,
+    });
+
+    if (error) {
+        throw new Error(`No se pudo regenerar comprobante histórico: ${error.message}`);
+    }
+
+    const regeneratedPdfUrl =
+        String((data as any)?.pdf_url || '').trim() ||
+        String((data as any)?.comprobante_pdf_url || '').trim() ||
+        String((data as any)?.url || '').trim() ||
+        null;
+
+    const regeneratedTicketUrl =
+        String((data as any)?.ticket_url || '').trim() ||
+        String((data as any)?.comprobante_ticket_url || '').trim() ||
+        String((data as any)?.ticketUrl || '').trim() ||
+        null;
+
+    const nextPdfUrl = regeneratedPdfUrl || String((currentSale as any)?.billing_pdf_url || '').trim() || null;
+    const nextTicketUrl = regeneratedTicketUrl || String((currentSale as any)?.billing_ticket_url || '').trim() || null;
+
+    if (!nextPdfUrl && !nextTicketUrl) {
+        throw new Error('La regeneración histórica no devolvió links de comprobante.');
+    }
+
+    const { error: updateError } = await supabase
+        .from('st_sales')
+        .update({
+            billing_pdf_url: nextPdfUrl,
+            billing_ticket_url: nextTicketUrl,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', saleId);
+
+    if (updateError) throw updateError;
+
+    const { data: persistedSale, error: persistedError } = await supabase
+        .from('st_sales')
+        .select('billing_pdf_url, billing_ticket_url')
+        .eq('id', saleId)
+        .maybeSingle();
+
+    if (persistedError) throw persistedError;
+
+    return {
+        billing_pdf_url: String((persistedSale as any)?.billing_pdf_url || '').trim() || null,
+        billing_ticket_url: String((persistedSale as any)?.billing_ticket_url || '').trim() || null,
+    };
 };
 
 // Helper para calcular el balance de un cliente a partir de sus transacciones

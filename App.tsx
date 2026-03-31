@@ -49,8 +49,8 @@ const buildFacturaInfo = (item: any) => {
     const qrData = item.Factura_QR_Data || '';
     const rawUrl = item.Factura_URL || undefined;
     const rawTicketUrl = item.Factura_Ticket_URL || undefined;
-    const url = rawUrl || rawTicketUrl;
-    const ticketUrl = rawTicketUrl || rawUrl;
+    const url = rawUrl;
+    const ticketUrl = rawTicketUrl;
 
     const hasFactura = Boolean(cae || nro || url || ticketUrl);
     if (!hasFactura) return undefined;
