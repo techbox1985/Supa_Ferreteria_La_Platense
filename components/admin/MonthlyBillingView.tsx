@@ -122,6 +122,16 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
         const incidents: Array<{ saleId: string; customerName: string; reason: string }> = [];
 
         for (const sale of selectedPendingSales) {
+                        if (isSaleBilled(sale)) {
+                                skipped += 1;
+                                incidents.push({
+                                    saleId: sale.id.slice(0, 8),
+                                    customerName: String(sale.customer?.['Nombre y Apellido'] || 'Sin cliente'),
+                                    reason: 'Venta ya facturada'
+                                });
+                                continue;
+                        }
+
             // Validación mínima: cliente con nombre identificable
             // El documento y otras normalizaciones se pueden manejar en el nivel de API
             const customerName = String(sale.customer?.['Nombre y Apellido'] ?? '').trim();
@@ -159,6 +169,17 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                                     effectiveFacturacion === 'A'
                                         ? 'CUIT'
                                         : String(baseCustomer['Tipo.Documento'] || 'DNI');
+
+                                                                const customerDocDigits = String(baseCustomer.Documento || '').replace(/\D/g, '');
+                                                                if (effectiveFacturacion === 'A' && customerDocDigits.length !== 11) {
+                                                                        skipped += 1;
+                                                                        incidents.push({
+                                                                            saleId: sale.id.slice(0, 8),
+                                                                            customerName,
+                                                                            reason: 'Factura A requiere CUIT válido (11 dígitos)'
+                                                                        });
+                                                                        continue;
+                                                                }
 
                                 const saleForBilling: Sale = {
                                     ...sale,
@@ -201,6 +222,23 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                 const a4Url = invoiceData.comprobante_pdf_url || invoiceData.url || '';
                 const ticketUrl = invoiceData.comprobante_ticket_url;
 
+                                const billedTotalRaw =
+                                        invoiceData.total ??
+                                        invoiceData.importe_total ??
+                                        invoiceData.importeTotal ??
+                                        invoiceData.monto ??
+                                        null;
+                                const billedTotal = Number(billedTotalRaw);
+                                if (Number.isFinite(billedTotal) && Math.abs(Number(saleForBilling.total || 0) - billedTotal) > 0.01) {
+                                        failed += 1;
+                                        incidents.push({
+                                            saleId: sale.id.slice(0, 8),
+                                            customerName,
+                                            reason: `Monto facturado inconsistente (venta ${formatCurrency(Number(saleForBilling.total || 0))} vs factura ${formatCurrency(billedTotal)})`
+                                        });
+                                        continue;
+                                }
+
                 if (!cae || !nro || cae === 'DEV_MODE_NO_CAE') {
                     failed += 1;
                     incidents.push({
@@ -212,7 +250,22 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                 }
 
                 const effectiveType = apiResponse.data?.effectiveType || saleForBilling.facturacion;
-                await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url, ticketUrl, effectiveType);
+                try {
+                    await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url, ticketUrl, effectiveType);
+                } catch (persistError: any) {
+                    // Reintento único para mitigar casos transitorios y evitar estados semifacturados.
+                    try {
+                        await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url, ticketUrl, effectiveType);
+                    } catch (retryError: any) {
+                        failed += 1;
+                        incidents.push({
+                          saleId: sale.id.slice(0, 8),
+                          customerName,
+                          reason: `Factura emitida (${nro}) pero no persistida localmente: ${retryError?.message || persistError?.message || 'Error de persistencia'}`
+                        });
+                        continue;
+                    }
+                }
                 successful += 1;
             } catch (err) {
                 failed += 1;
@@ -242,7 +295,7 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
         await refreshData();
         setSelectedSaleIds([]);
         setIsBulkBilling(false);
-    }, [addToast, isBulkBilling, pendingSales, refreshData, selectedPendingCount, selectedSaleIds]);
+    }, [addToast, isBulkBilling, isSaleBilled, pendingSales, refreshData, selectedPendingCount, selectedSaleIds]);
 
     return (
         <div className="p-6 space-y-6">
@@ -370,12 +423,23 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                                     {/* FIX: Sum the amounts from the echeqs array for an accurate digital amount. */}
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold">{formatCurrency(sale.payment.digital + (sale.payment.echeqs?.reduce((sum, e) => sum + e.amount, 0) || 0))}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
-                                        {isBilled && invoiceInfo ? (
+                                        {isBilled ? (
                                             <div className="flex items-center justify-center space-x-2">
-                                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800" title={`CAE: ${invoiceInfo.cae}`}>
-                                                    Facturada ({invoiceInfo.nro})
+                                                <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800" title={invoiceInfo?.cae ? `CAE: ${invoiceInfo.cae}` : 'Facturación registrada'}>
+                                                    {invoiceInfo?.nro ? `Facturada (${invoiceInfo.nro})` : 'Facturada'}
                                                 </span>
-                                                {invoiceInfo.url && (
+                                                {invoiceInfo?.ticketUrl && (
+                                                    <a
+                                                        href={invoiceInfo.ticketUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-600 hover:text-blue-800"
+                                                        title="Abrir ticket fiscal"
+                                                    >
+                                                        <Icon path="M3 8.689c0-.864.933-1.406 1.683-.978l8.655 4.942a1.125 1.125 0 010 1.956l-8.655 4.942A1.125 1.125 0 013 18.573V8.69z" className="w-4 h-4" />
+                                                    </a>
+                                                )}
+                                                {invoiceInfo?.url && (
                                                     <a
                                                         href={invoiceInfo.url}
                                                         target="_blank"

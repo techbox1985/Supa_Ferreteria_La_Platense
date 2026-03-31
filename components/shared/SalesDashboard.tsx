@@ -402,9 +402,10 @@ export const SalesDashboard: React.FC<
 
   const stats = useMemo(() => {
     const completedSales = filteredSales.filter(sale => sale.status !== 'annulled');
-    const totalRevenue = completedSales.reduce((sum, sale) => sum + (sale.total - (sale.returnedTotal || 0)), 0);
+    const completedRealSales = completedSales.filter(sale => sale.document_type !== 'budget');
+    const totalRevenue = completedRealSales.reduce((sum, sale) => sum + (sale.total - (sale.returnedTotal || 0)), 0);
 
-    const totalProductsSold = completedSales.reduce((sum, sale) => {
+    const totalProductsSold = completedRealSales.reduce((sum, sale) => {
       const originalCount = sale.itemCount;
       const returnedCount =
         sale.creditNotes?.reduce((noteSum, note) => {
@@ -413,17 +414,17 @@ export const SalesDashboard: React.FC<
       return sum + (originalCount - returnedCount);
     }, 0);
 
-    const totalCash = completedSales.reduce((sum, sale) => sum + sale.payment.cash, 0);
-    const totalDigital = completedSales.reduce((sum, sale) => sum + sale.payment.digital, 0);
-    const totalCredit = completedSales.reduce((sum, sale) => sum + sale.payment.credit, 0);
-    const totalEcheq = completedSales.reduce(
+    const totalCash = completedRealSales.reduce((sum, sale) => sum + sale.payment.cash, 0);
+    const totalDigital = completedRealSales.reduce((sum, sale) => sum + sale.payment.digital, 0);
+    const totalCredit = completedRealSales.reduce((sum, sale) => sum + sale.payment.credit, 0);
+    const totalEcheq = completedRealSales.reduce(
       (sum, sale) => sum + (sale.payment.echeqs?.reduce((eSum, e) => eSum + e.amount, 0) || 0),
       0
     );
 
     return {
       totalRevenue,
-      salesCount: completedSales.length,
+      salesCount: completedRealSales.length,
       totalProductsSold,
       totalCash,
       totalDigital,
@@ -433,7 +434,9 @@ export const SalesDashboard: React.FC<
   }, [filteredSales]);
 
   const differenceData = useMemo(() => {
-    const completedSales = filteredSales.filter(sale => sale.status !== 'annulled');
+    const completedSales = filteredSales.filter(
+      sale => sale.status !== 'annulled' && sale.document_type !== 'budget'
+    );
 
     const saleDiffRows = completedSales
       .map(sale => {
@@ -471,7 +474,7 @@ export const SalesDashboard: React.FC<
   );
 
   const handleShowRevenueDetails = useCallback(() => {
-    const completedSales = salesData.filter(s => s.status !== 'annulled');
+    const completedSales = salesData.filter(s => s.status !== 'annulled' && s.document_type !== 'budget');
     setModalConfig({
       isOpen: true,
       title: `Detalle de Ingresos ${statTitlePrefix}`,
@@ -497,7 +500,9 @@ export const SalesDashboard: React.FC<
   }, [salesData, statTitlePrefix, stats.totalRevenue]);
 
   const handleShowCashDetails = useCallback(() => {
-    const cashSales = salesData.filter(s => s.status !== 'annulled' && s.payment.cash > 0);
+    const cashSales = salesData.filter(
+      s => s.status !== 'annulled' && s.document_type !== 'budget' && s.payment.cash > 0
+    );
     setModalConfig({
       isOpen: true,
       title: `Detalle de Ingresos en Efectivo ${statTitlePrefix}`,
@@ -516,7 +521,9 @@ export const SalesDashboard: React.FC<
   }, [salesData, statTitlePrefix, stats.totalCash]);
 
   const handleShowDigitalDetails = useCallback(() => {
-    const digitalSales = salesData.filter(s => s.status !== 'annulled' && s.payment.digital > 0);
+    const digitalSales = salesData.filter(
+      s => s.status !== 'annulled' && s.document_type !== 'budget' && s.payment.digital > 0
+    );
     setModalConfig({
       isOpen: true,
       title: `Detalle de Ingresos Digitales ${statTitlePrefix}`,
@@ -535,7 +542,9 @@ export const SalesDashboard: React.FC<
   }, [salesData, statTitlePrefix, stats.totalDigital]);
 
   const handleShowCreditDetails = useCallback(() => {
-    const creditSales = salesData.filter(s => s.status !== 'annulled' && s.payment.credit > 0);
+    const creditSales = salesData.filter(
+      s => s.status !== 'annulled' && s.document_type !== 'budget' && s.payment.credit > 0
+    );
     setModalConfig({
       isOpen: true,
       title: `Detalle de Ventas a Crédito ${statTitlePrefix}`,

@@ -44,8 +44,9 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
         </div>` : ''}
     `).join('');
 
-    const roundedTotal = Math.round(sale.total);
-    const effectiveAdjustment = roundedTotal - sale.subtotal;
+    const effectiveAdjustment = Number(
+        sale.adjustmentAmount ?? (sale.total - sale.subtotal)
+    );
 
     const adjustmentHtml = effectiveAdjustment !== 0 ? `
       <tr>

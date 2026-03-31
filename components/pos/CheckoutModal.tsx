@@ -308,7 +308,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
     const saleData: Sale = {
       id: saleBeingEdited ? saleBeingEdited.id : crypto.randomUUID(),
-      date: new Date(),
+      date: saleBeingEdited ? new Date(saleBeingEdited.date) : new Date(),
       customer: customerForSale,
       items: cart,
       itemCount: cart.reduce((sum, item) => sum + item.quantity, 0),

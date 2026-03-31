@@ -2136,8 +2136,45 @@ const buildInvoiceData = (item: any, linkedInvoice: any) => {
     };
 };
 
-export const getSales = async (): Promise<any[]> => {
+export const getSales = async (options?: { startDate?: string; endDate?: string; defaultToToday?: boolean }): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
+
+    const buildLocalDayBoundsFromString = (day: string): { startIso: string; endIso: string } | null => {
+        const [yearRaw, monthRaw, dayRaw] = String(day || '').split('-').map((value) => Number(value));
+        if (!Number.isFinite(yearRaw) || !Number.isFinite(monthRaw) || !Number.isFinite(dayRaw)) return null;
+        if (monthRaw < 1 || monthRaw > 12 || dayRaw < 1 || dayRaw > 31) return null;
+
+        const start = new Date(yearRaw, monthRaw - 1, dayRaw, 0, 0, 0, 0);
+        const end = new Date(yearRaw, monthRaw - 1, dayRaw, 23, 59, 59, 999);
+        return { startIso: start.toISOString(), endIso: end.toISOString() };
+    };
+
+    const resolveSalesRange = (rangeOptions?: { startDate?: string; endDate?: string; defaultToToday?: boolean }): { startIso?: string; endIso?: string } => {
+        const defaultToToday = rangeOptions?.defaultToToday === true;
+        const startDay = String(rangeOptions?.startDate || '').trim();
+        const endDay = String(rangeOptions?.endDate || '').trim();
+
+        if (!startDay && !endDay) {
+            if (!defaultToToday) return {};
+            const today = new Date();
+            const todayLocal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            const todayBounds = buildLocalDayBoundsFromString(todayLocal);
+            return todayBounds ? { startIso: todayBounds.startIso, endIso: todayBounds.endIso } : {};
+        }
+
+        const normalizedStartDay = startDay || endDay;
+        const normalizedEndDay = endDay || startDay;
+        const startBounds = buildLocalDayBoundsFromString(normalizedStartDay);
+        const endBounds = buildLocalDayBoundsFromString(normalizedEndDay);
+
+        if (!startBounds || !endBounds) return {};
+        return {
+            startIso: startBounds.startIso,
+            endIso: endBounds.endIso,
+        };
+    };
+
+    const { startIso, endIso } = resolveSalesRange(options);
 
     const PAGE_SIZE = 1000;
     let from = 0;
@@ -2146,7 +2183,7 @@ export const getSales = async (): Promise<any[]> => {
     const salesRowsNoId: any[] = [];
 
     while (keepFetching) {
-        const { data, error } = await supabase
+        let salesQuery = supabase
             .from('st_sales')
             .select(`
                 *,
@@ -2166,8 +2203,16 @@ export const getSales = async (): Promise<any[]> => {
                 )
             `)
             .in('status', ['active', 'annulled', 'pending', 'approved'])
-            .order('sold_at', { ascending: false })
-            .range(from, from + PAGE_SIZE - 1);
+            .order('sold_at', { ascending: false });
+
+        if (startIso) {
+            salesQuery = salesQuery.gte('sold_at', startIso);
+        }
+        if (endIso) {
+            salesQuery = salesQuery.lte('sold_at', endIso);
+        }
+
+        const { data, error } = await salesQuery.range(from, from + PAGE_SIZE - 1);
 
         if (error) throw error;
 
@@ -2191,7 +2236,7 @@ export const getSales = async (): Promise<any[]> => {
     }
 
     const salesRows = [...salesRowsMap.values(), ...salesRowsNoId];
-    console.log('[getSales] Total ventas traidas desde st_sales:', salesRows.length);
+    console.log('[getSales] Total ventas traidas desde st_sales:', salesRows.length, { startIso, endIso });
     const saleIds = salesRows.map((row: any) => String(row?.id || '')).filter(Boolean);
     const invoiceBySaleId = new Map<string, any>();
 
@@ -3248,47 +3293,6 @@ export const massUpdatePrices = async (data: any): Promise<any> => {
     return { updated: rows.length };
 };
 
-export const getCategoriesData = async (): Promise<any[]> => {
-    if (!supabase) return [];
-
-    try {
-        const { data, error } = await supabase
-            .from('st_subcategories')
-            .select('name, st_categories(name)');
-
-        if (error) {
-            console.error('Error loading subcategories from Supabase:', error);
-            return [];
-        }
-
-        return (data || [])
-            .map((row: any) => {
-                const categoryRel = row?.st_categories;
-                const categoryName = Array.isArray(categoryRel)
-                    ? categoryRel[0]?.name
-                    : categoryRel?.name;
-                const subCategoryName = row?.name;
-
-                if (typeof categoryName !== 'string' || typeof subCategoryName !== 'string') {
-                    return null;
-                }
-
-                const categoria = categoryName.trim();
-                const subCategoria = subCategoryName.trim();
-
-                if (!categoria || !subCategoria) {
-                    return null;
-                }
-
-                return { categoria, subCategoria };
-            })
-            .filter((item): item is { categoria: string; subCategoria: string } => item !== null);
-    } catch (error) {
-        console.error('Unexpected error loading subcategories from Supabase:', error);
-        return [];
-    }
-};
-
 export interface CategoryTreeNode {
     id: string;
     name: string;
@@ -3360,54 +3364,6 @@ export const addCategory = async (name: string): Promise<any> => {
 
     if (error) throw error;
     return data;
-};
-
-export const addSubCategory = async (category: string, name: string): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-
-    const categoryName = String(category || '').trim();
-    const subCategoryName = String(name || '').trim();
-
-    if (!categoryName || !subCategoryName) {
-        throw new Error('Categoría y subcategoría son obligatorias.');
-    }
-
-    try {
-        const { data: categoryRow, error: categoryError } = await supabase
-            .from('st_categories')
-            .select('id, name')
-            .ilike('name', categoryName)
-            .limit(1)
-            .maybeSingle();
-
-        if (categoryError) throw categoryError;
-        if (!categoryRow?.id) throw new Error(`No se encontró la categoría '${categoryName}'.`);
-
-        const { data: existingSub, error: existingError } = await supabase
-            .from('st_subcategories')
-            .select('id')
-            .eq('category_id', categoryRow.id)
-            .ilike('name', subCategoryName)
-            .limit(1)
-            .maybeSingle();
-
-        if (existingError) throw existingError;
-        if (existingSub?.id) {
-            throw new Error(`La subcategoría '${subCategoryName}' ya existe en '${categoryName}'.`);
-        }
-
-        const { data, error } = await supabase
-            .from('st_subcategories')
-            .insert([{ category_id: categoryRow.id, name: subCategoryName }])
-            .select()
-            .maybeSingle();
-
-        if (error) throw error;
-        return data;
-    } catch (error) {
-        console.error('Error adding subcategory in Supabase:', error);
-        throw error instanceof Error ? error : new Error('No se pudo crear la subcategoría.');
-    }
 };
 
 export const addSubCategoryByCategoryId = async (categoryId: string, name: string): Promise<any> => {
@@ -3489,74 +3445,6 @@ export const renameCategory = async (oldName: string, newName: string): Promise<
 
     if (error) throw error;
     return data;
-};
-
-export const renameSubCategory = async (category: string, oldName: string, newName: string): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-
-    const categoryName = String(category || '').trim();
-    const previousName = String(oldName || '').trim();
-    const nextName = String(newName || '').trim();
-
-    if (!categoryName || !previousName || !nextName) {
-        throw new Error('Categoría, nombre actual y nombre nuevo son obligatorios.');
-    }
-
-    try {
-        const { data: categoryRow, error: categoryError } = await supabase
-            .from('st_categories')
-            .select('id, name')
-            .ilike('name', categoryName)
-            .limit(1)
-            .maybeSingle();
-
-        if (categoryError) throw categoryError;
-        if (!categoryRow?.id) throw new Error(`No se encontró la categoría '${categoryName}'.`);
-
-        const { data: currentSub, error: currentError } = await supabase
-            .from('st_subcategories')
-            .select('id, name')
-            .eq('category_id', categoryRow.id)
-            .ilike('name', previousName)
-            .limit(1)
-            .maybeSingle();
-
-        if (currentError) throw currentError;
-        if (!currentSub?.id) {
-            throw new Error(`No se encontró la subcategoría '${previousName}' en '${categoryName}'.`);
-        }
-
-        if (previousName.toLowerCase() === nextName.toLowerCase()) {
-            return currentSub;
-        }
-
-        const { data: duplicatedSub, error: duplicateError } = await supabase
-            .from('st_subcategories')
-            .select('id')
-            .eq('category_id', categoryRow.id)
-            .ilike('name', nextName)
-            .neq('id', currentSub.id)
-            .limit(1)
-            .maybeSingle();
-
-        if (duplicateError) throw duplicateError;
-        if (duplicatedSub?.id) {
-            throw new Error(`La subcategoría '${nextName}' ya existe en '${categoryName}'.`);
-        }
-
-        const { data, error } = await supabase
-            .from('st_subcategories')
-            .update({ name: nextName })
-            .eq('id', currentSub.id)
-            .select()
-            .maybeSingle();
-
-        if (error) throw error;
-        return data;
-    } catch (error) {
-        console.error('Error renaming subcategory in Supabase:', error);
-        throw error instanceof Error ? error : new Error('No se pudo renombrar la subcategoría.');
-    }
 };
 
 export const renameSubCategoryById = async (subcategoryId: string, newName: string): Promise<any> => {
@@ -3646,55 +3534,6 @@ export const deleteCategory = async (name: string): Promise<any> => {
 
     if (error) throw error;
     return data;
-};
-
-export const deleteSubCategory = async (category: string, name: string): Promise<any> => {
-    if (!supabase) throw new Error('Supabase no inicializado');
-
-    const categoryName = String(category || '').trim();
-    const subCategoryName = String(name || '').trim();
-
-    if (!categoryName || !subCategoryName) {
-        throw new Error('Categoría y subcategoría son obligatorias.');
-    }
-
-    try {
-        const { data: categoryRow, error: categoryError } = await supabase
-            .from('st_categories')
-            .select('id, name')
-            .ilike('name', categoryName)
-            .limit(1)
-            .maybeSingle();
-
-        if (categoryError) throw categoryError;
-        if (!categoryRow?.id) throw new Error(`No se encontró la categoría '${categoryName}'.`);
-
-        const { data: currentSub, error: currentError } = await supabase
-            .from('st_subcategories')
-            .select('id, name')
-            .eq('category_id', categoryRow.id)
-            .ilike('name', subCategoryName)
-            .limit(1)
-            .maybeSingle();
-
-        if (currentError) throw currentError;
-        if (!currentSub?.id) {
-            throw new Error(`No se encontró la subcategoría '${subCategoryName}' en '${categoryName}'.`);
-        }
-
-        const { data, error } = await supabase
-            .from('st_subcategories')
-            .delete()
-            .eq('id', currentSub.id)
-            .select()
-            .maybeSingle();
-
-        if (error) throw error;
-        return data;
-    } catch (error) {
-        console.error('Error deleting subcategory in Supabase:', error);
-        throw error instanceof Error ? error : new Error('No se pudo eliminar la subcategoría.');
-    }
 };
 
 export const deleteSubCategoryById = async (subcategoryId: string): Promise<any> => {

@@ -13,10 +13,11 @@ interface SalesHistoryViewProps {
     shifts: Shift[];
     isLoading: boolean;
     refreshData: () => void;
+    fetchSalesForDateRange?: (startDate: string, endDate: string) => Promise<void>;
     onEditSale?: (sale: Sale) => void;
 }
 
-const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, onEditSale }) => {
+const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, fetchSalesForDateRange, onEditSale }) => {
     // Helper para obtener YYYY-MM-DD en hora local
     const getLocalDateString = (date: Date) => {
         const year = date.getFullYear();
@@ -40,6 +41,19 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     const [sellerFilter, setSellerFilter] = useState('All');
     // Nuevo filtro de tipo de documento: 'all' | 'sale' | 'budget'
     const [docTypeFilter, setDocTypeFilter] = useState<'all' | 'sale' | 'budget'>('all');
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const handleStartDateChange = async (value: string) => {
+        setStartDate(value);
+        if (!fetchSalesForDateRange || !value || !endDate) return;
+        await fetchSalesForDateRange(value, endDate);
+    };
+
+    const handleEndDateChange = async (value: string) => {
+        setEndDate(value);
+        if (!fetchSalesForDateRange || !startDate || !value) return;
+        await fetchSalesForDateRange(startDate, value);
+    };
     
     const shiftUserMap = useMemo(() => {
         return new Map(shifts.map(shift => [shift.ID_Turno, shift.ID_Usuario]));
@@ -116,19 +130,18 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     }, [salesInDateRange, docTypeFilter]);
 
 
-     if (isLoading) {
+    if (isLoading) {
         return (
             <div className="grow flex items-center justify-center h-[calc(100vh-80px)]">
                 <div className="text-center">
                     <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-12 h-12 text-blue-500 animate-spin mx-auto"/>
-                    <p className="mt-2 text-gray-600">Cargando historial y estadísticas...</p>
+                    <p className="mt-2 text-gray-600">Cargando ventas...</p>
                 </div>
             </div>
         );
     }
-    
+
     // Filtros y buscador reales integrados visualmente
-    const [searchTerm, setSearchTerm] = useState('');
     // Control segmentado visual para tipo de documento
     const docTypeSegmented = (
         <div className="flex space-x-2 mb-2">
@@ -162,7 +175,9 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                     type="date" 
                     id="start-date"
                     value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
+                    onChange={e => {
+                        void handleStartDateChange(e.target.value);
+                    }}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
             </div>
@@ -172,7 +187,9 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                     type="date" 
                     id="end-date"
                     value={endDate}
-                    onChange={e => setEndDate(e.target.value)}
+                    onChange={e => {
+                        void handleEndDateChange(e.target.value);
+                    }}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
             </div>

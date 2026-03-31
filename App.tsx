@@ -85,6 +85,7 @@ const AppContent: React.FC = () => {
     const [posProducts, setPosProducts] = useState<Product[]>([]);
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [rawSales, setRawSales] = useState<any[]>([]);
+    const [historySalesRows, setHistorySalesRows] = useState<any[] | null>(null);
     const [rawBudgets, setRawBudgets] = useState<any[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [shifts, setShifts] = useState<Shift[]>([]);
@@ -96,6 +97,7 @@ const AppContent: React.FC = () => {
 
     // Estados de UI
     const [isLoading, setIsLoading] = useState(true);
+    const [isSalesHistoryLoading, setIsSalesHistoryLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
     const [isSyncQueueOpen, setIsSyncQueueOpen] = useState(false);
@@ -111,6 +113,13 @@ const AppContent: React.FC = () => {
         isOpen: false,
         customer: null,
     });
+
+    const getLocalDateString = useCallback((date: Date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    }, []);
 
     const fetchData = useCallback(async () => {
         const isFirstLoad = products.length === 0 && customers.length === 0 && categories.length === 0;
@@ -146,6 +155,7 @@ const AppContent: React.FC = () => {
 
             // Apenas están los datos críticos, liberamos la pantalla principal
             setIsLoading(false);
+            setIsSalesHistoryLoading(false);
 
             // Etapa 2: datos no críticos para el primer render del POS
             const [
@@ -211,10 +221,34 @@ const AppContent: React.FC = () => {
             console.error('Error fetching critical data:', error);
             addToast('Error al cargar los datos principales. Verifique su conexión.', 'error');
             setIsLoading(false);
+            setIsSalesHistoryLoading(false);
         } finally {
             setIsRefreshing(false);
         }
     }, [addToast, products.length, customers.length, categories.length]);
+
+    const fetchSalesForHistoryDateRange = useCallback(async (startDate: string, endDate: string) => {
+        setIsSalesHistoryLoading(true);
+        try {
+            const sales = await api.getSales({ startDate, endDate });
+            setHistorySalesRows(sales || []);
+        } catch (error) {
+            console.error('Error fetching sales by date range:', error);
+            addToast('No se pudieron cargar las ventas del rango seleccionado.', 'error');
+        } finally {
+            setIsSalesHistoryLoading(false);
+        }
+    }, [addToast]);
+
+    useEffect(() => {
+        if (currentView !== 'sales-history') {
+            setHistorySalesRows(null);
+            return;
+        }
+
+        const today = getLocalDateString(new Date());
+        void fetchSalesForHistoryDateRange(today, today);
+    }, [currentView, fetchSalesForHistoryDateRange, getLocalDateString]);
 
     useEffect(() => {
         if (!currentUser) {
@@ -495,6 +529,155 @@ const AppContent: React.FC = () => {
         return [...finalSales, ...mappedBudgets].sort((a, b) => b.date.getTime() - a.date.getTime());
     }, [rawSales, rawBudgets, isLoading, customersWithCalculatedDebt, processedTransactions]);
 
+    const historyProcessedSales = useMemo(() => {
+        const safeHistorySalesRows = Array.isArray(historySalesRows) ? historySalesRows : [];
+        const safeRawBudgets = Array.isArray(rawBudgets) ? rawBudgets : [];
+
+        const customersMap: Map<string, Customer> = new Map(
+            customersWithCalculatedDebt.map((c: Customer) => [String(c.Id_Cliente), c])
+        );
+
+        const creditNotesBySaleId = new Map<string, AccountTransaction[]>();
+        processedTransactions.forEach((t: AccountTransaction) => {
+            if (t.type === 'Nota de Crédito' && t.originalSaleId) {
+                const notes = creditNotesBySaleId.get(t.originalSaleId) || [];
+                notes.push(t);
+                creditNotesBySaleId.set(t.originalSaleId, notes);
+            }
+        });
+
+        const processedSaleIds = new Set<string>();
+        const mappedHistorySales = safeHistorySalesRows
+            .filter((saleRow) => saleRow.Estado !== 'Pendiente' && saleRow.Estado !== 'Aprobado')
+            .reduce((acc: (Sale & { document_type?: string })[], saleRow) => {
+                const saleId = saleRow.ID_Venta || saleRow['ID Venta'] || saleRow.IDVenta || saleRow.id;
+                if (!saleId || processedSaleIds.has(saleId)) return acc;
+
+                processedSaleIds.add(saleId);
+
+                let items: CartItem[] = [];
+                const itemsJsonString = saleRow['Productos (JSON)'] || saleRow['Productos JSON'] || saleRow['Productos(JSON)'];
+                if (itemsJsonString && typeof itemsJsonString === 'string') {
+                    try {
+                        items = JSON.parse(itemsJsonString);
+                    } catch (e) {
+                        console.error('Error parsing history items JSON:', e);
+                    }
+                }
+
+                let echeqs: ECheq[] = [];
+                const echeqsJsonString = saleRow['Echeqs (JSON)'] || saleRow['Echeqs JSON'] || saleRow['Echeqs(JSON)'];
+                if (echeqsJsonString && typeof echeqsJsonString === 'string') {
+                    try {
+                        const parsed = JSON.parse(echeqsJsonString);
+                        if (Array.isArray(parsed)) echeqs = parsed;
+                    } catch (e) {
+                        console.error('Error parsing history echeqs JSON:', e);
+                    }
+                }
+
+                if (echeqs.length === 0) {
+                    const echeqAmount = parseSheetNumber(
+                        saleRow.Pago_Echeq || saleRow['Pago Echeq'] || saleRow.PagoEcheq
+                    );
+                    if (echeqAmount > 0) {
+                        echeqs.push({
+                            amount: echeqAmount,
+                            days: parseSheetNumber(saleRow.Echeq_Dias || saleRow['Echeq Dias'] || saleRow.EcheqDias),
+                        });
+                    }
+                }
+
+                const notes = creditNotesBySaleId.get(saleId) || [];
+                const returnedTotal = notes.reduce((sum, note) => sum + note.credit, 0);
+                const saleStatus: 'active' | 'annulled' =
+                    (saleRow.Estado || saleRow['Estado'])?.toLowerCase() === 'anulada' ? 'annulled' : 'active';
+
+                const total = parseSheetNumber(saleRow.Total || saleRow['Total']);
+                const subtotal = parseSheetNumber(saleRow.Subtotal || saleRow['Subtotal']) || total;
+
+                const rawCustomerId = saleRow.ID_Cliente || saleRow['ID Cliente'] || saleRow.IDCliente || saleRow.Id_Cliente;
+                const customerId = rawCustomerId ? String(rawCustomerId).trim() : '0';
+
+                const saleCustomer: Customer = customersMap.get(customerId) || {
+                    Id_Cliente: customerId,
+                    'Nombre y Apellido':
+                        saleRow.Nombre_Cliente || saleRow['Nombre Cliente'] || saleRow.NombreCliente || 'Consumidor Final',
+                    Whatsapp: '',
+                    'Tipo.Documento': '',
+                    Documento: '',
+                    Condicion_IVA: 'Consumidor Final',
+                    Deuda: 0,
+                    Pagos: 0,
+                };
+
+                const facturaInfo = buildFacturaInfo(saleRow);
+
+                const sale: Sale & { document_type?: string } = {
+                    id: saleId,
+                    date: new Date(saleRow.Fecha || saleRow['Fecha']),
+                    customer: saleCustomer,
+                    subtotal,
+                    total,
+                    adjustmentAmount: parseSheetNumber(
+                        saleRow.Monto_Ajuste || saleRow['Monto Ajuste'] || saleRow.MontoAjuste
+                    ),
+                    adjustmentDescription:
+                        saleRow.Descripcion_Ajuste || saleRow['Descripcion Ajuste'] || saleRow.DescripcionAjuste || '',
+                    payment: {
+                        cash: parseSheetNumber(saleRow.Pago_Efectivo || saleRow['Pago Efectivo'] || saleRow.PagoEfectivo),
+                        digital: parseSheetNumber(saleRow.Pago_Digital || saleRow['Pago Digital'] || saleRow.PagoDigital),
+                        credit: parseSheetNumber(
+                            saleRow.Pago_Cuenta_Corriente ||
+                                saleRow['Pago Cuenta Corriente'] ||
+                                saleRow.PagoCuentaCorriente
+                        ),
+                        echeqs,
+                    },
+                    items,
+                    itemCount:
+                        parseSheetNumber(saleRow.Cant_Productos || saleRow['Cant Productos'] || saleRow.CantProductos) ||
+                        items.reduce((sum, i) => sum + i.quantity, 0),
+                    status: saleStatus,
+                    returnedTotal,
+                    creditNotes: notes.sort((a, b) => a.date.getTime() - b.date.getTime()),
+                    shiftId: (saleRow.ID_Turno || saleRow['ID Turno'] || saleRow.IDTurno) || undefined,
+                    facturacion: (saleRow.Facturacion || saleRow['Facturacion']) || 'N',
+                    facturaInfo,
+                    isPendingSync: !!saleRow.isPendingSync,
+                    document_type: 'sale',
+                };
+
+                acc.push(sale);
+                return acc;
+            }, [])
+            .sort((a, b) => b.date.getTime() - a.date.getTime());
+
+        const mappedBudgets: (Sale & { document_type?: string })[] = safeRawBudgets.map((budget: any) => ({
+            id: budget.id,
+            date: budget.date instanceof Date ? budget.date : new Date(budget.date),
+            customer: budget.customer,
+            items: Array.isArray(budget.items) ? budget.items : [],
+            itemCount: Array.isArray(budget.items)
+                ? budget.items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0)
+                : 0,
+            subtotal: typeof budget.subtotal === 'number' ? budget.subtotal : Number(budget.total ?? 0),
+            adjustmentAmount: typeof budget.adjustmentAmount === 'number' ? budget.adjustmentAmount : 0,
+            adjustmentDescription: '',
+            total: Number(budget.total ?? 0),
+            payment: { cash: 0, digital: 0, credit: 0, echeqs: [] },
+            status: 'active',
+            returnedTotal: 0,
+            creditNotes: [],
+            shiftId: budget.shiftId || undefined,
+            facturacion: 'N',
+            isPendingSync: false,
+            document_type: 'budget',
+        }));
+
+        return [...mappedHistorySales, ...mappedBudgets].sort((a, b) => b.date.getTime() - a.date.getTime());
+    }, [historySalesRows, rawBudgets, customersWithCalculatedDebt, processedTransactions]);
+
     // --- POS Handlers ---
 
     const handleAddToCart = useCallback((product: Product) => {
@@ -672,9 +855,11 @@ const AppContent: React.FC = () => {
                     suppliers={suppliers}
                     allUsers={allUsers}
                     processedSales={processedSales}
+                    historyProcessedSales={historyProcessedSales}
                     shifts={shifts}
                     isLoading={isLoading}
                     refreshData={fetchData}
+                    fetchSalesForDateRange={fetchSalesForHistoryDateRange}
                     currentSubView={subView}
                 />
             );
@@ -727,13 +912,14 @@ const AppContent: React.FC = () => {
             case 'sales-history':
                 return (
                     <SalesHistoryView
-                        processedSales={processedSales}
+                        processedSales={historyProcessedSales}
                         products={products}
                         customers={customersWithCalculatedDebt}
                         allUsers={allUsers}
                         shifts={shifts}
-                        isLoading={isLoading}
+                        isLoading={isLoading || isSalesHistoryLoading}
                         refreshData={fetchData}
+                        fetchSalesForDateRange={fetchSalesForHistoryDateRange}
                         onEditSale={handleEditSale}
                     />
                 );
