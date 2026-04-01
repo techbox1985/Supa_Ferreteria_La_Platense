@@ -1312,8 +1312,7 @@ export const addCustomerSupabase = async (customerData: any): Promise<any> => {
             whatsapp: customerData.Whatsapp,
             document_type: customerData['Tipo.Documento'],
             document_number: customerData.Documento,
-            iva_condition: customerData.Condicion_IVA,
-            is_deleted: false
+            iva_condition: customerData.Condicion_IVA
         }])
         .select();
     if (error) throw error;
