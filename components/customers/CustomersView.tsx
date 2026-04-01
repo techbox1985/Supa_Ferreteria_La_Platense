@@ -129,7 +129,7 @@ const CustomersView: React.FC<CustomersViewProps> = ({ customers, refreshData, i
     return (
       <div className="p-6 space-y-6">
         <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-800">Gestión de Clientes (Supabase)</h1>
+          <h1 className="text-3xl font-bold text-gray-800">Gestión de Clientes</h1>
           <button onClick={handleAddNew} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2">
               <Icon path="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" className="w-5 h-5"/>
               <span>Nuevo Cliente</span>

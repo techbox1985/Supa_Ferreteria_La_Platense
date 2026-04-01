@@ -88,6 +88,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const [categoryTree, setCategoryTree] = useState<CategoryTreeNode[]>([]);
   const [, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilterId, setCategoryFilterId] = useState('All');
   const [providerFilter, setProviderFilter] = useState('All');
   const [onlineFilter, setOnlineFilter] = useState('All');
@@ -132,6 +133,66 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       .filter(([id, name]) => id !== '' && name !== '');
     return new Map(entries);
   }, [suppliers]);
+
+  useEffect(() => {
+    setProducts(Array.isArray(initialProducts) ? (initialProducts as ProductRow[]) : []);
+  }, [initialProducts]);
+
+  useEffect(() => {
+    setSuppliers(Array.isArray(initialSuppliers) ? (initialSuppliers as SupplierRow[]) : []);
+  }, [initialSuppliers]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [searchTerm]);
+
+  const loadCategoryData = async () => {
+    try {
+      const categoryTreeResponse = await api.getCategoryTreeSupabase();
+
+      const normalizedTree: CategoryTreeNode[] = (Array.isArray(categoryTreeResponse) ? categoryTreeResponse : [])
+        .map((node: any) => ({
+          id: String(node?.id || '').trim(),
+          name: String(node?.name || '').trim(),
+          subcategories: Array.isArray(node?.subcategories)
+            ? node.subcategories
+                .map((sub: any) => ({ id: String(sub?.id || '').trim(), name: String(sub?.name || '').trim() }))
+                .filter((sub: { id: string; name: string }) => sub.id !== '' && sub.name !== '')
+            : [],
+        }))
+        .filter((node) => node.id !== '' && node.name !== '');
+
+      const normalizedCategories: CategoryRow[] = normalizedTree
+        .map((item: any) => ({
+          id: String(item?.id || '').trim(),
+          name: String(item?.name || '').trim(),
+        }))
+        .filter((item) => item.id !== '' && item.name !== '');
+
+      const structuredData: { [key: string]: string[] } = {};
+      normalizedTree.forEach((node) => {
+        const categoryName = node.name;
+        if (!categoryName) return;
+        const subcategories = node.subcategories.map((sub) => sub.name).filter((subName) => subName !== '');
+        structuredData[categoryName] = [...new Set(subcategories)];
+      });
+
+      Object.keys(structuredData).forEach((key) => {
+        structuredData[key] = [...structuredData[key]].sort((a, b) => a.localeCompare(b));
+      });
+
+      setCategories(normalizedCategories);
+      setCategoryTree(normalizedTree);
+      setCategoriesData(structuredData);
+    } catch (error) {
+      console.error('Error fetching category data from Supabase:', error);
+      addToast('Error al cargar categorías desde Supabase.', 'error');
+    }
+  };
 
   const refreshProducts = async () => {
     setIsLoading(true);
@@ -214,7 +275,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   };
 
   useEffect(() => {
-    refreshProducts();
+    void loadCategoryData();
   }, []);
 
   const allProviderOptions = useMemo(() => {
@@ -234,10 +295,10 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         onlineFilter === 'All' || (onlineFilter === 'Yes' ? !!product.Online : !product.Online);
       const matchesActive =
         activeFilter === 'All' || (activeFilter === 'Active' ? !!product.Activo : !product.Activo);
-      const matchesSearch = matchesProductSearch(product, searchTerm);
+      const matchesSearch = matchesProductSearch(product, debouncedSearch);
       return matchesOnline && matchesActive && matchesSearch;
     });
-  }, [products, onlineFilter, activeFilter, searchTerm]);
+  }, [products, onlineFilter, activeFilter, debouncedSearch]);
 
   const categoryFilterOptions = useMemo(() => {
     const allowedCategoryIds = new Set(
@@ -282,17 +343,19 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
     if (!exists) setProviderFilter('All');
   }, [providerFilter, providerFilterOptions]);
 
-  const filteredProducts = useMemo(() => {
-    return baseFilteredProducts
-      .filter((p) => {
-        const matchesCategory = categoryFilterId === 'All' || p.category_id === categoryFilterId;
-        const matchesProvider =
-          providerFilter === 'All' || resolveProductProviderName(p, supplierNameById) === providerFilter;
+  const filteredProductsUnsorted = useMemo(() => {
+    return baseFilteredProducts.filter((p) => {
+      const matchesCategory = categoryFilterId === 'All' || p.category_id === categoryFilterId;
+      const matchesProvider =
+        providerFilter === 'All' || resolveProductProviderName(p, supplierNameById) === providerFilter;
 
-        return matchesCategory && matchesProvider;
-      })
-      .sort((a, b) => (a.Producto || '').localeCompare(b.Producto || ''));
+      return matchesCategory && matchesProvider;
+    });
   }, [baseFilteredProducts, categoryFilterId, providerFilter, supplierNameById]);
+
+  const filteredProducts = useMemo(() => {
+    return [...filteredProductsUnsorted].sort((a, b) => (a.Producto || '').localeCompare(b.Producto || ''));
+  }, [filteredProductsUnsorted]);
 
   useEffect(() => {
     const updateWidth = () => {
