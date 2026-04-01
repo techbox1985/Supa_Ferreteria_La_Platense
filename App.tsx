@@ -240,6 +240,11 @@ const AppContent: React.FC = () => {
         }
     }, [addToast]);
 
+    const refreshExpenses = useCallback(async () => {
+        const expensesResult = await api.getExpenses();
+        setExpenses(expensesResult || []);
+    }, []);
+
     useEffect(() => {
         if (currentView !== 'sales-history') {
             setHistorySalesRows(null);
@@ -907,7 +912,7 @@ const AppContent: React.FC = () => {
                         shifts={shifts}
                         allUsers={allUsers}
                         isLoading={isLoading}
-                        refreshData={fetchData}
+                        refreshExpenses={refreshExpenses}
                     />
                 );
 

@@ -57,10 +57,10 @@ interface ExpensesViewProps {
     shifts: Shift[];
     allUsers: User[];
     isLoading: boolean;
-    refreshData: () => void;
+    refreshExpenses: () => Promise<void>;
 }
 
-export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading, refreshData }) => {
+export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading, refreshExpenses }) => {
     const [isFormOpen, setFormOpen] = useState(false);
     const [expenseToEdit, setExpenseToEdit] = useState<Expense | null>(null);
     const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
@@ -120,7 +120,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
         try {
             await api.deleteExpense(expenseToDelete.id_gastos);
             addToast('Gasto eliminado.', 'success');
-            refreshData();
+            await refreshExpenses();
             setExpenseToDelete(null);
         } catch (error) {
             addToast('Error al eliminar.', 'error');
@@ -141,7 +141,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
                 await api.addExpense({ ...data, shiftId: isSeller ? activeShift?.ID_Turno : undefined });
                 addToast('Gasto registrado.', 'success');
             }
-            refreshData();
+            await refreshExpenses();
             setFormOpen(false);
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Error al guardar.';

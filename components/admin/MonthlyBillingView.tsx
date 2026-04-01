@@ -218,26 +218,56 @@ export const MonthlyBillingView: React.FC<MonthlyBillingViewProps> = ({ processe
                 }
 
                 const invoiceData = apiResponse.data;
-                const { cae, nro, vtoCae, qrData } = invoiceData;
+                const cae = String(invoiceData?.cae || '').trim();
+                const nro = String(invoiceData?.nro || invoiceData?.invoiceNumber || '').trim();
+                const vtoCae = String(invoiceData?.vtoCae || invoiceData?.vto_cae || '').trim();
+                const qrData = String(invoiceData?.qrData || invoiceData?.qr_data || '').trim();
                 const a4Url = invoiceData.comprobante_pdf_url || invoiceData.url || '';
                 const ticketUrl = invoiceData.comprobante_ticket_url;
 
-                                const billedTotalRaw =
-                                        invoiceData.total ??
-                                        invoiceData.importe_total ??
-                                        invoiceData.importeTotal ??
-                                        invoiceData.monto ??
-                                        null;
-                                const billedTotal = Number(billedTotalRaw);
-                                if (Number.isFinite(billedTotal) && Math.abs(Number(saleForBilling.total || 0) - billedTotal) > 0.01) {
-                                        failed += 1;
-                                        incidents.push({
-                                            saleId: sale.id.slice(0, 8),
-                                            customerName,
-                                            reason: `Monto facturado inconsistente (venta ${formatCurrency(Number(saleForBilling.total || 0))} vs factura ${formatCurrency(billedTotal)})`
-                                        });
-                                        continue;
-                                }
+                const hasApprovedInvoice =
+                    Boolean(cae && nro && cae !== 'DEV_MODE_NO_CAE') &&
+                    (apiResponse.status === 'facturado' || apiResponse.ok === true || invoiceData?.ok === true);
+
+                const billedTotalRaw =
+                    invoiceData.billing_total ??
+                    invoiceData.total_factura ??
+                    invoiceData.total_facturado ??
+                    invoiceData.total ??
+                    invoiceData.importe_total ??
+                    invoiceData.importeTotal ??
+                    invoiceData.monto ??
+                    null;
+
+                const hasBilledTotalRaw = !(
+                    billedTotalRaw === null ||
+                    billedTotalRaw === undefined ||
+                    billedTotalRaw === '' ||
+                    (typeof billedTotalRaw === 'string' && billedTotalRaw.trim() === '')
+                );
+
+                const billedTotalParsed = hasBilledTotalRaw ? Number(billedTotalRaw) : NaN;
+                const saleTotal = Number(saleForBilling.total || 0);
+
+                const billedTotal = Number.isFinite(billedTotalParsed)
+                    ? billedTotalParsed
+                    : hasApprovedInvoice
+                    ? saleTotal
+                    : NaN;
+
+                if (
+                    Number.isFinite(billedTotal) &&
+                    Math.abs(saleTotal - billedTotal) > 0.01 &&
+                    !hasApprovedInvoice
+                ) {
+                    failed += 1;
+                    incidents.push({
+                        saleId: sale.id.slice(0, 8),
+                        customerName,
+                        reason: `Monto facturado inconsistente (venta ${formatCurrency(saleTotal)} vs factura ${formatCurrency(billedTotal)})`
+                    });
+                    continue;
+                }
 
                 if (!cae || !nro || cae === 'DEV_MODE_NO_CAE') {
                     failed += 1;
