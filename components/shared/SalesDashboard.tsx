@@ -662,16 +662,7 @@ export const SalesDashboard: React.FC<
             <button
               type="button"
               onClick={() => {
-                setModalConfig(prev => ({ ...prev, isOpen: false }));
-                const sale = item.sale;
-                setPaymentEditState({
-                  isOpen: true,
-                  sale,
-                  cash: formatMoneyInput(Number(sale.payment.cash || 0)),
-                  digital: formatMoneyInput(Number(sale.payment.digital || 0)),
-                  credit: formatMoneyInput(Number(sale.payment.credit || 0)),
-                  isSaving: false,
-                });
+                handleOpenPaymentEditModal(item.sale, { closeSummaryModal: true });
               }}
               className="px-2 py-1 text-xs font-medium rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
             >
@@ -686,6 +677,25 @@ export const SalesDashboard: React.FC<
       summary: <p>Diferencia total: {formatCurrency(differenceData.differenceTotal)}</p>,
     });
   }, [differenceData.detailRows, differenceData.differenceTotal, statTitlePrefix]);
+
+  const handleOpenPaymentEditModal = useCallback((sale: Sale, options?: { closeSummaryModal?: boolean; closeActionsMenu?: boolean }) => {
+    if (options?.closeSummaryModal) {
+      setModalConfig(prev => ({ ...prev, isOpen: false }));
+    }
+
+    if (options?.closeActionsMenu) {
+      setSelectedItemForActions(null);
+    }
+
+    setPaymentEditState({
+      isOpen: true,
+      sale,
+      cash: formatMoneyInput(Number(sale.payment.cash || 0)),
+      digital: formatMoneyInput(Number(sale.payment.digital || 0)),
+      credit: formatMoneyInput(Number(sale.payment.credit || 0)),
+      isSaving: false,
+    });
+  }, []);
 
   const paymentEditTotals = useMemo(() => {
     const sumPayments =
@@ -1557,6 +1567,17 @@ export const SalesDashboard: React.FC<
                 </>
               ) : selectedItemForActions.type === 'sale' ? (
                 <>
+                  <button
+                    onClick={() => {
+                      handleOpenPaymentEditModal(selectedItemForActions.item as Sale, { closeActionsMenu: true });
+                    }}
+                    disabled={(selectedItemForActions.item as Sale).status === 'annulled'}
+                    className="flex items-center space-x-3 w-full p-3 text-left hover:bg-cyan-50 text-cyan-700 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    <Icon path="M4.5 7.5h15m-15 4.5h15m-15 4.5h10.5M3.75 5.25A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V5.25z" className="w-6 h-6" />
+                    <span className="font-medium">Editar cobro</span>
+                  </button>
+
                   {!isSaleAlreadyBilled(selectedItemForActions.item as Sale) ? (
                     <button
                       onClick={() => {

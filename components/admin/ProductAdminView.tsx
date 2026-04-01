@@ -86,7 +86,9 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   );
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [categoryTree, setCategoryTree] = useState<CategoryTreeNode[]>([]);
-  const [, setIsLoading] = useState(true);
+  const [isLocalLoading, setIsLocalLoading] = useState(
+    !Array.isArray(initialProducts) || initialProducts.length === 0
+  );
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [categoryFilterId, setCategoryFilterId] = useState('All');
@@ -150,52 +152,8 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
     return () => clearTimeout(timeout);
   }, [searchTerm]);
 
-  const loadCategoryData = async () => {
-    try {
-      const categoryTreeResponse = await api.getCategoryTreeSupabase();
-
-      const normalizedTree: CategoryTreeNode[] = (Array.isArray(categoryTreeResponse) ? categoryTreeResponse : [])
-        .map((node: any) => ({
-          id: String(node?.id || '').trim(),
-          name: String(node?.name || '').trim(),
-          subcategories: Array.isArray(node?.subcategories)
-            ? node.subcategories
-                .map((sub: any) => ({ id: String(sub?.id || '').trim(), name: String(sub?.name || '').trim() }))
-                .filter((sub: { id: string; name: string }) => sub.id !== '' && sub.name !== '')
-            : [],
-        }))
-        .filter((node) => node.id !== '' && node.name !== '');
-
-      const normalizedCategories: CategoryRow[] = normalizedTree
-        .map((item: any) => ({
-          id: String(item?.id || '').trim(),
-          name: String(item?.name || '').trim(),
-        }))
-        .filter((item) => item.id !== '' && item.name !== '');
-
-      const structuredData: { [key: string]: string[] } = {};
-      normalizedTree.forEach((node) => {
-        const categoryName = node.name;
-        if (!categoryName) return;
-        const subcategories = node.subcategories.map((sub) => sub.name).filter((subName) => subName !== '');
-        structuredData[categoryName] = [...new Set(subcategories)];
-      });
-
-      Object.keys(structuredData).forEach((key) => {
-        structuredData[key] = [...structuredData[key]].sort((a, b) => a.localeCompare(b));
-      });
-
-      setCategories(normalizedCategories);
-      setCategoryTree(normalizedTree);
-      setCategoriesData(structuredData);
-    } catch (error) {
-      console.error('Error fetching category data from Supabase:', error);
-      addToast('Error al cargar categorías desde Supabase.', 'error');
-    }
-  };
-
   const refreshProducts = async () => {
-    setIsLoading(true);
+    setIsLocalLoading(true);
     try {
       const [p, s, categoryTreeResponse] = await Promise.all([
         api.getProductsSupabase(),
@@ -270,12 +228,12 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       console.error('Error fetching Supabase data:', error);
       addToast('Error al cargar datos desde Supabase.', 'error');
     } finally {
-      setIsLoading(false);
+      setIsLocalLoading(false);
     }
   };
 
   useEffect(() => {
-    void loadCategoryData();
+    void refreshProducts();
   }, []);
 
   const allProviderOptions = useMemo(() => {
@@ -301,21 +259,26 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   }, [products, onlineFilter, activeFilter, debouncedSearch]);
 
   const categoryFilterOptions = useMemo(() => {
-    const allowedCategoryIds = new Set(
-      baseFilteredProducts
-        .filter((product) => {
-          if (providerFilter === 'All') return true;
-          return resolveProductProviderName(product, supplierNameById) === providerFilter;
-        })
-        .map((product) => String(product.category_id || '').trim())
-        .filter((id) => id !== '')
-    );
+    const seenIds = new Set<string>();
+    const options: CategoryRow[] = [];
 
-    return categories
-      .filter((category) => allowedCategoryIds.has(category.id))
-      .slice()
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [baseFilteredProducts, categories, providerFilter, supplierNameById]);
+    products
+      .filter((product) => {
+        if (isDeleted(product.Eliminado)) return false;
+        if (providerFilter === 'All') return true;
+        return resolveProductProviderName(product as ProductRow, supplierNameById) === providerFilter;
+      })
+      .forEach((product) => {
+        const catId = String((product as ProductRow).category_id || '').trim();
+        const catName = String(product.Categoria || '').trim();
+        if (catId && catName && !seenIds.has(catId)) {
+          seenIds.add(catId);
+          options.push({ id: catId, name: catName });
+        }
+      });
+
+    return options.sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, providerFilter, supplierNameById]);
 
   const providerFilterOptions = useMemo(() => {
     const allowedProviders = new Set(
@@ -356,6 +319,9 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const filteredProducts = useMemo(() => {
     return [...filteredProductsUnsorted].sort((a, b) => (a.Producto || '').localeCompare(b.Producto || ''));
   }, [filteredProductsUnsorted]);
+
+  const showEmptyLoadingState = isLocalLoading && products.length === 0;
+  const showEmptyResultsState = !isLocalLoading && filteredProducts.length === 0;
 
   useEffect(() => {
     const updateWidth = () => {
@@ -549,6 +515,9 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h2 className="text-4xl font-bold text-slate-800">Administrador de Productos</h2>
+          {isLocalLoading && (
+            <p className="mt-2 text-sm text-slate-500">Cargando productos...</p>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-3">
@@ -674,7 +643,19 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
             </thead>
 
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredProducts.map((product: ProductRow) => {
+              {showEmptyLoadingState ? (
+                <tr>
+                  <td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500">
+                    Cargando productos y filtros...
+                  </td>
+                </tr>
+              ) : showEmptyResultsState ? (
+                <tr>
+                  <td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500">
+                    No se encontraron productos con los filtros actuales.
+                  </td>
+                </tr>
+              ) : filteredProducts.map((product: ProductRow) => {
                 const hasPhoto =
                   typeof (product as any).FOTOGRAFIA === 'string' &&
                   (product as any).FOTOGRAFIA.trim() !== '';
