@@ -836,21 +836,43 @@ const AppContent: React.FC = () => {
         console.debug(`[SALE_UI_REFRESH_DONE] ID: ${sale.id}`);
     }, []);
 
+    const buildCartFromSale = useCallback((sale: Sale): CartItem[] => {
+        return (sale.items || [])
+            .map((item, index) => {
+                const price = Number(item.price ?? item.product?.Precio ?? 0);
+                return {
+                    product: {
+                        ...item.product,
+                        cod: item.product?.cod || `SALE_ITEM_${sale.id}_${index}`,
+                        Producto: item.product?.Producto || 'Producto sin nombre',
+                        Precio: price,
+                    },
+                    quantity: Number(item.quantity || 0),
+                    price,
+                };
+            })
+            .filter(item => item.quantity > 0);
+    }, []);
+
+    const openSaleInPosEditor = useCallback((sale: Sale) => {
+        setCart(buildCartFromSale(sale));
+        setSaleBeingEdited(sale);
+        setCurrentView('pos');
+    }, [buildCartFromSale]);
+
     useEffect(() => {
         const handler = (e: any) => {
             if (!e.detail) return;
-            setSaleBeingEdited(e.detail);
-            setCurrentView('pos');
+            openSaleInPosEditor(e.detail);
         };
 
         window.addEventListener('edit-sale', handler);
         return () => window.removeEventListener('edit-sale', handler);
-    }, []);
+    }, [openSaleInPosEditor]);
 
-    const handleEditSale = (sale: Sale) => {
-        setSaleBeingEdited(sale);
-        setCurrentView('pos');
-    };
+    const handleEditSale = useCallback((sale: Sale) => {
+        openSaleInPosEditor(sale);
+    }, [openSaleInPosEditor]);
 
     const renderView = () => {
         if (currentView.startsWith('admin-') || currentView === 'low-stock') {
@@ -868,6 +890,7 @@ const AppContent: React.FC = () => {
                     refreshData={fetchData}
                     fetchSalesForDateRange={fetchSalesForHistoryDateRange}
                     currentSubView={subView}
+                    onEditSale={handleEditSale}
                 />
             );
         }

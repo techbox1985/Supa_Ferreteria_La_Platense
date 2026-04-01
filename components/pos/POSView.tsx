@@ -122,6 +122,14 @@ const POSView: React.FC<POSViewProps> = ({
     }, [isCheckoutOpen, saleBeingEdited]);
 
   useEffect(() => {
+    if (!saleBeingEdited) return;
+
+    setIsBudgetMode(false);
+    setIsMobileCartOpen(false);
+    setCheckoutOpen(true);
+  }, [saleBeingEdited]);
+
+  useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearchTerm(searchTerm);
     }, 250);

@@ -2549,6 +2549,42 @@ export const updateSalePaymentAllocation = async (
     return updateSalePaymentAllocationSupabase(saleId, payment);
 };
 
+export const updateSaleAdjustmentSupabase = async (
+    saleId: string,
+    payload: { subtotal: number; adjustmentAmount: number; adjustmentDescription?: string | null; echeqs?: any }
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!saleId) throw new Error('ID de venta inválido');
+
+    const subtotal = Number(payload.subtotal ?? 0);
+    const adjustmentAmount = Number(payload.adjustmentAmount ?? 0);
+
+    if (!Number.isFinite(subtotal)) throw new Error('Subtotal inválido');
+    if (!Number.isFinite(adjustmentAmount)) throw new Error('Ajuste inválido');
+
+    const total = Number((subtotal + adjustmentAmount).toFixed(2));
+    const notes = buildSaleNotesWithEcheqs(payload.adjustmentDescription, payload.echeqs);
+
+    const { error } = await supabase
+        .from('st_sales')
+        .update({
+            adjustment_amount: adjustmentAmount,
+            total,
+            notes,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', saleId);
+
+    if (error) throw error;
+};
+
+export const updateSaleAdjustment = async (
+    saleId: string,
+    payload: { subtotal: number; adjustmentAmount: number; adjustmentDescription?: string | null; echeqs?: any }
+): Promise<void> => {
+    return updateSaleAdjustmentSupabase(saleId, payload);
+};
+
 export const addCustomer = async (customerData: any): Promise<void> => {
     await addCustomerSupabase(customerData);
 };

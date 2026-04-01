@@ -49,6 +49,31 @@ const isSaleAlreadyBilled = (sale: Sale): boolean => {
   return hasBillingEvidence;
 };
 
+const resolveSaleSubtotalBase = (sale: Sale): number => {
+  const rawSubtotal = Number(sale.subtotal ?? 0);
+  if (Number.isFinite(rawSubtotal) && rawSubtotal > 0) {
+    return rawSubtotal;
+  }
+
+  const rawTotal = Number(sale.total ?? 0);
+  const rawAdjustment = Number(sale.adjustmentAmount ?? 0);
+  const derivedSubtotal = rawTotal - rawAdjustment;
+  return Number.isFinite(derivedSubtotal) ? derivedSubtotal : 0;
+};
+
+const resolveSaleDisplayTotal = (sale: Sale): number => {
+  const rawTotal = Number(sale.total ?? 0);
+  const subtotalBase = resolveSaleSubtotalBase(sale);
+  const adjustmentAmount = Number(sale.adjustmentAmount ?? 0);
+  const derivedTotal = subtotalBase + adjustmentAmount;
+
+  if (Number.isFinite(rawTotal) && (rawTotal !== 0 || derivedTotal === 0)) {
+    return rawTotal;
+  }
+
+  return Number.isFinite(derivedTotal) ? derivedTotal : 0;
+};
+
 const openHtmlInNewWindow = (
   html: string,
   features = 'width=900,height=700,scrollbars=yes,resizable=yes'
@@ -277,7 +302,6 @@ export const SalesDashboard: React.FC<
   stickyStats = false,
   stickyFilters = false,
 }) => {
-  void onEditSale;
   const [internalSearchTerm] = useState('');
   const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
@@ -333,7 +357,23 @@ export const SalesDashboard: React.FC<
     credit: '0',
     isSaving: false,
   });
+  const [discountEditState, setDiscountEditState] = useState<{
+    isOpen: boolean;
+    sale: Sale | null;
+    subtotalBase: number;
+    adjustmentAmount: string;
+    adjustmentDescription: string;
+    isSaving: boolean;
+  }>({
+    isOpen: false,
+    sale: null,
+    subtotalBase: 0,
+    adjustmentAmount: '0',
+    adjustmentDescription: '',
+    isSaving: false,
+  });
   const [patchedPayments, setPatchedPayments] = useState<Map<string, { cash: number; digital: number; credit: number }>>(new Map());
+  const [patchedAdjustments, setPatchedAdjustments] = useState<Map<string, { adjustmentAmount: number; adjustmentDescription: string; total: number }>>(new Map());
   const { activeShift } = useContext(AuthContext);
   const { addToast } = useToast();
 
@@ -357,17 +397,30 @@ export const SalesDashboard: React.FC<
   // Clear optimistic patches when parent provides fresh salesData after a real refresh
   useEffect(() => {
     setPatchedPayments(prev => (prev.size === 0 ? prev : new Map()));
+    setPatchedAdjustments(prev => (prev.size === 0 ? prev : new Map()));
   }, [salesData]);
 
-  // Apply optimistic payment patches so the UI updates immediately after save
+  // Apply optimistic payment and adjustment patches so the UI updates immediately after save.
   const effectiveSalesData = useMemo(() => {
-    if (patchedPayments.size === 0) return salesData;
+    if (patchedPayments.size === 0 && patchedAdjustments.size === 0) return salesData;
     return salesData.map(sale => {
+      let nextSale = sale;
+
+      const adjustmentPatch = patchedAdjustments.get(sale.id);
+      if (adjustmentPatch) {
+        nextSale = {
+          ...nextSale,
+          adjustmentAmount: adjustmentPatch.adjustmentAmount,
+          adjustmentDescription: adjustmentPatch.adjustmentDescription,
+          total: adjustmentPatch.total,
+        };
+      }
+
       const patch = patchedPayments.get(sale.id);
-      if (!patch) return sale;
-      return { ...sale, payment: { ...sale.payment, cash: patch.cash, digital: patch.digital, credit: patch.credit } };
+      if (!patch) return nextSale;
+      return { ...nextSale, payment: { ...nextSale.payment, cash: patch.cash, digital: patch.digital, credit: patch.credit } };
     });
-  }, [salesData, patchedPayments]);
+  }, [salesData, patchedAdjustments, patchedPayments]);
 
   const filteredSales = useMemo(() => {
     if (!effectiveSalesData) return [];
@@ -697,6 +750,21 @@ export const SalesDashboard: React.FC<
     });
   }, []);
 
+  const handleOpenDiscountEditModal = useCallback((sale: Sale) => {
+    setSelectedItemForActions(null);
+
+    const subtotalBase = resolveSaleSubtotalBase(sale);
+    setDiscountEditState({
+      isOpen: true,
+      sale,
+      subtotalBase,
+      adjustmentAmount: formatMoneyInput(Number(sale.adjustmentAmount ?? 0)),
+      adjustmentDescription: String(sale.adjustmentDescription || '').trim(),
+      isSaving: false,
+    });
+  }, []);
+  void handleOpenDiscountEditModal;
+
   const paymentEditTotals = useMemo(() => {
     const sumPayments =
       parseMoneyInput(paymentEditState.cash) +
@@ -721,6 +789,28 @@ export const SalesDashboard: React.FC<
       isSaving: false,
     });
   }, [paymentEditState.isSaving]);
+
+  const handleCloseDiscountEditModal = useCallback(() => {
+    if (discountEditState.isSaving) return;
+    setDiscountEditState({
+      isOpen: false,
+      sale: null,
+      subtotalBase: 0,
+      adjustmentAmount: '0',
+      adjustmentDescription: '',
+      isSaving: false,
+    });
+  }, [discountEditState.isSaving]);
+
+  const discountEditComputed = useMemo(() => {
+    const subtotalBase = Number(discountEditState.subtotalBase || 0);
+    const adjustmentAmount = parseMoneyInput(discountEditState.adjustmentAmount);
+    return {
+      subtotalBase,
+      adjustmentAmount,
+      total: subtotalBase + adjustmentAmount,
+    };
+  }, [discountEditState.adjustmentAmount, discountEditState.subtotalBase]);
 
   const handleSavePaymentEdit = useCallback(async () => {
     if (!paymentEditState.sale) return;
@@ -759,6 +849,57 @@ export const SalesDashboard: React.FC<
       setPaymentEditState(prev => ({ ...prev, isSaving: false }));
     }
   }, [addToast, paymentEditState.cash, paymentEditState.credit, paymentEditState.digital, paymentEditState.sale, refreshData]);
+
+  const handleSaveDiscountEdit = useCallback(async () => {
+    if (!discountEditState.sale) return;
+
+    const sale = discountEditState.sale;
+    const subtotalBase = Number(discountEditState.subtotalBase || 0);
+    const adjustmentAmount = parseMoneyInput(discountEditState.adjustmentAmount);
+    const adjustmentDescription = String(discountEditState.adjustmentDescription || '').trim();
+    const total = subtotalBase + adjustmentAmount;
+
+    setDiscountEditState(prev => ({ ...prev, isSaving: true }));
+
+    try {
+      await api.updateSaleAdjustment(sale.id, {
+        subtotal: subtotalBase,
+        adjustmentAmount,
+        adjustmentDescription,
+        echeqs: sale.payment.echeqs,
+      });
+
+      setPatchedAdjustments(prev => {
+        const next = new Map(prev);
+        next.set(sale.id, {
+          adjustmentAmount,
+          adjustmentDescription,
+          total,
+        });
+        return next;
+      });
+
+      addToast('Descuento/ajuste de la venta actualizado correctamente.', 'success');
+      setDiscountEditState({
+        isOpen: false,
+        sale: null,
+        subtotalBase: 0,
+        adjustmentAmount: '0',
+        adjustmentDescription: '',
+        isSaving: false,
+      });
+      await refreshData();
+    } catch (error) {
+      const errMsg =
+        error instanceof Error
+          ? error.message
+          : typeof (error as any)?.message === 'string'
+            ? (error as any).message
+            : JSON.stringify(error);
+      addToast(`No se pudo actualizar el descuento: ${errMsg}`, 'error');
+      setDiscountEditState(prev => ({ ...prev, isSaving: false }));
+    }
+  }, [addToast, discountEditState.adjustmentAmount, discountEditState.adjustmentDescription, discountEditState.sale, discountEditState.subtotalBase, refreshData]);
 
   const handleView = useCallback(
     (sale: Sale) => {
@@ -1261,7 +1402,7 @@ export const SalesDashboard: React.FC<
               </div>
               <div className="bg-blue-50 rounded-md border border-blue-200 p-3 md:col-span-2">
                 <p className="text-blue-700 text-xs">Total de la venta</p>
-                <p className="font-bold text-blue-900 text-lg">{formatCurrency(paymentEditState.sale.total)}</p>
+                <p className="font-bold text-blue-900 text-lg">{formatCurrency(resolveSaleDisplayTotal(paymentEditState.sale))}</p>
               </div>
             </div>
 
@@ -1437,6 +1578,85 @@ export const SalesDashboard: React.FC<
                   </li>
                 ))}
               </ul>
+
+              {discountEditState.isOpen && discountEditState.sale && (
+                <Modal
+                  isOpen={discountEditState.isOpen}
+                  onClose={handleCloseDiscountEditModal}
+                  title={`Editar Descuento Venta #${discountEditState.sale.id.slice(0, 8)}`}
+                  size="lg"
+                >
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
+                        <p className="text-gray-500 text-xs">ID Venta</p>
+                        <p className="font-semibold text-gray-800 font-mono">{discountEditState.sale.id.slice(0, 8)}</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
+                        <p className="text-gray-500 text-xs">Fecha</p>
+                        <p className="font-semibold text-gray-800">{new Date(discountEditState.sale.date).toLocaleString('es-AR')}</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3 md:col-span-2">
+                        <p className="text-gray-500 text-xs">Cliente</p>
+                        <p className="font-semibold text-gray-800">{discountEditState.sale.customer?.['Nombre y Apellido'] || 'Consumidor Final'}</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
+                        <p className="text-gray-500 text-xs">Subtotal base</p>
+                        <p className="font-semibold text-gray-800">{formatCurrency(discountEditComputed.subtotalBase)}</p>
+                      </div>
+                      <div className="bg-blue-50 rounded-md border border-blue-200 p-3">
+                        <p className="text-blue-700 text-xs">Total recalculado</p>
+                        <p className="font-bold text-blue-900 text-lg">{formatCurrency(discountEditComputed.total)}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Ajuste / descuento</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={discountEditState.adjustmentAmount}
+                          onChange={(e) => setDiscountEditState(prev => ({ ...prev, adjustmentAmount: e.target.value }))}
+                          disabled={discountEditState.isSaving}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                        />
+                        <p className="mt-1 text-xs text-gray-500">Negativo = descuento. Positivo = recargo.</p>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Descripción del ajuste</label>
+                        <textarea
+                          value={discountEditState.adjustmentDescription}
+                          onChange={(e) => setDiscountEditState(prev => ({ ...prev, adjustmentDescription: e.target.value }))}
+                          disabled={discountEditState.isSaving}
+                          rows={3}
+                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm resize-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={handleCloseDiscountEditModal}
+                        disabled={discountEditState.isSaving}
+                        className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveDiscountEdit}
+                        disabled={discountEditState.isSaving}
+                        className="px-4 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                      >
+                        {discountEditState.isSaving ? 'Guardando...' : 'Guardar descuento'}
+                      </button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
             </div>
 
             <div>
@@ -1567,16 +1787,18 @@ export const SalesDashboard: React.FC<
                 </>
               ) : selectedItemForActions.type === 'sale' ? (
                 <>
-                  <button
-                    onClick={() => {
-                      handleOpenPaymentEditModal(selectedItemForActions.item as Sale, { closeActionsMenu: true });
-                    }}
-                    disabled={(selectedItemForActions.item as Sale).status === 'annulled'}
-                    className="flex items-center space-x-3 w-full p-3 text-left hover:bg-cyan-50 text-cyan-700 rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    <Icon path="M4.5 7.5h15m-15 4.5h15m-15 4.5h10.5M3.75 5.25A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V5.25z" className="w-6 h-6" />
-                    <span className="font-medium">Editar cobro</span>
-                  </button>
+                  {onEditSale && (selectedItemForActions.item as Sale).status !== 'annulled' && !isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
+                    <button
+                      onClick={() => {
+                        onEditSale(selectedItemForActions.item as Sale);
+                        setSelectedItemForActions(null);
+                      }}
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-cyan-50 text-cyan-700 rounded-xl transition-colors"
+                    >
+                      <Icon path="M4.5 7.5h15m-15 4.5h15m-15 4.5h10.5M3.75 5.25A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V5.25z" className="w-6 h-6" />
+                      <span className="font-medium">Editar venta</span>
+                    </button>
+                  )}
 
                   {!isSaleAlreadyBilled(selectedItemForActions.item as Sale) ? (
                     <button

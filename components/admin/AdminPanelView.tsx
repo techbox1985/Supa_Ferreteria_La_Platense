@@ -28,9 +28,10 @@ interface AdminPanelViewProps {
     refreshData: () => void;
     fetchSalesForDateRange?: (startDate: string, endDate: string) => Promise<void>;
     currentSubView: string;
+    onEditSale?: (sale: Sale) => void;
 }
 
-export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ products, customers, suppliers, allUsers, processedSales, historyProcessedSales, shifts, isLoading, refreshData, fetchSalesForDateRange, currentSubView }) => {
+export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ products, customers, suppliers, allUsers, processedSales, historyProcessedSales, shifts, isLoading, refreshData, fetchSalesForDateRange, currentSubView, onEditSale }) => {
     const renderCurrentView = () => {
         switch(currentSubView) {
             case 'products':
@@ -46,7 +47,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ products, custom
             case 'users':
                 return <UsersView allUsers={allUsers} refreshUsers={refreshData} isLoading={isLoading} />;
             case 'sales-history':
-                return <SalesHistoryView processedSales={historyProcessedSales || processedSales} products={products} customers={customers} allUsers={allUsers} shifts={shifts} isLoading={isLoading} refreshData={refreshData} fetchSalesForDateRange={fetchSalesForDateRange} />;
+                return <SalesHistoryView processedSales={historyProcessedSales || processedSales} products={products} customers={customers} allUsers={allUsers} shifts={shifts} isLoading={isLoading} refreshData={refreshData} fetchSalesForDateRange={fetchSalesForDateRange} onEditSale={onEditSale} />;
             case 'monthly-billing':
                 return <MonthlyBillingView processedSales={processedSales} refreshData={refreshData} />;
             case 'shifts':
