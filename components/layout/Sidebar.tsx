@@ -12,6 +12,7 @@ interface SidebarProps {
     currentView: View;
     onNavigate: (view: View) => void;
     isAdmin: boolean;
+    canSeeLowStock: boolean;
 }
 
 const SidebarItem: React.FC<{
@@ -42,7 +43,7 @@ const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     </div>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdmin }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdmin, canSeeLowStock }) => {
     return (
         <aside className="w-52 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 overflow-y-auto">
             <nav className="p-3 space-y-0.5">
@@ -71,7 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                     isActive={currentView === 'customers'}
                     onClick={() => onNavigate('customers')}
                 />
-                {isAdmin && (
+                {canSeeLowStock && (
                     <SidebarItem
                         label="Bajo Stock"
                         iconPath="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"

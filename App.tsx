@@ -974,6 +974,7 @@ const AppContent: React.FC = () => {
                     currentView={currentView}
                     onNavigate={(view) => setCurrentView(view)}
                     isAdmin={currentUser?.Rol === 'Admin'}
+                    canSeeLowStock={currentUser?.Rol === 'Admin' || currentUser?.Rol === 'Vendedor'}
                 />
                 <main className="flex-grow overflow-y-auto relative">
                 <React.Suspense
