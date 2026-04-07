@@ -1154,19 +1154,23 @@ export const updateSupplierSupabase = async (supplierData: any): Promise<any> =>
     const id = supplierData.id || supplierData.ID_Proveedor;
     if (!id) throw new Error('ID de proveedor no proporcionado');
 
+    const textOrNull = (value: any): string | null => {
+        const normalized = String(value ?? '').trim();
+        return normalized === '' ? null : normalized;
+    };
+
     const mapping: any = {};
     if (supplierData.Nombre !== undefined) mapping.nombre = supplierData.Nombre;
     if (supplierData.CUIT !== undefined) mapping.cuit = supplierData.CUIT;
-    if (supplierData.Condicion_IVA !== undefined) mapping.iva_condition = supplierData.Condicion_IVA;
-    if (supplierData.Email !== undefined) mapping.email = supplierData.Email;
-    if (supplierData.Telefono !== undefined) mapping.phone = supplierData.Telefono;
-    if (supplierData.Contacto !== undefined) mapping.contact_person = supplierData.Contacto;
-    if (supplierData.Direccion !== undefined) mapping.address = supplierData.Direccion;
-    if (supplierData.Activo !== undefined) mapping.is_active = supplierData.Activo === 'SI';
+    if (supplierData.Condicion_IVA !== undefined) mapping.condicion_iva = textOrNull(supplierData.Condicion_IVA);
+    if (supplierData.Email !== undefined) mapping.email = textOrNull(supplierData.Email);
+    if (supplierData.Telefono !== undefined) mapping.telefono = textOrNull(supplierData.Telefono);
+    if (supplierData.Contacto !== undefined) mapping.contacto = textOrNull(supplierData.Contacto);
+    if (supplierData.Direccion !== undefined) mapping.direccion = textOrNull(supplierData.Direccion);
+    if (supplierData.Activo !== undefined) mapping.activo = supplierData.Activo === 'SI';
     if (supplierData.tax_1_percent !== undefined) mapping.tax_1_percent = parsePercentValue(supplierData.tax_1_percent);
     if (supplierData.tax_2_percent !== undefined) mapping.tax_2_percent = parsePercentValue(supplierData.tax_2_percent);
     if (supplierData.tax_3_percent !== undefined) mapping.tax_3_percent = parsePercentValue(supplierData.tax_3_percent);
-    if (supplierData.is_deleted !== undefined) mapping.is_deleted = supplierData.is_deleted;
 
     const { data, error } = await supabase
         .from('st_suppliers')

@@ -97,6 +97,7 @@ const AppContent: React.FC = () => {
 
     // Estados de UI
     const [isLoading, setIsLoading] = useState(true);
+    const [isProductsLoading, setIsProductsLoading] = useState(true);
     const [isSalesHistoryLoading, setIsSalesHistoryLoading] = useState(true);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
@@ -126,6 +127,7 @@ const AppContent: React.FC = () => {
 
         if (isFirstLoad) {
             setIsLoading(true);
+            setIsProductsLoading(true);
         }
 
         setIsRefreshing(true);
@@ -181,6 +183,7 @@ const AppContent: React.FC = () => {
             } else {
                 console.error('Error fetching products:', productsResult.reason);
             }
+            setIsProductsLoading(false);
 
             if (salesResult.status === 'fulfilled') {
                 setRawSales(salesResult.value || []);
@@ -221,6 +224,7 @@ const AppContent: React.FC = () => {
             console.error('Error fetching critical data:', error);
             addToast('Error al cargar los datos principales. Verifique su conexión.', 'error');
             setIsLoading(false);
+            setIsProductsLoading(false);
             setIsSalesHistoryLoading(false);
         } finally {
             setIsRefreshing(false);
@@ -886,7 +890,7 @@ const AppContent: React.FC = () => {
                     processedSales={processedSales}
                     historyProcessedSales={historyProcessedSales}
                     shifts={shifts}
-                    isLoading={isLoading}
+                    isLoading={isLoading || isProductsLoading}
                     refreshData={fetchData}
                     fetchSalesForDateRange={fetchSalesForHistoryDateRange}
                     currentSubView={subView}

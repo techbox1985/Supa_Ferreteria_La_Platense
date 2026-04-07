@@ -9,9 +9,10 @@ import * as api from '../../services/api';
 interface LowStockAdminSectionProps {
   products: Product[];
   suppliers: Supplier[];
+  isLoading?: boolean;
 }
 
-export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ products }) => {
+export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ products, isLoading = false }) => {
   type LocalProduct = Product & { category_id?: string; supplier_id?: string };
   type CategoryOption = { id: string; name: string };
 
@@ -283,7 +284,16 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredLowStock.length > 0 ? filteredLowStock.map((p) => {
+              {isLoading ? (
+                <tr>
+                  <td colSpan={9} className="text-center py-10 text-gray-400">
+                    <div className="flex flex-col items-center gap-2">
+                      <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-8 h-8 animate-spin" />
+                      <span className="text-sm">Cargando productos...</span>
+                    </div>
+                  </td>
+                </tr>
+              ) : filteredLowStock.length > 0 ? filteredLowStock.map((p) => {
                 const stock = getStock(p);
                 const min = getMinStock(p);
                 const missing = getMissing(p);

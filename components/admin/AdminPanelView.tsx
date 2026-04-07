@@ -37,7 +37,7 @@ export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ products, custom
             case 'products':
                 return <ProductAdminView products={products} suppliers={suppliers} refreshProducts={refreshData} isLoading={isLoading} />;
             case 'low-stock-admin':
-                return <LowStockAdminSection products={products} suppliers={suppliers} />;
+                return <LowStockAdminSection products={products} suppliers={suppliers} isLoading={isLoading} />;
             case 'quick-edit':
                 return <QuickPriceEditorView products={products} refreshData={refreshData} isLoading={isLoading} />;
             case 'stock-entry':
