@@ -89,6 +89,9 @@ const formatDateTime = (value: any): string => {
   });
 };
 
+const PRODUCT_IMAGE_PLACEHOLDER =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+
 export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   products: initialProducts,
   suppliers: initialSuppliers,
@@ -139,6 +142,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
   const isSyncingScroll = useRef(false);
+  const brokenImageUrlsRef = useRef<Set<string>>(new Set());
   const [tableWidth, setTableWidth] = useState(0);
 
   const categoryNameById = useMemo(() => {
@@ -752,9 +756,16 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                   </td>
                 </tr>
               ) : filteredProducts.map((product: ProductRow) => {
+                const rawPhoto = typeof (product as any).FOTOGRAFIA === 'string' ? (product as any).FOTOGRAFIA : '';
+                const normalizedPhoto = rawPhoto.trim();
+                const isKnownInvalidPhoto =
+                  normalizedPhoto === '' ||
+                  normalizedPhoto.toLowerCase().includes('gettablefileurl') ||
+                  normalizedPhoto.toLowerCase().includes('undefined') ||
+                  normalizedPhoto.toLowerCase().includes('null');
                 const hasPhoto =
-                  typeof (product as any).FOTOGRAFIA === 'string' &&
-                  (product as any).FOTOGRAFIA.trim() !== '';
+                  !isKnownInvalidPhoto &&
+                  !brokenImageUrlsRef.current.has(normalizedPhoto);
                 const hasOfferPrice = Number((product as any)['Precio de Oferta'] ?? 0) > 0;
                 const pricingBadgeClass = hasOfferPrice
                   ? 'bg-red-100 text-red-800'
@@ -771,11 +782,16 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                     <td className="px-4 py-3">
                       {hasPhoto ? (
                         <img
-                          src={(product as any).FOTOGRAFIA}
+                          src={normalizedPhoto || PRODUCT_IMAGE_PLACEHOLDER}
                           alt={getProductDisplayName(product)}
                           className="w-16 h-16 object-cover rounded-md"
                           onError={(e) => {
-                            e.currentTarget.style.display = 'none';
+                            if (normalizedPhoto) {
+                              brokenImageUrlsRef.current.add(normalizedPhoto);
+                            }
+                            if (e.currentTarget.dataset.fallbackApplied === '1') return;
+                            e.currentTarget.dataset.fallbackApplied = '1';
+                            e.currentTarget.src = PRODUCT_IMAGE_PLACEHOLDER;
                           }}
                         />
                       ) : (
