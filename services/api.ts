@@ -1,13 +1,17 @@
 // --- PRODUCTOS SUPABASE: Métodos CRUD mínimos para ProductAdminView ---
 const buildProductSupabasePayload = (productData: any, options?: { includeUpdatedAt?: boolean }): Record<string, any> => {
     const mapping: Record<string, any> = {};
+    const textOrNull = (value: any): string | null => {
+        const normalized = String(value ?? '').trim();
+        return normalized === '' ? null : normalized;
+    };
 
     if (productData.cod !== undefined) mapping.cod = productData.cod;
-    if (productData.Producto !== undefined) mapping.name = productData.Producto;
+    if (productData.Producto !== undefined) mapping.name = textOrNull(productData.Producto);
     if (productData.category_id !== undefined) mapping.category_id = productData.category_id;
     if (productData['Sub Categoria'] !== undefined) mapping.sub_category = productData['Sub Categoria'] || null;
     if (productData.supplier_id !== undefined) mapping.supplier_id = productData.supplier_id || null;
-    if (productData['cod.barras'] !== undefined) mapping.barcode = productData['cod.barras'];
+    if (productData['cod.barras'] !== undefined) mapping.barcode = textOrNull(productData['cod.barras']);
     if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
     if (productData.cost_currency !== undefined) mapping.cost_currency = productData.cost_currency;
     if (productData.cost_price_usd !== undefined) mapping.cost_price_usd = productData.cost_price_usd;
@@ -19,8 +23,9 @@ const buildProductSupabasePayload = (productData: any, options?: { includeUpdate
     if (productData.stockk !== undefined) mapping.current_stock = productData.stockk;
     if (productData.Minimo !== undefined) mapping.min_stock = productData.Minimo;
     if (productData.Activo !== undefined) mapping.is_active = !!productData.Activo;
-    if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = productData.FOTOGRAFIA;
-    if (productData.Imagen !== undefined) mapping.image_url = productData.Imagen;
+    if (productData.Online !== undefined) mapping.is_online = !!productData.Online;
+    if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = textOrNull(productData.FOTOGRAFIA);
+    if (productData.Imagen !== undefined) mapping.image_url = textOrNull(productData.Imagen);
     if (productData.Eliminado !== undefined) mapping.is_deleted = !!productData.Eliminado;
     if (options?.includeUpdatedAt) mapping.updated_at = new Date().toISOString();
 
@@ -504,6 +509,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'current_stock',
         'min_stock',
         'is_active',
+        'is_online',
         'photo_url',
         'image_url',
         'is_deleted',
@@ -565,6 +571,7 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             stockk: currentStock,
             Minimo: Number(item.min_stock ?? 0),
             Activo: Boolean(item.is_active ?? true),
+            Online: Boolean(item.is_online ?? false),
             FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',
             Imagen: item.image_url ?? item.photo_url ?? '',
             Eliminado: Boolean(item.is_deleted ?? false),
@@ -603,6 +610,7 @@ export const getProductsForPOS = async (): Promise<Product[]> => {
         'current_stock',
         'min_stock',
         'is_active',
+        'is_online',
         'photo_url',
         'image_url',
         'is_deleted',
@@ -636,6 +644,7 @@ export const getProductsForPOS = async (): Promise<Product[]> => {
         stockk: Number(item.current_stock ?? 0),
         Minimo: Number(item.min_stock ?? 0),
         Activo: Boolean(item.is_active ?? true),
+        Online: Boolean(item.is_online ?? false),
         FOTOGRAFIA: item.photo_url ?? item.image_url ?? '',
         Imagen: item.image_url ?? item.photo_url ?? '',
         Eliminado: Boolean(item.is_deleted ?? false),
@@ -647,7 +656,7 @@ export const getCategoriesSupabase = async (): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     const { data, error } = await supabase
         .from('st_categories')
-        .select('*');
+        .select('id, name');
     if (error) throw error;
     return data || [];
 };
@@ -656,7 +665,7 @@ export const getSuppliersSupabase = async (): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     const { data, error } = await supabase
         .from('st_suppliers')
-        .select('*');
+        .select('id, nombre, activo');
     if (error) throw error;
     return data || [];
 };
@@ -2164,61 +2173,9 @@ export const getSales = async (options?: { startDate?: string; endDate?: string;
 
     const salesRows = [...salesRowsMap.values(), ...salesRowsNoId];
     console.log('[getSales] Total ventas traidas desde st_sales:', salesRows.length, { startIso, endIso });
-    const saleIds = salesRows.map((row: any) => String(row?.id || '')).filter(Boolean);
-    const invoiceBySaleId = new Map<string, any>();
-
-    // Try to enrich sales with the real fiscal source (public.invoices) linked by sale_id.
-    // If this query fails for any reason, we keep legacy st_sales fields as fallback.
-    if (saleIds.length > 0) {
-        const baseOrder = { ascending: false };
-        const selectCandidates = [
-            // Esquema completo con columnas nuevas y legacy.
-            'sale_id, cae, nro, qr_data, pdf_url, comprobante_pdf_url, ticket_url, comprobante_ticket_url, url, comprobante_url, vto_cae, invoice_type, issued_at, created_at',
-            // Variante sin columnas alternativas.
-            'sale_id, cae, nro, qr_data, pdf_url, ticket_url, comprobante_ticket_url, url, vto_cae, invoice_type, issued_at, created_at',
-            // Variante legacy frecuente.
-            'sale_id, cae, nro, qr_data, pdf_url, url, ticket_url, invoice_type, created_at',
-            // Fallback mínimo para no romper listado.
-            'sale_id, cae, nro, created_at'
-        ];
-
-        let invoicesData: any[] = [];
-        let invoicesError: any = null;
-
-        try {
-            for (const selectClause of selectCandidates) {
-                const response = await supabase
-                    .from('invoices')
-                    .select(selectClause)
-                    .in('sale_id', saleIds)
-                    .order('created_at', baseOrder);
-
-                invoicesData = Array.isArray(response.data) ? response.data : [];
-                invoicesError = response.error;
-
-                if (!invoicesError) {
-                    break;
-                }
-            }
-        } catch {
-            // Non-blocking: if invoices lookup fails, st_sales fallback fields are used.
-        }
-
-        if (!invoicesError && Array.isArray(invoicesData)) {
-            for (const invoice of invoicesData) {
-                const linkedSaleId = String(invoice?.sale_id || '').trim();
-                if (!linkedSaleId) continue;
-                // Query ordered by newest first, keep the first invoice per sale.
-                if (!invoiceBySaleId.has(linkedSaleId)) {
-                    invoiceBySaleId.set(linkedSaleId, invoice);
-                }
-            }
-        }
-
-    }
 
     return salesRows.map((item: any) => {
-        const linkedInvoice = invoiceBySaleId.get(String(item.id || ''));
+        const linkedInvoice = null;
         const invoiceData = buildInvoiceData(item, linkedInvoice);
         const parsedNotes = extractSaleNotesAndEcheqs(item.notes);
         const items = (item.st_sale_items || []).map((si: any) => ({
