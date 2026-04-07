@@ -38,21 +38,26 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
         return getLocalDateString(now);
     });
 
+    const [draftStartDate, setDraftStartDate] = useState(startDate);
+    const [draftEndDate, setDraftEndDate] = useState(endDate);
+
     const [sellerFilter, setSellerFilter] = useState('All');
     // Nuevo filtro de tipo de documento: 'all' | 'sale' | 'budget'
     const [docTypeFilter, setDocTypeFilter] = useState<'all' | 'sale' | 'budget'>('all');
     const [searchTerm, setSearchTerm] = useState('');
 
-    const handleStartDateChange = async (value: string) => {
-        setStartDate(value);
-        if (!fetchSalesForDateRange || !value || !endDate) return;
-        await fetchSalesForDateRange(value, endDate);
+    const applyStartDate = async () => {
+        if (!draftStartDate || draftStartDate === startDate) return;
+        setStartDate(draftStartDate);
+        if (!fetchSalesForDateRange || !endDate) return;
+        await fetchSalesForDateRange(draftStartDate, endDate);
     };
 
-    const handleEndDateChange = async (value: string) => {
-        setEndDate(value);
-        if (!fetchSalesForDateRange || !startDate || !value) return;
-        await fetchSalesForDateRange(startDate, value);
+    const applyEndDate = async () => {
+        if (!draftEndDate || draftEndDate === endDate) return;
+        setEndDate(draftEndDate);
+        if (!fetchSalesForDateRange || !startDate) return;
+        await fetchSalesForDateRange(startDate, draftEndDate);
     };
     
     const shiftUserMap = useMemo(() => {
@@ -174,9 +179,10 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                 <input 
                     type="date" 
                     id="start-date"
-                    value={startDate}
-                    onChange={e => {
-                        void handleStartDateChange(e.target.value);
+                    value={draftStartDate}
+                    onChange={e => setDraftStartDate(e.target.value)}
+                    onBlur={() => {
+                        void applyStartDate();
                     }}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
@@ -186,9 +192,10 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                 <input 
                     type="date" 
                     id="end-date"
-                    value={endDate}
-                    onChange={e => {
-                        void handleEndDateChange(e.target.value);
+                    value={draftEndDate}
+                    onChange={e => setDraftEndDate(e.target.value)}
+                    onBlur={() => {
+                        void applyEndDate();
                     }}
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
