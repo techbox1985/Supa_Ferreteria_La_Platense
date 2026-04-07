@@ -928,6 +928,39 @@ export const SalesDashboard: React.FC<
     [addToast]
   );
 
+  const handleOpenRegeneratedFiscalDocument = useCallback(
+    async (sale: Sale, docType: 'a4' | 'ticket80') => {
+      try {
+        const regenerated = await api.regenerateBillingUrlsForSale(sale.id);
+        const targetUrl = docType === 'a4' ? regenerated.pdf_url : regenerated.ticket_url;
+
+        if (!targetUrl) {
+          addToast(
+            docType === 'a4'
+              ? 'No se obtuvo una URL vigente para el PDF A4 oficial.'
+              : 'No se obtuvo una URL vigente para el Ticket 80mm oficial.',
+            'error'
+          );
+          return;
+        }
+
+        const win = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        if (!win) {
+          addToast('La ventana fue bloqueada. Habilite las ventanas emergentes.', 'error');
+        }
+      } catch (error) {
+        const errMsg =
+          error instanceof Error
+            ? error.message
+            : typeof (error as any)?.message === 'string'
+              ? (error as any).message
+              : 'Error desconocido';
+        addToast(`No se pudo regenerar el comprobante fiscal: ${errMsg}`, 'error');
+      }
+    },
+    [addToast]
+  );
+
   const handleViewBudget = useCallback((sale: SaleWithDocumentType) => {
     if (!sale.customer) {
       throw new Error('El presupuesto no tiene cliente asignado.');
@@ -1824,29 +1857,31 @@ export const SalesDashboard: React.FC<
                   )}
 
                   {(selectedItemForActions.item as Sale).facturaInfo?.ticketUrl && (
-                    <a
-                      href={(selectedItemForActions.item as Sale).facturaInfo?.ticketUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setSelectedItemForActions(null)}
+                    <button
+                      onClick={() => {
+                        const sale = selectedItemForActions.item as Sale;
+                        setSelectedItemForActions(null);
+                        void handleOpenRegeneratedFiscalDocument(sale, 'ticket80');
+                      }}
                       className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
                     >
                       <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
                       <span className="font-medium">Ver Ticket 80mm</span>
-                    </a>
+                    </button>
                   )}
 
                   {(selectedItemForActions.item as Sale).facturaInfo?.url && (
-                    <a
-                      href={(selectedItemForActions.item as Sale).facturaInfo?.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={() => setSelectedItemForActions(null)}
+                    <button
+                      onClick={() => {
+                        const sale = selectedItemForActions.item as Sale;
+                        setSelectedItemForActions(null);
+                        void handleOpenRegeneratedFiscalDocument(sale, 'a4');
+                      }}
                       className="flex items-center space-x-3 w-full p-3 text-left hover:bg-indigo-50 text-indigo-700 rounded-xl transition-colors"
                     >
                       <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
                       <span className="font-medium">Ver PDF A4 Oficial</span>
-                    </a>
+                    </button>
                   )}
 
                   {!isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
