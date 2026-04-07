@@ -665,7 +665,7 @@ export const getSuppliersSupabase = async (): Promise<any[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     const { data, error } = await supabase
         .from('st_suppliers')
-        .select('id, nombre, activo');
+        .select('*');
     if (error) throw error;
     return data || [];
 };
@@ -1185,10 +1185,14 @@ export const updateSupplierSupabase = async (supplierData: any): Promise<any> =>
         .from('st_suppliers')
         .update(mapping)
         .eq('id', id)
-        .select();
+        .select()
+        .maybeSingle();
     
     if (error) throw error;
-    return data[0];
+    if (!data) {
+        throw new Error('No se encontró el proveedor a actualizar o no hubo cambios persistidos.');
+    }
+    return data;
 };
 
 // --- CLIENTES SUPABASE ---
@@ -3510,12 +3514,12 @@ export const getSuppliers = async (): Promise<Supplier[]> => {
             tax_2_percent: parsePercentValue(item.tax_2_percent),
             tax_3_percent: parsePercentValue(item.tax_3_percent),
             CUIT: item.cuit || item.CUIT || '',
-            Condicion_IVA: item.iva_condition || item.Condicion_IVA || 'Responsable Inscripto',
+            Condicion_IVA: item.condicion_iva || item.iva_condition || item.Condicion_IVA || 'Responsable Inscripto',
             Email: item.email || item.Email || '',
-            Telefono: item.phone || item.Telefono || '',
-            Contacto: item.contact_person || item.Contacto || '',
-            Direccion: item.address || item.Direccion || '',
-            Activo: item.is_active !== undefined ? (item.is_active ? 'SI' : 'NO') : (item.Activo || 'SI'),
+            Telefono: item.telefono || item.phone || item.Telefono || '',
+            Contacto: item.contacto || item.contact_person || item.Contacto || '',
+            Direccion: item.direccion || item.address || item.Direccion || '',
+            Activo: item.activo !== undefined ? (item.activo ? 'SI' : 'NO') : (item.is_active !== undefined ? (item.is_active ? 'SI' : 'NO') : (item.Activo || 'SI')),
             Fecha_Creacion: item.created_at || item.Fecha_Creacion || ''
         } as Supplier));
 };

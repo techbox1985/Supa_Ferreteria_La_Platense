@@ -68,7 +68,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ allSuppliers, refr
             } else {
                 await api.addSupplier(supplierData as Omit<Supplier, 'ID_Proveedor'>);
             }
-            refreshSuppliers();
+            await Promise.resolve(refreshSuppliers());
             addToast('Proveedor guardado con éxito.', 'success');
             setFormOpen(false);
         } catch (error) {
