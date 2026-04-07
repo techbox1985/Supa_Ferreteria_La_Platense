@@ -180,9 +180,14 @@ const SaleRow: React.FC<{
     >
       <td className="px-2 py-4 text-center min-w-[140px]">
         <div className="flex flex-col items-center gap-1">
-          <span className="inline-block px-2 py-1 text-xs font-semibold rounded" style={{background: isBudget ? '#dbeafe' : '#dcfce7', color: isBudget ? '#1e40af' : '#166534'}}>
-            {isBudget ? 'Presupuesto' : 'Venta'}
+          <span className="inline-block px-2 py-1 text-xs font-semibold rounded" style={{background: isBudget ? '#dbeafe' : isAnnulled ? '#fee2e2' : '#dcfce7', color: isBudget ? '#1e40af' : isAnnulled ? '#991b1b' : '#166534'}}>
+            {isBudget ? 'Presupuesto' : isAnnulled ? 'Venta Anulada' : 'Venta'}
           </span>
+          {isAnnulled && (
+            <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-800">
+              Anulada
+            </span>
+          )}
           {showBilledBadge && (
             <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-emerald-100 text-emerald-800">
               Facturada
@@ -374,6 +379,9 @@ export const SalesDashboard: React.FC<
   });
   const [patchedPayments, setPatchedPayments] = useState<Map<string, { cash: number; digital: number; credit: number }>>(new Map());
   const [patchedAdjustments, setPatchedAdjustments] = useState<Map<string, { adjustmentAmount: number; adjustmentDescription: string; total: number }>>(new Map());
+  const [patchedSaleVisualState, setPatchedSaleVisualState] = useState<
+    Map<string, { status?: 'active' | 'annulled'; returnedTotal?: number }>
+  >(new Map());
   const { activeShift } = useContext(AuthContext);
   const { addToast } = useToast();
 
@@ -398,11 +406,12 @@ export const SalesDashboard: React.FC<
   useEffect(() => {
     setPatchedPayments(prev => (prev.size === 0 ? prev : new Map()));
     setPatchedAdjustments(prev => (prev.size === 0 ? prev : new Map()));
+    setPatchedSaleVisualState(prev => (prev.size === 0 ? prev : new Map()));
   }, [salesData]);
 
   // Apply optimistic payment and adjustment patches so the UI updates immediately after save.
   const effectiveSalesData = useMemo(() => {
-    if (patchedPayments.size === 0 && patchedAdjustments.size === 0) return salesData;
+    if (patchedPayments.size === 0 && patchedAdjustments.size === 0 && patchedSaleVisualState.size === 0) return salesData;
     return salesData.map(sale => {
       let nextSale = sale;
 
@@ -417,10 +426,26 @@ export const SalesDashboard: React.FC<
       }
 
       const patch = patchedPayments.get(sale.id);
-      if (!patch) return nextSale;
-      return { ...nextSale, payment: { ...nextSale.payment, cash: patch.cash, digital: patch.digital, credit: patch.credit } };
+      if (patch) {
+        nextSale = {
+          ...nextSale,
+          payment: { ...nextSale.payment, cash: patch.cash, digital: patch.digital, credit: patch.credit },
+        };
+      }
+
+      const visualPatch = patchedSaleVisualState.get(sale.id);
+      if (visualPatch) {
+        nextSale = {
+          ...nextSale,
+          status: visualPatch.status ?? nextSale.status,
+          returnedTotal:
+            typeof visualPatch.returnedTotal === 'number' ? visualPatch.returnedTotal : nextSale.returnedTotal,
+        };
+      }
+
+      return nextSale;
     });
-  }, [salesData, patchedAdjustments, patchedPayments]);
+  }, [salesData, patchedAdjustments, patchedPayments, patchedSaleVisualState]);
 
   const filteredSales = useMemo(() => {
     if (!effectiveSalesData) return [];
@@ -1134,11 +1159,21 @@ export const SalesDashboard: React.FC<
           facturaInfo: ncBillingInfo,
         });
 
-        const totalPreviouslyReturned = saleForCreditNote.returnedTotal || 0;
-        const newTotalReturned = totalPreviouslyReturned + data.total;
-        if (newTotalReturned >= saleForCreditNote.total) {
+        await api.restoreStockFromCreditNoteItems(data.items);
+
+        const isFullyReturned = await api.isSaleFullyReturnedByQuantity(saleForCreditNote.id);
+        if (isFullyReturned) {
           await api.annulSale(saleForCreditNote.id);
         }
+
+        setPatchedSaleVisualState(prev => {
+          const next = new Map(prev);
+          next.set(saleForCreditNote.id, {
+            status: isFullyReturned ? 'annulled' : 'active',
+            returnedTotal: Number(saleForCreditNote.returnedTotal || 0) + Number(data.total || 0),
+          });
+          return next;
+        });
 
         if (ticketWindow) {
           const creditNote: CreditNote = {
@@ -1157,8 +1192,8 @@ export const SalesDashboard: React.FC<
         }
 
         addToast('Nota de crédito procesada con éxito.', 'success');
-        refreshData();
         setSaleForCreditNote(null);
+        void Promise.resolve(refreshData());
       } catch (error) {
         if (ticketWindow) ticketWindow.close();
         const errMsg = error instanceof Error ? error.message : String(error);

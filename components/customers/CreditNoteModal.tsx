@@ -168,7 +168,7 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
                        <div className="flex-1">
                            <p className="font-semibold text-gray-800 truncate" title={initialItem.product.Producto}>{initialItem.product.Producto}</p>
                            <p className="text-xs text-gray-500">
-                               Cant. Original: {initialItem.quantity} / Disp: {availableToReturn} / P.U.: ${initialItem.price.toLocaleString('es-AR')}
+                               Cant. Original: {initialItem.quantity} / Disp: {availableToReturn} / P.U.: ${Number(initialItem.price || 0).toLocaleString('es-AR')}
                            </p>
                        </div>
                        <div className="flex items-center space-x-2">
@@ -206,7 +206,7 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
                 <div key={item.product.cod} className="flex items-center justify-between text-sm p-2 bg-white rounded shadow-sm gap-4">
                     <div className="flex-1">
                         <p className="font-semibold text-gray-800 truncate" title={item.product.Producto}>{item.product.Producto}</p>
-                        <p className="text-xs text-gray-500">P.U: ${item.price.toLocaleString('es-AR')}</p>
+                        <p className="text-xs text-gray-500">P.U: ${Number(item.price || 0).toLocaleString('es-AR')}</p>
                     </div>
                     <div className="flex items-center space-x-2">
                         <label htmlFor={`qty-${item.product.cod}`} className="text-xs text-gray-600">Cantidad:</label>
@@ -229,7 +229,7 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
         <div className="border-t pt-4">
           <div className="flex justify-between text-xl font-bold mb-4">
             <span>Monto del Crédito:</span>
-            <span>${total.toLocaleString('es-AR')}</span>
+            <span>${Number(total || 0).toLocaleString('es-AR')}</span>
           </div>
           
           <div>

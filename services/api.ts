@@ -2595,18 +2595,125 @@ export const createCreditNote = async (payload: any): Promise<void> => {
     if (error) throw error;
 };
 
+export const restoreStockFromCreditNoteItems = async (items: CartItem[]): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const qtyByCod = new Map<string, number>();
+    for (const item of items || []) {
+        const cod = String(item?.product?.cod || '').trim();
+        const quantity = Number(item?.quantity || 0);
+        if (!cod || !Number.isFinite(quantity) || quantity <= 0) continue;
+        qtyByCod.set(cod, (qtyByCod.get(cod) || 0) + quantity);
+    }
+
+    const productCodes = Array.from(qtyByCod.keys());
+    if (productCodes.length === 0) return;
+
+    const { data: products, error: fetchError } = await supabase
+        .from('st_products')
+        .select('cod, current_stock')
+        .in('cod', productCodes);
+
+    if (fetchError) throw fetchError;
+
+    const productMap = new Map((products || []).map((product: any) => [String(product.cod || ''), product]));
+
+    for (const [cod, qtyToRestore] of qtyByCod.entries()) {
+        const dbProduct = productMap.get(cod);
+        if (!dbProduct) continue;
+
+        const newCurrentStock = (Number(dbProduct.current_stock) || 0) + qtyToRestore;
+        const { error: updateError } = await supabase
+            .from('st_products')
+            .update({ current_stock: newCurrentStock, updated_at: new Date().toISOString() })
+            .eq('cod', cod);
+
+        if (updateError) throw updateError;
+    }
+};
+
+export const isSaleFullyReturnedByQuantity = async (saleId: string): Promise<boolean> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const normalizedSaleId = String(saleId || '').trim();
+    if (!normalizedSaleId) return false;
+
+    const { data: saleItems, error: saleItemsError } = await supabase
+        .from('st_sale_items')
+        .select('product_code, quantity')
+        .eq('sale_id', normalizedSaleId);
+
+    if (saleItemsError) throw saleItemsError;
+
+    const soldByCode = new Map<string, number>();
+    for (const row of saleItems || []) {
+        const code = String((row as any)?.product_code || '').trim();
+        const qty = Number((row as any)?.quantity || 0);
+        if (!code || !Number.isFinite(qty) || qty <= 0) continue;
+        soldByCode.set(code, (soldByCode.get(code) || 0) + qty);
+    }
+
+    if (soldByCode.size === 0) return false;
+
+    const { data: creditNotes, error: creditNotesError } = await supabase
+        .from('st_account_transactions')
+        .select('items')
+        .eq('original_sale_id', normalizedSaleId)
+        .eq('type', 'Nota de Crédito');
+
+    if (creditNotesError) throw creditNotesError;
+
+    const returnedByCode = new Map<string, number>();
+
+    for (const note of creditNotes || []) {
+        let itemsRaw: any = (note as any)?.items;
+
+        if (typeof itemsRaw === 'string') {
+            try {
+                itemsRaw = JSON.parse(itemsRaw);
+            } catch {
+                itemsRaw = [];
+            }
+        }
+
+        if (!Array.isArray(itemsRaw)) continue;
+
+        for (const item of itemsRaw) {
+            const code = String(item?.product?.cod || item?.product_code || '').trim();
+            const qty = Number(item?.quantity || 0);
+            if (!code || !Number.isFinite(qty) || qty <= 0) continue;
+            returnedByCode.set(code, (returnedByCode.get(code) || 0) + qty);
+        }
+    }
+
+    for (const [code, soldQty] of soldByCode.entries()) {
+        const returnedQty = returnedByCode.get(code) || 0;
+        if (returnedQty < soldQty) return false;
+    }
+
+    return true;
+};
+
 export const annulSaleSupabase = async (saleId: string): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
-    const { error } = await supabase
+    const normalizedSaleId = String(saleId || '').trim();
+    if (!normalizedSaleId) throw new Error('ID de venta inválido para anulación.');
+
+    const { data, error } = await supabase
         .from('st_sales')
         .update({ 
             status: 'annulled',
             updated_at: new Date().toISOString()
         })
-        .eq('id', saleId);
+        .eq('id', normalizedSaleId)
+        .select('id, status')
+        .maybeSingle();
 
     if (error) throw error;
+    if (!data || String((data as any).status || '').trim() !== 'annulled') {
+        throw new Error('No se pudo confirmar la anulación de la venta en st_sales.');
+    }
 };
 
 export const annulSale = async (saleId: string): Promise<void> => {
