@@ -271,7 +271,10 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    if (name === 'Online' || name === 'Activo' || name === 'Fragil' || name === 'Embalaje_Especial' || name === 'Permitir_Venta_Sin_Stock' || name === 'Destacado' || name === 'auto_price') {
+    if (name === 'Online' || name === 'Activo') {
+      // Online y Activo nunca son undefined: solo true o false
+      setFormData(prev => ({ ...prev, [name]: value === 'true' }));
+    } else if (name === 'Fragil' || name === 'Embalaje_Especial' || name === 'Permitir_Venta_Sin_Stock' || name === 'Destacado' || name === 'auto_price') {
       if (value === '') {
         setFormData(prev => ({ ...prev, [name]: undefined }));
       } else {
@@ -620,8 +623,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 </div>
                 <div>
                     <label className="block text-sm font-medium">Visible Online</label>
-                    <select name="Online" value={formData.Online === undefined ? '' : String(!!formData.Online)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
-                        <option value="">(Sin definir)</option>
+                    <select name="Online" value={String(!!formData.Online)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
                         <option value="true">Sí</option>
                         <option value="false">No</option>
                     </select>

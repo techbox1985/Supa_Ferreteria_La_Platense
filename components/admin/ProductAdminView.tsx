@@ -39,6 +39,21 @@ interface ProductAdminViewProps {
   isLoading: boolean;
 }
 
+type SortKey =
+  | 'Producto'
+  | 'cod'
+  | 'Categoria'
+  | 'Proveedor'
+  | 'P.Costo'
+  | 'Precio Final'
+  | 'stockk'
+  | 'Minimo'
+  | 'Online'
+  | 'Activo'
+  | 'Ultima.Actualizacion';
+
+type SortDirection = 'asc' | 'desc';
+
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 
@@ -95,6 +110,10 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const [providerFilter, setProviderFilter] = useState('All');
   const [onlineFilter, setOnlineFilter] = useState('All');
   const [activeFilter, setActiveFilter] = useState('All');
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({
+    key: 'Producto',
+    direction: 'asc',
+  });
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [productToEdit, setProductToEdit] = useState<ProductRow | null>(null);
@@ -317,8 +336,56 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   }, [baseFilteredProducts, categoryFilterId, providerFilter, supplierNameById]);
 
   const filteredProducts = useMemo(() => {
-    return [...filteredProductsUnsorted].sort((a, b) => (a.Producto || '').localeCompare(b.Producto || ''));
-  }, [filteredProductsUnsorted]);
+    const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+    const getSortValue = (product: ProductRow, key: SortKey): string | number => {
+      switch (key) {
+        case 'Producto':
+          return getProductDisplayName(product);
+        case 'cod':
+          return String(product.cod || '');
+        case 'Categoria':
+          return getProductDisplayCategory(product);
+        case 'Proveedor':
+          return getProductDisplayProvider(product, supplierNameById);
+        case 'P.Costo':
+          return Number((product as any)['P.Costo'] ?? 0);
+        case 'Precio Final':
+          return Number((product as any)['Precio Final'] ?? 0);
+        case 'stockk':
+          return Number((product as any).stockk ?? 0);
+        case 'Minimo':
+          return Number((product as any).Minimo ?? 0);
+        case 'Online':
+          return product.Online ? 1 : 0;
+        case 'Activo':
+          return product.Activo ? 1 : 0;
+        case 'Ultima.Actualizacion':
+          return new Date((product as any)['Ultima.Actualizacion'] || 0).getTime() || 0;
+        default:
+          return '';
+      }
+    };
+
+    const sorted = [...filteredProductsUnsorted].sort((a, b) => {
+      const aValue = getSortValue(a, sortConfig.key);
+      const bValue = getSortValue(b, sortConfig.key);
+
+      let result = 0;
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        result = aValue - bValue;
+      } else {
+        result = collator.compare(String(aValue), String(bValue));
+      }
+
+      if (result === 0) {
+        result = collator.compare(String(a.Producto || ''), String(b.Producto || ''));
+      }
+
+      return sortConfig.direction === 'asc' ? result : -result;
+    });
+
+    return sorted;
+  }, [filteredProductsUnsorted, sortConfig, supplierNameById]);
 
   const showEmptyLoadingState = isLocalLoading && products.length === 0;
   const showEmptyResultsState = !isLocalLoading && filteredProducts.length === 0;
@@ -510,6 +577,33 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
     });
   };
 
+  const handleSort = (key: SortKey) => {
+    setSortConfig((prev) => {
+      if (prev.key === key) {
+        return { key, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+      }
+      return { key, direction: 'asc' };
+    });
+  };
+
+  const getSortIndicator = (key: SortKey) => {
+    if (sortConfig.key !== key) return '↕';
+    return sortConfig.direction === 'asc' ? '↑' : '↓';
+  };
+
+  const renderSortableHeader = (label: string, key: SortKey, className: string) => (
+    <th
+      onClick={() => handleSort(key)}
+      className={`${className} cursor-pointer select-none`}
+      title={`Ordenar por ${label}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        <span>{label}</span>
+        <span className="text-[10px] text-gray-400">{getSortIndicator(key)}</span>
+      </span>
+    </th>
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -626,16 +720,18 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Imagen</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Producto</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">P. Costo</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">P. Venta</th>
+                {renderSortableHeader('Producto', 'Producto', 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('Código', 'cod', 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('P. Costo', 'P.Costo', 'px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('P. Venta', 'Precio Final', 'px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase')}
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Pricing</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Stock</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Mínimo</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoría</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Última actualización</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
+                {renderSortableHeader('Stock', 'stockk', 'px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('Mínimo', 'Minimo', 'px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('Categoría', 'Categoria', 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('Proveedor', 'Proveedor', 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('Online', 'Online', 'px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('Última actualización', 'Ultima.Actualizacion', 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase')}
+                {renderSortableHeader('Estado', 'Activo', 'px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase')}
                 <th className="relative px-4 py-3">
                   <span className="sr-only">Acciones</span>
                 </th>
@@ -645,13 +741,13 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
             <tbody className="bg-white divide-y divide-gray-200">
               {showEmptyLoadingState ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={14} className="px-4 py-10 text-center text-sm text-slate-500">
                     Cargando productos y filtros...
                   </td>
                 </tr>
               ) : showEmptyResultsState ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500">
+                  <td colSpan={14} className="px-4 py-10 text-center text-sm text-slate-500">
                     No se encontraron productos con los filtros actuales.
                   </td>
                 </tr>
@@ -717,6 +813,10 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                       {getProductDisplayName(product)}
                     </td>
 
+                    <td className="px-4 py-3 text-sm text-gray-600 font-mono">
+                      {String(product.cod || '')}
+                    </td>
+
                     <td className="px-4 py-3 text-sm text-right">
                       {formatCurrency((product as any)['P.Costo'] || 0)}
                     </td>
@@ -747,6 +847,18 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
 
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {getProductDisplayProvider(product, supplierNameById) || '-'}
+                    </td>
+
+                    <td className="px-4 py-3 text-center">
+                      <span
+                        onClick={() => handleToggleStatus(product, 'Online')}
+                        title="Clic para cambiar visibilidad online"
+                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full cursor-pointer ${
+                          product.Online ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        {product.Online ? 'Online' : 'Offline'}
+                      </span>
                     </td>
 
                     <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">

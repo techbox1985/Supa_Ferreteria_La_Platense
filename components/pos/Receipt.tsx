@@ -13,12 +13,18 @@ const formatCurrency = (amount: number) => {
 };
 
 const COMPANY_LOGO = 'https://tolosarefrigeracion.com.ar/wp-content/uploads/2024/12/LOGO-min.png';
-const COMPANY_ADDRESS = 'Calle 526 N° 1024 - La Plata';
-const COMPANY_RAZON_SOCIAL = 'RODRIGUEZ LUCAS ANDRES Y MARCUCCI';
-const COMPANY_CUIT = '30-71624467-3';
+const COMPANY_NAME = 'Tolosa Refrigeracion';
+const COMPANY_ADDRESS = 'Av. 32 808, B1900 La Plata';
+const COMPANY_CUIT = '30718499069';
 const COMPANY_IVA = 'Responsable Inscripto';
-const COMPANY_IIBB = '30-71624467-3';
-// ...existing code...
+
+const renderCompanyInfo = () => `
+    <div class="company-meta">
+        <p>Empresa: ${COMPANY_NAME}</p>
+        <p>Dirección: ${COMPANY_ADDRESS}</p>
+        <p>CUIT: ${COMPANY_CUIT}</p>
+    </div>
+`;
 
 export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): string => {
     const styles = customStyles || getPrintStyles();
@@ -73,7 +79,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Ticket de Venta - Refrigeración Tolosa</title>
+            <title>Ticket de Venta - ${COMPANY_NAME}</title>
             <style>
                 @media print {
                   @page {
@@ -110,6 +116,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
                     margin-top: 5px;
                 }
                 .header p { margin: 2px 0; }
+                .company-meta p { margin: 2px 0; }
                 .header, .footer { padding: 5px 0; }
                 .items-section { padding: 5px 0; }
                 .item {
@@ -150,8 +157,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
         <body>
             <div class="text-center header">
                 <img src="${COMPANY_LOGO}" style="max-width: 180px; margin-bottom: 5px;" />
-                <h1>Refrigeración Tolosa</h1>
-                <p>${COMPANY_ADDRESS}</p>
+                ${renderCompanyInfo()}
             </div>
             
             <hr class="hr" />
@@ -264,7 +270,7 @@ export const generateInvoiceHtml = (sale: Sale, customStyles?: PrintStyles): str
         <html lang="es">
         <head>
             <meta charset="UTF-8">
-            <title>Factura Electrónica - Refrigeración Tolosa</title>
+            <title>Factura Electrónica - ${COMPANY_NAME}</title>
             <style>
                 @media print {
                   @page {
@@ -288,6 +294,7 @@ export const generateInvoiceHtml = (sale: Sale, customStyles?: PrintStyles): str
                 .header img { max-width: 150px; margin-bottom: 5px; }
                 .header h1 { font-size: 16px; margin: 0; font-weight: ${headerFontWeight}; }
                 .header p { margin: 2px 0; font-size: 11px; }
+                .company-meta p { margin: 2px 0; font-size: 11px; }
                 .item { display: flex; justify-content: space-between; margin-bottom: 2px; }
                 .item-info { display: flex; flex-grow: 1; margin-right: 5px; }
                 .item-info .description { padding-left: 5px; word-break: break-word; }
@@ -308,9 +315,7 @@ export const generateInvoiceHtml = (sale: Sale, customStyles?: PrintStyles): str
         <body>
             <div class="text-center header">
                 <img src="${COMPANY_LOGO}" />
-                <h1 class="font-bold">Refrigeración Tolosa</h1>
-                <p>Razón Social: ${COMPANY_RAZON_SOCIAL}</p>
-                <p>Domicilio: 32 747, TOLOSA (CP: 1900), BUENOS AIRES</p>
+                ${renderCompanyInfo()}
                 <p>Cond. frente al IVA: ${COMPANY_IVA}</p>
             </div>
             
@@ -375,12 +380,13 @@ export const generateBudgetHtml = (budget: Budget): string => {
         <html lang="es">
         <head>
             <meta charset="UTF-8">
-            <title>Presupuesto - Refrigeración Tolosa</title>
+            <title>Presupuesto - ${COMPANY_NAME}</title>
             <style>
                 body { font-family: sans-serif; padding: 40px; color: #333; max-width: 800px; margin: 0 auto; line-height: 1.6; }
                 .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 20px; }
                 .logo { max-width: 200px; }
                 .company-info { text-align: right; }
+                .company-info p { margin: 5px 0; }
                 .budget-title { text-align: center; margin: 30px 0; }
                 .customer-info { margin-bottom: 30px; padding: 20px; background-color: #f9f9f9; border-radius: 8px; }
                 .items-table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
@@ -396,9 +402,7 @@ export const generateBudgetHtml = (budget: Budget): string => {
             <div class="header">
                 <img src="${COMPANY_LOGO}" class="logo" />
                 <div class="company-info">
-                    <h2 style="margin:0">${COMPANY_RAZON_SOCIAL}</h2>
-                    <p style="margin:5px 0">${COMPANY_ADDRESS}</p>
-                    <p style="margin:5px 0">CUIT: ${COMPANY_CUIT}</p>
+                    ${renderCompanyInfo()}
                 </div>
             </div>
             <div class="budget-title">
@@ -437,7 +441,7 @@ export const generateBudgetHtml = (budget: Budget): string => {
             <div class="footer">
                 <p>Este presupuesto tiene una validez de 7 días corridos.</p>
                 <p>Precios sujetos a modificación sin previo aviso.</p>
-                <p>¡Gracias por elegir Refrigeración Tolosa!</p>
+                <p>¡Gracias por elegir ${COMPANY_NAME}!</p>
             </div>
         </body>
         </html>
@@ -474,8 +478,7 @@ export const generateCustomerStatementHtml = (customer: Customer, transactions: 
             <div class="header">
                 <div>
                     <h1 style="margin:0">Estado de Cuenta</h1>
-                    <p style="margin:5px 0">Refrigeración Tolosa</p>
-                    <p style="margin:2px 0; font-size: 0.8em; color: #666;">${COMPANY_ADDRESS}</p>
+                    ${renderCompanyInfo()}
                 </div>
                 <img src="${COMPANY_LOGO}" class="logo" />
             </div>
@@ -541,7 +544,7 @@ export const generateCreditNoteHtml = (note: CreditNote, customStyles?: PrintSty
         <html lang="es">
         <head>
             <meta charset="UTF-8">
-            <title>Nota de Crédito - Refrigeración Tolosa</title>
+            <title>Nota de Crédito - ${COMPANY_NAME}</title>
             <style>
                 @media print {
                   @page {
@@ -565,6 +568,7 @@ export const generateCreditNoteHtml = (note: CreditNote, customStyles?: PrintSty
                 .font-bold { font-weight: bold; }
                 .hr { border-top: 1px ${styles.separatorStyle} #000; margin: 8px 0; }
                 .header h1 { font-size: ${styles.headerFontSize}px; font-weight: ${headerFontWeight}; margin-bottom: 4px; }
+                .company-meta p { margin: 2px 0; }
                 .item { display: flex; justify-content: space-between; margin-bottom: 2px; }
                 .item-info { display: flex; flex-grow: 1; }
                 .description { padding-left: 5px; word-break: break-word; }
@@ -572,9 +576,9 @@ export const generateCreditNoteHtml = (note: CreditNote, customStyles?: PrintSty
             </style>
         </head>
         <body>
-            <div class="text-center">
+            <div class="text-center header">
                 <img src="${COMPANY_LOGO}" style="max-width: 150px; margin-bottom: 5px;" />
-                <h1>Refrigeración Tolosa</h1>
+                ${renderCompanyInfo()}
                 <p class="font-bold">NOTA DE CRÉDITO ${note.facturaInfo ? 'ELECTRÓNICA' : ''}</p>
                 ${note.facturaInfo ? `<p>Nro: ${note.facturaInfo.nro}</p>` : `<p>Ref: ${note.id.slice(0, 8)}</p>`}
                 <p>Fecha: ${new Date(note.date).toLocaleString('es-AR')}</p>
@@ -611,10 +615,7 @@ export const generateRemitoHtml = (sale: Sale): string => {
             <div class="header">
                 <img src="${COMPANY_LOGO}" class="logo" />
                 <div style="text-align: right;">
-                    <h2 style="margin:0">${COMPANY_RAZON_SOCIAL}</h2>
-                    <p style="margin:4px 0;">${COMPANY_ADDRESS}</p>
-                    <p style="margin:4px 0;">CUIT: ${COMPANY_CUIT}</p>
-                    <p style="margin:4px 0;">IIBB: ${COMPANY_IIBB}</p>
+                    ${renderCompanyInfo()}
                 </div>
             </div>
             <div class="remito-header-row">
@@ -661,12 +662,13 @@ export const generateRemitoHtml = (sale: Sale): string => {
         <html lang="es">
         <head>
             <meta charset="UTF-8">
-            <title>Remito - Refrigeración Tolosa</title>
+            <title>Remito - ${COMPANY_NAME}</title>
             <style>
                 body { font-family: sans-serif; padding: 20px; color: #333; max-width: 900px; margin: 0 auto; }
                 .remito-box { border: 2px solid #333; padding: 20px; position: relative; margin-bottom: 40px; page-break-inside: avoid; }
                 .header { display: flex; justify-content: space-between; margin-bottom: 20px; }
                 .logo { max-width: 150px; }
+                .company-meta p { margin: 4px 0; }
                 .remito-header-row { display: flex; align-items: center; justify-content: center; position: relative; margin: 20px 0; }
                 .remito-title { text-align: center; font-size: 1.8em; font-weight: bold; border: 2px solid #333; padding: 10px; width: 180px; }
                 .copy-label { position: absolute; right: 0; font-weight: bold; text-transform: uppercase; border: 1px solid #333; padding: 4px 8px; font-size: 0.8em; }
