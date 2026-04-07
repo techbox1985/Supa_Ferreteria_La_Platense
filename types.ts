@@ -2,6 +2,7 @@
 // This file now correctly defines and exports all shared types for the application.
 
 export interface Product {
+  id?: string;
   cod: string;
   Producto: string;
   Categoria?: string;
@@ -27,6 +28,7 @@ export interface Product {
   Eliminado?: boolean;
   Eliminado_At?: string;
   supplier_id?: string;
+  product_type?: 'simple' | 'kit';
   auto_price?: boolean;
   markup_pct?: number;
   cost_currency?: 'ARS' | 'USD';

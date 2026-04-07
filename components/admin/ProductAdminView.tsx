@@ -136,6 +136,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
   const [isProcessingAction, setIsProcessingAction] = useState(false);
+  const [kitAvailabilityByCode, setKitAvailabilityByCode] = useState<Map<string, number>>(new Map());
 
   // Scroll horizontal sincronizado
   const topScrollRef = useRef<HTMLDivElement>(null);
@@ -166,6 +167,44 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   useEffect(() => {
     setSuppliers(Array.isArray(initialSuppliers) ? (initialSuppliers as SupplierRow[]) : []);
   }, [initialSuppliers]);
+
+  useEffect(() => {
+    const kits = products.filter((product) => (product as any).product_type === 'kit');
+    if (kits.length === 0) {
+      setKitAvailabilityByCode(new Map());
+      return;
+    }
+
+    let isCancelled = false;
+    void (async () => {
+      const entries = await Promise.all(
+        kits.map(async (product) => {
+          const cod = String(product.cod || '').trim();
+          const id = String((product as any).id || '').trim();
+          if (!cod) return null;
+          if (!id) return [cod, 0] as const;
+          try {
+            const availability = await api.getKitAvailability(id);
+            return [cod, Number(availability || 0)] as const;
+          } catch {
+            return [cod, 0] as const;
+          }
+        })
+      );
+
+      if (isCancelled) return;
+      const nextMap = new Map<string, number>();
+      entries.forEach((entry) => {
+        if (!entry) return;
+        nextMap.set(entry[0], entry[1]);
+      });
+      setKitAvailabilityByCode(nextMap);
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [products]);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -341,6 +380,13 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
 
   const filteredProducts = useMemo(() => {
     const collator = new Intl.Collator('es', { sensitivity: 'base', numeric: true });
+    const getVisibleStock = (product: ProductRow): number => {
+      const isKit = (product as any).product_type === 'kit';
+      if (!isKit) return Number((product as any).stockk ?? 0);
+      const cod = String(product.cod || '').trim();
+      return Number(kitAvailabilityByCode.get(cod) ?? 0);
+    };
+
     const getSortValue = (product: ProductRow, key: SortKey): string | number => {
       switch (key) {
         case 'Producto':
@@ -356,7 +402,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         case 'Precio Final':
           return Number((product as any)['Precio Final'] ?? 0);
         case 'stockk':
-          return Number((product as any).stockk ?? 0);
+          return getVisibleStock(product);
         case 'Minimo':
           return Number((product as any).Minimo ?? 0);
         case 'Online':
@@ -389,7 +435,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
     });
 
     return sorted;
-  }, [filteredProductsUnsorted, sortConfig, supplierNameById]);
+  }, [filteredProductsUnsorted, sortConfig, supplierNameById, kitAvailabilityByCode]);
 
   const showEmptyLoadingState = isLocalLoading && products.length === 0;
   const showEmptyResultsState = !isLocalLoading && filteredProducts.length === 0;
@@ -454,7 +500,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   };
 
   const handleSaveProduct = async (
-    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string }
+    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string; product_type?: 'simple' | 'kit'; kitComponents?: Array<{ cod: string; quantity: number }> }
   ) => {
     try {
       setIsProcessingAction(true);
@@ -465,11 +511,13 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         ? categoryNameById.get(resolvedCategoryId) || productData.Categoria
         : productData.Categoria;
 
+      const { kitComponents, ...dataWithoutKit } = productData as any;
       const dataWithIds = {
-        ...productData,
+        ...dataWithoutKit,
         Categoria: resolvedCategoryName,
         category_id: resolvedCategoryId || undefined,
         supplier_id: resolvedSupplierId || undefined,
+        product_type: (productData as any).product_type || 'simple',
       };
 
       const resolvedSupplierName = resolvedSupplierId
@@ -478,6 +526,15 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
 
       if (productToEdit) {
         await api.updateProductSupabase(dataWithIds);
+
+        if ((productToEdit as any).id) {
+          if ((productData as any).product_type === 'kit' && kitComponents && kitComponents.length > 0) {
+            await api.saveProductKitComponents((productToEdit as any).id, kitComponents);
+          } else {
+            await api.saveProductKitComponents((productToEdit as any).id, []);
+          }
+        }
+
         setProducts((prev) =>
           prev.map((item) =>
             item.cod === dataWithIds.cod
@@ -491,7 +548,11 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
           )
         );
       } else {
-        await api.addProductSupabase(dataWithIds);
+        const created = await api.addProductSupabase(dataWithIds);
+        if ((productData as any).product_type === 'kit' && created?.id && kitComponents && kitComponents.length > 0) {
+          await api.saveProductKitComponents(created.id, kitComponents);
+        }
+
         const newProduct: ProductRow = {
           ...dataWithIds,
           cod: dataWithIds.cod,
@@ -756,13 +817,16 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                   </td>
                 </tr>
               ) : filteredProducts.map((product: ProductRow) => {
-                const rawPhoto = typeof (product as any).FOTOGRAFIA === 'string' ? (product as any).FOTOGRAFIA : '';
+                const rawPhotoPrimary = typeof (product as any).FOTOGRAFIA === 'string' ? (product as any).FOTOGRAFIA : '';
+                const rawPhotoFallback = typeof (product as any).Imagen === 'string' ? (product as any).Imagen : '';
+                const rawPhoto = rawPhotoPrimary.trim() !== '' ? rawPhotoPrimary : rawPhotoFallback;
                 const normalizedPhoto = rawPhoto.trim();
+                const normalizedPhotoLower = normalizedPhoto.toLowerCase();
                 const isKnownInvalidPhoto =
                   normalizedPhoto === '' ||
-                  normalizedPhoto.toLowerCase().includes('gettablefileurl') ||
-                  normalizedPhoto.toLowerCase().includes('undefined') ||
-                  normalizedPhoto.toLowerCase().includes('null');
+                  normalizedPhotoLower === 'gettablefileurl' ||
+                  normalizedPhotoLower === 'undefined' ||
+                  normalizedPhotoLower === 'null';
                 const hasPhoto =
                   !isKnownInvalidPhoto &&
                   !brokenImageUrlsRef.current.has(normalizedPhoto);
@@ -774,8 +838,14 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
 
                 const isLowStock =
                   !!product.Activo &&
-                  ((product as any).stockk ?? 0) < ((product as any).Minimo ?? 0) &&
+                  (((product as any).product_type === 'kit'
+                    ? Number(kitAvailabilityByCode.get(String(product.cod || '').trim()) ?? 0)
+                    : Number((product as any).stockk ?? 0)) < Number((product as any).Minimo ?? 0)) &&
                   ((product as any).Minimo ?? 0) > 0;
+
+                const visibleStock = (product as any).product_type === 'kit'
+                  ? Number(kitAvailabilityByCode.get(String(product.cod || '').trim()) ?? 0)
+                  : Number((product as any).stockk ?? 0);
 
                 return (
                   <tr key={product.cod} className={`hover:bg-gray-50 ${isLowStock ? 'bg-orange-50' : ''}`}>
@@ -850,7 +920,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
                     </td>
 
                     <td className="px-4 py-3 text-sm text-center font-semibold">
-                      {(product as any).stockk ?? 0}
+                      {visibleStock}
                     </td>
 
                     <td className="px-4 py-3 text-sm text-center">

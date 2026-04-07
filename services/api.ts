@@ -27,6 +27,7 @@ const buildProductSupabasePayload = (productData: any, options?: { includeUpdate
     if (productData.FOTOGRAFIA !== undefined) mapping.photo_url = textOrNull(productData.FOTOGRAFIA);
     if (productData.Imagen !== undefined) mapping.image_url = textOrNull(productData.Imagen);
     if (productData.Eliminado !== undefined) mapping.is_deleted = !!productData.Eliminado;
+    if (productData.product_type !== undefined) mapping.product_type = productData.product_type === 'kit' ? 'kit' : 'simple';
     if (options?.includeUpdatedAt) mapping.updated_at = new Date().toISOString();
 
     return mapping;
@@ -514,7 +515,8 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
         'image_url',
         'is_deleted',
         'updated_at',
-        'final_price'
+        'final_price',
+        'product_type'
     ];
     while (true) {
         const { data, error } = await supabase
@@ -576,7 +578,9 @@ export const getProductsSupabase = async (): Promise<Product[]> => {
             Imagen: item.image_url ?? item.photo_url ?? '',
             Eliminado: Boolean(item.is_deleted ?? false),
             'Ultima.Actualizacion': item.updated_at ?? '',
-            'Precio Final': Number(item.final_price ?? 0)
+            'Precio Final': Number(item.final_price ?? 0),
+            product_type: String(item.product_type ?? 'simple') as 'simple' | 'kit',
+            id: item.product_id ?? item.id ?? undefined
         } as any;
         });
 };
@@ -601,6 +605,7 @@ export const getProductsForPOS = async (): Promise<Product[]> => {
     // Consulta liviana para POS: solo campos usados en render, búsqueda, filtro y venta.
     const PRODUCT_FIELDS = [
         'cod',
+        'id',
         'name',
         'category_id',
         'barcode',
@@ -614,7 +619,9 @@ export const getProductsForPOS = async (): Promise<Product[]> => {
         'photo_url',
         'image_url',
         'is_deleted',
-        'updated_at'
+        'updated_at',
+        'product_type',
+        'list_price'
     ];
 
     while (true) {
@@ -649,6 +656,9 @@ export const getProductsForPOS = async (): Promise<Product[]> => {
         Imagen: item.image_url ?? item.photo_url ?? '',
         Eliminado: Boolean(item.is_deleted ?? false),
         'Ultima.Actualizacion': item.updated_at ?? '',
+        product_type: String(item.product_type ?? 'simple') as 'simple' | 'kit',
+        id: item.id ?? undefined,
+        Precio: Number(item.list_price ?? 0)
     }));
 };
 
@@ -2290,6 +2300,161 @@ export const getCustomers = async (): Promise<Customer[]> => {
     return getCustomersSupabase();
 };
 
+// =============================================================================
+// --- KIT SUPPORT HELPERS ---
+// =============================================================================
+
+export interface KitComponent {
+    component_product_id?: string;
+    component_product_cod: string;
+    component_product_name?: string;
+    quantity_per_kit: number;
+    current_stock?: number;
+}
+
+export const getKitComponents = async (kitProductId: string): Promise<KitComponent[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('st_product_kits')
+        .select('component_product_id, quantity_per_kit')
+        .eq('kit_product_id', kitProductId);
+
+    if (error) throw error;
+
+    const componentRows = Array.isArray(data) ? data : [];
+    const componentIds = componentRows
+        .map((item: any) => String(item.component_product_id || '').trim())
+        .filter(Boolean);
+
+    if (componentIds.length === 0) return [];
+
+    const { data: productsData, error: productsError } = await supabase
+        .from('st_products')
+        .select('id, cod, name, current_stock')
+        .in('id', componentIds);
+
+    if (productsError) throw productsError;
+
+    const productById = new Map(
+        (productsData || []).map((product: any) => [String(product.id), product])
+    );
+
+    return componentRows
+        .map((item: any) => {
+            const componentId = String(item.component_product_id || '').trim();
+            const product = productById.get(componentId);
+            if (!product) return null;
+
+            return {
+                component_product_id: componentId,
+                component_product_cod: String(product.cod || ''),
+                component_product_name: String(product.name || ''),
+                quantity_per_kit: Number(item.quantity_per_kit ?? 0),
+                current_stock: Number(product.current_stock ?? 0),
+            } as KitComponent;
+        })
+        .filter(Boolean) as KitComponent[];
+};
+
+export const getKitAvailability = async (kitProductId: string): Promise<number> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    
+    const components = await getKitComponents(kitProductId);
+    
+    if (components.length === 0) {
+        console.warn('[getKitAvailability] Kit sin componentes:', { kitProductId });
+        return 0;
+    }
+    
+    // Calcular cantidad de kits disponibles según el componente con menos stock relativo
+    const availabilities = components.map(comp => {
+        const stock = comp.current_stock ?? 0;
+        const qtyPerKit = comp.quantity_per_kit || 1;
+        return Math.floor(stock / qtyPerKit);
+    });
+    
+    return Math.min(...availabilities);
+};
+
+export const decrementKitComponentsStock = async (kitProductId: string, quantitySold: number): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (quantitySold <= 0) throw new Error('Cantidad a descontar debe ser mayor a 0');
+
+    const components = await getKitComponents(kitProductId);
+
+    if (components.length === 0) {
+        throw new Error('El kit no tiene componentes definidos');
+    }
+
+    const currentByCod = new Map<string, number>();
+    for (const component of components) {
+        const cod = String(component.component_product_cod || '').trim();
+        if (!cod) continue;
+        currentByCod.set(cod, Number(component.current_stock ?? 0));
+    }
+
+    for (const component of components) {
+        const componentCode = String(component.component_product_cod || '').trim();
+        if (!componentCode) {
+            throw new Error('Componente inválido en kit');
+        }
+
+        const decrementBy = quantitySold * (component.quantity_per_kit || 1);
+        const currentStock = Number(currentByCod.get(componentCode) ?? 0);
+        if (currentStock < decrementBy) {
+            throw new Error(`Stock insuficiente para componente ${componentCode}`);
+        }
+
+        const newStock = Math.max(0, currentStock - decrementBy);
+        const { error: updateError } = await supabase
+            .from('st_products')
+            .update({ current_stock: newStock, updated_at: new Date().toISOString() })
+            .eq('cod', componentCode);
+
+        if (updateError) throw updateError;
+    }
+};
+
+export const saveProductKitComponents = async (kitProductId: string, components: Array<{ cod: string; quantity: number }>): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    
+    // Primero, eliminar componentes existentes
+    const { error: deleteError } = await supabase
+        .from('st_product_kits')
+        .delete()
+        .eq('kit_product_id', kitProductId);
+    
+    if (deleteError) throw deleteError;
+    
+    if (components.length === 0) return; // Kit sin componentes (conversión a simple)
+    
+    // Mapear códigos de producto a sus IDs (UUID)
+    const { data: productMap, error: mapError } = await supabase
+        .from('st_products')
+        .select('id, cod')
+        .in('cod', components.map(c => c.cod));
+    
+    if (mapError) throw mapError;
+    
+    const idByCod = new Map((productMap || []).map((p: any) => [String(p.cod), String(p.id)]));
+    const validComponents = components.filter(c => idByCod.has(String(c.cod)));
+    
+    if (validComponents.length === 0) throw new Error('No hay componentes válidos para el kit');
+    
+    const kitComponentsToInsert = validComponents.map(comp => ({
+        kit_product_id: kitProductId,
+        component_product_id: idByCod.get(String(comp.cod)),
+        quantity_per_kit: Math.max(1, Number(comp.quantity ?? 1))
+    }));
+    
+    const { error: insertError } = await supabase
+        .from('st_product_kits')
+        .insert(kitComponentsToInsert);
+    
+    if (insertError) throw insertError;
+};
+
 export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
@@ -2394,6 +2559,50 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
         if (itemsError) {
             await supabase.from('st_sales').delete().eq('id', insertedSale.id);
             throw itemsError;
+        }
+    }
+
+    // Descuento de stock para kits en venta real.
+    // Presupuestos usan otro flujo y no pasan por addSale, por lo que no se descuenta stock allí.
+    const soldCodes = sale.items.map((item) => String(item.product?.cod || '').trim()).filter(Boolean);
+    if (soldCodes.length > 0) {
+        const { data: soldProducts, error: soldProductsError } = await supabase
+            .from('st_products')
+            .select('id, cod, product_type')
+            .in('cod', soldCodes);
+
+        if (soldProductsError) {
+            await supabase.from('st_sale_items').delete().eq('sale_id', insertedSale.id);
+            await supabase.from('st_sales').delete().eq('id', insertedSale.id);
+            throw soldProductsError;
+        }
+
+        const productMetaByCode = new Map((soldProducts || []).map((product: any) => [String(product.cod), product]));
+
+        for (const item of sale.items) {
+            const itemCode = String(item.product?.cod || '').trim();
+            if (!itemCode) continue;
+
+            const productMeta = productMetaByCode.get(itemCode);
+            if (!productMeta) continue;
+
+            if (String(productMeta.product_type || 'simple') === 'kit') {
+                const kitId = String(productMeta.id || '').trim();
+                if (!kitId) {
+                    await supabase.from('st_sale_items').delete().eq('sale_id', insertedSale.id);
+                    await supabase.from('st_sales').delete().eq('id', insertedSale.id);
+                    throw new Error(`Kit ${itemCode} sin id válido`);
+                }
+
+                const kitAvailability = await getKitAvailability(kitId);
+                if (kitAvailability < Number(item.quantity ?? 0)) {
+                    await supabase.from('st_sale_items').delete().eq('sale_id', insertedSale.id);
+                    await supabase.from('st_sales').delete().eq('id', insertedSale.id);
+                    throw new Error(`Stock insuficiente para kit ${item.product?.Producto || itemCode}`);
+                }
+
+                await decrementKitComponentsStock(kitId, Number(item.quantity ?? 0));
+            }
         }
     }
 

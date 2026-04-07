@@ -3,7 +3,7 @@ import { Product, Supplier } from '../../types';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { generateProductDescription } from '../../services/geminiService';
-import { calculateFinalPriceFromSupplierTaxes } from '../../services/api';
+import { calculateFinalPriceFromSupplierTaxes, getKitComponents } from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
 
 const normalize = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -58,7 +58,7 @@ interface ProductEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   product: Product | null; // Can be null for creating a new product
-  onSave: (productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string }) => Promise<void>;
+  onSave: (productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string; product_type?: 'simple' | 'kit'; kitComponents?: Array<{ cod: string; quantity: number }> }) => Promise<void>;
   categoriesData?: { [key: string]: string[] };
   categoryTree?: CategoryTreeNode[];
   providers: string[];
@@ -70,6 +70,7 @@ interface ProductEditModalProps {
 const newProductInitialState: Partial<Product> = {
     Producto: '',
     cod: '',
+  product_type: 'simple',
     'cod.barras': '',
     Categoria: '',
     'Sub Categoria': '',
@@ -128,7 +129,6 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   categories = [],
   suppliers = [],
 }) => {
-  void allProducts;
   const [formData, setFormData] = useState<Partial<Product>>(newProductInitialState);
   const [isSaving, setIsSaving] = useState(false);
   const [isGeneratingDesc, setIsGeneratingDesc] = useState(false);
@@ -137,9 +137,15 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   const [showLogistics, setShowLogistics] = useState(false);
   const [showStockOnline, setShowStockOnline] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
+  const [productType, setProductType] = useState<'simple' | 'kit'>('simple');
+  const [kitComponents, setKitComponents] = useState<Array<{ cod: string; quantity: number }>>([]);
+  const [showComponentSelector, setShowComponentSelector] = useState(false);
+  const [selectedComponentCod, setSelectedComponentCod] = useState('');
+  const [componentQuantity, setComponentQuantity] = useState(1);
   const { addToast } = useToast();
   
   const isCreating = !product;
+  const isKitProduct = productType === 'kit';
 
   const effectiveCategoryTree = useMemo(() => {
     if (categoryTree.length > 0) {
@@ -166,6 +172,10 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
       if (isCreating) {
         setFormData(newProductInitialState);
         setSelectedCategoryId('');
+        setProductType('simple');
+        setKitComponents([]);
+        setSelectedComponentCod('');
+        setComponentQuantity(1);
       } else if (product) {
         const initialCategoryId = String((product as any).category_id || '').trim();
         const categoryName = initialCategoryId
@@ -184,6 +194,29 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
           'Sub Categoria': validSubCategory,
         });
         setSelectedCategoryId(initialCategoryId);
+        const resolvedType = (product as any).product_type === 'kit' ? 'kit' : 'simple';
+        setProductType(resolvedType);
+        setKitComponents([]);
+        setSelectedComponentCod('');
+        setComponentQuantity(1);
+
+        if (resolvedType === 'kit' && (product as any).id) {
+          void getKitComponents((product as any).id)
+            .then((components) => {
+              setKitComponents(
+                components
+                  .filter((component) => component.component_product_cod)
+                  .map((component) => ({
+                    cod: component.component_product_cod,
+                    quantity: Math.max(1, Number(component.quantity_per_kit ?? 1)),
+                  }))
+              );
+            })
+            .catch((error) => {
+              console.warn('[ProductEditModal] No se pudieron cargar componentes del kit:', error);
+              setKitComponents([]);
+            });
+        }
       }
 
       setIsSaving(false);
@@ -267,6 +300,39 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
     }));
   };
 
+  const handleAddKitComponent = () => {
+    if (!selectedComponentCod || selectedComponentCod.trim() === '') {
+      addToast('Por favor selecciona un producto', 'error');
+      return;
+    }
+    
+    if (kitComponents.some(c => c.cod === selectedComponentCod)) {
+      addToast('Este producto ya está en los componentes del kit', 'error');
+      return;
+    }
+
+    const component = allProducts.find(p => p.cod === selectedComponentCod);
+    if (!component) {
+      addToast('Producto no encontrado', 'error');
+      return;
+    }
+
+    setKitComponents([...kitComponents, { cod: selectedComponentCod, quantity: Math.max(1, componentQuantity) }]);
+    setSelectedComponentCod('');
+    setComponentQuantity(1);
+    setShowComponentSelector(false);
+  };
+
+  const handleRemoveKitComponent = (codToRemove: string) => {
+    setKitComponents(kitComponents.filter(c => c.cod !== codToRemove));
+  };
+
+  const handleUpdateComponentQuantity = (cod: string, newQuantity: number) => {
+    setKitComponents(kitComponents.map(c => 
+      c.cod === cod ? { ...c, quantity: Math.max(1, newQuantity) } : c
+    ));
+  };
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -332,20 +398,45 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
         }
     }
     
+    if (productType === 'kit' && kitComponents.length === 0) {
+        addToast('Un kit debe tener al menos un componente.', 'error');
+        return;
+    }
+    
     setIsSaving(true);
     try {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { stockk, 'Auto?': auto, ...dataToSave } = formData;
       // Fuente única para stock: persistimos current_stock usando la fórmula oficial del modal.
       const normalizedStockInicial = Math.max(0, Number(formData['Stock-Inicial'] || 0));
-      const savePayload: Partial<Product> & { stockk?: number } = {
+      const savePayload: Partial<Product> & { stockk?: number; product_type?: string; kitComponents?: any[] } = {
         ...dataToSave,
         'Stock-Inicial': normalizedStockInicial,
         stockk: normalizedStockInicial + ingresosAutoValue - ventasAutoValue,
+        product_type: productType,
+        kitComponents: productType === 'kit' ? kitComponents : undefined
       };
-        
-      // Ensure Precio Final is set to the computed active selling price
-      savePayload['Precio Final'] = activeSellPrice;
+      
+      // Precio final para kit: manual (Precio de Oferta). Para simple: lógica existente.
+      savePayload['Precio Final'] = isKitProduct
+        ? Number(formData['Precio de Oferta'] ?? 0)
+        : activeSellPrice;
+
+      if (isKitProduct) {
+        // Para kits no enviamos datos de proveedor/costos/stock manual.
+        savePayload.Proveedor = '';
+        savePayload.supplier_id = undefined;
+        savePayload['P.Costo'] = undefined;
+        savePayload.Precio = undefined;
+        savePayload.auto_price = false;
+        savePayload['Stock-Inicial'] = 0;
+        savePayload.Ingresos = 0;
+        savePayload['Venta.PV'] = 0;
+        savePayload.stockk = 0;
+        savePayload.Minimo = 0;
+        savePayload.Categoria = '';
+        savePayload['Sub Categoria'] = '';
+      }
         
         const selectedSupplierName = normalize(String(formData.Proveedor || ''));
         const supplier = suppliers.find((item) => normalize(getSupplierName(item)) === selectedSupplierName);
@@ -361,11 +452,11 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
 
         await onSave({ 
           ...savePayload, 
-          Categoria: resolvedCategoryName,
-          'Sub Categoria': validSubCategory,
+          Categoria: isKitProduct ? '' : resolvedCategoryName,
+          'Sub Categoria': isKitProduct ? '' : validSubCategory,
           cod: formData.cod as string,
-          category_id: selectedCategoryId || undefined,
-          supplier_id: supplier ? getSupplierId(supplier) || undefined : undefined
+          category_id: isKitProduct ? undefined : (selectedCategoryId || undefined),
+          supplier_id: isKitProduct ? undefined : (supplier ? getSupplierId(supplier) || undefined : undefined)
         });
     } catch (error) {
       // Error is handled by the parent component, which will show an alert.
@@ -439,97 +530,255 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
             </div>
         </fieldset>
         
+        {/* --- TIPO DE PRODUCTO Y COMPOSICIÓN DE KIT --- */}
+        <fieldset className="border p-4 rounded-lg">
+            <legend className="text-lg font-semibold px-2">Tipo de Producto</legend>
+            <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium">Tipo</label>
+                        <select 
+                          value={productType} 
+                          onChange={(e) => { 
+                            setProductType(e.target.value as 'simple' | 'kit'); 
+                            if (e.target.value === 'simple') setKitComponents([]);
+                          }}
+                          disabled={isSaving}
+                          className="mt-1 block w-full border-gray-300 rounded-md"
+                        >
+                          <option value="simple">Producto Simple</option>
+                          <option value="kit">Kit (Múltiples Componentes)</option>
+                        </select>
+                    </div>
+                </div>
+
+                {productType === 'kit' && (
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Componentes del Kit</label>
+                    <div className="bg-blue-50 p-3 rounded mb-3 text-sm text-blue-800">
+                      El stock de este kit depende de sus componentes. Stock disponible = min(stock_componente / cantidad_por_kit).
+                    </div>
+                    
+                    {kitComponents.length > 0 ? (
+                      <table className="w-full text-sm border-collapse mb-3">
+                        <thead>
+                          <tr className="bg-gray-100 border">
+                            <th className="border px-2 py-1 text-left">Producto</th>
+                            <th className="border px-2 py-1 text-center">Cantidad</th>
+                            <th className="border px-2 py-1 text-center">Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {kitComponents.map(comp => {
+                            const product = allProducts.find(p => p.cod === comp.cod);
+                            return (
+                              <tr key={comp.cod} className="border">
+                                <td className="border px-2 py-1">{product?.Producto || comp.cod}</td>
+                                <td className="border px-2 py-1 text-center">
+                                  <input 
+                                    type="number" 
+                                    min="1" 
+                                    value={comp.quantity}
+                                    onChange={(e) => handleUpdateComponentQuantity(comp.cod, parseInt(e.target.value) || 1)}
+                                    disabled={isSaving}
+                                    className="w-12 text-center border-gray-300 rounded-md"
+                                  />
+                                </td>
+                                <td className="border px-2 py-1 text-center">
+                                  <button 
+                                    type="button"
+                                    onClick={() => handleRemoveKitComponent(comp.cod)}
+                                    disabled={isSaving}
+                                    className="text-red-600 hover:text-red-800 text-sm font-medium"
+                                  >
+                                    Eliminar
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <p className="text-sm text-gray-600 mb-3 italic">Sin componentes aún</p>
+                    )}
+
+                    <div className="flex gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setShowComponentSelector(true)}
+                        disabled={isSaving}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-3 py-2 rounded-md text-sm font-medium"
+                      >
+                        + Agregar Componente
+                      </button>
+                    </div>
+
+                    {showComponentSelector && (
+                      <div className="mt-3 border-t pt-3">
+                        <div className="space-y-2">
+                          <label className="block text-sm font-medium">Seleccionar Producto</label>
+                          <select 
+                            value={selectedComponentCod} 
+                            onChange={(e) => setSelectedComponentCod(e.target.value)}
+                            className="w-full border-gray-300 rounded-md"
+                          >
+                            <option value="">-- Elige un producto --</option>
+                            {allProducts
+                              .filter(p => p.product_type !== 'kit' && !kitComponents.some(c => c.cod === p.cod))
+                              .map(p => <option key={p.cod} value={p.cod}>{p.Producto} ({p.cod})</option>)
+                            }
+                          </select>
+                          
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-sm font-medium">Cantidad por Kit</label>
+                              <input 
+                                type="number" 
+                                min="1" 
+                                value={componentQuantity}
+                                onChange={(e) => setComponentQuantity(parseInt(e.target.value) || 1)}
+                                className="w-full border-gray-300 rounded-md"
+                              />
+                            </div>
+                            <div className="flex gap-1 items-end">
+                              <button 
+                                type="button"
+                                onClick={handleAddKitComponent}
+                                className="flex-1 bg-green-600 hover:bg-green-700 text-white px-2 py-2 rounded-md text-sm font-medium"
+                              >
+                                Agregar
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => setShowComponentSelector(false)}
+                                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white px-2 py-2 rounded-md text-sm font-medium"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+            </div>
+        </fieldset>
+        
         {/* --- PRECIOS --- */}
         <fieldset className="border p-4 rounded-lg">
             <legend className="text-lg font-semibold px-2">Precios</legend>
+          {isKitProduct ? (
+            <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-300 p-3 rounded-lg">
+              <label className="block text-sm font-medium text-amber-800">Precio de Oferta (Manual)</label>
+              <input
+              type="text"
+              inputMode="decimal"
+              name="Precio de Oferta"
+              value={toInputValue(formData['Precio de Oferta'])}
+              onChange={handleNumericChange}
+              className="mt-2 block w-full border-amber-300 rounded-md text-lg font-semibold text-amber-900"
+              disabled={isSaving}
+              placeholder="Ingresar precio del kit"
+              />
+              <p className="mt-1 text-xs text-amber-700">Precio final del kit.</p>
+            </div>
+            </div>
+          ) : (
+            <>
             <div className="space-y-6">
-                {/* Row 1: Cost and Base Price */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium">P. Costo (Editable)</label>
-                        <input type="text" inputMode="decimal" name="P.Costo" value={toInputValue(formData['P.Costo'])} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-gray-600">Precio Base (Lista) - Referencia</label>
-                        <input type="text" inputMode="decimal" name="Precio" value={toInputValue(formData.Precio)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="Informativo, no afecta el precio final" />
-                        <p className="mt-1 text-xs text-gray-500">Solo informativo, no afecta el precio de venta real.</p>
-                    </div>
+              {/* Row 1: Cost and Base Price */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium">P. Costo (Editable)</label>
+                  <input type="text" inputMode="decimal" name="P.Costo" value={toInputValue(formData['P.Costo'])} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600">Precio Base (Lista) - Referencia</label>
+                  <input type="text" inputMode="decimal" name="Precio" value={toInputValue(formData.Precio)} onChange={handleNumericChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving} placeholder="Informativo, no afecta el precio final" />
+                  <p className="mt-1 text-xs text-gray-500">Solo informativo, no afecta el precio de venta real.</p>
+                </div>
+              </div>
 
-                {/* Row 2: Automatic Price (Read-Only) and Offer Price (Manual Override) */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
-                    <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
-                        <label className="block text-sm font-medium text-blue-700">Precio Automático (Sugerido)</label>
-                        <p className="mt-2 text-2xl font-bold text-blue-900">
-                            ${(calculatedSupplierFinalPrice ?? 0).toLocaleString('es-AR')}
-                        </p>
-                        <p className="mt-1 text-xs text-blue-600">
-                            Calculado desde costo + impuestos del proveedor
-                        </p>
-                    </div>
-                    
-                    <div className="bg-amber-50 border border-amber-300 p-3 rounded-lg">
-                        <label className="block text-sm font-medium text-amber-800">Precio de Oferta (Manual Override)</label>
-                        <input type="text" inputMode="decimal" name="Precio de Oferta" value={toInputValue(formData['Precio de Oferta'])} onChange={handleNumericChange} className="mt-2 block w-full border-amber-300 rounded-md text-lg font-semibold text-amber-900" disabled={isSaving} placeholder="Dejar vacío para usar automático" />
-                        <p className="mt-1 text-xs text-amber-700">
-                            Si tiene valor, OVERRIDE el precio automático
-                        </p>
-                    </div>
+              {/* Row 2: Automatic Price (Read-Only) and Offer Price (Manual Override) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t pt-4">
+                <div className="bg-blue-50 border border-blue-200 p-3 rounded-lg">
+                  <label className="block text-sm font-medium text-blue-700">Precio Automático (Sugerido)</label>
+                  <p className="mt-2 text-2xl font-bold text-blue-900">
+                    ${(calculatedSupplierFinalPrice ?? 0).toLocaleString('es-AR')}
+                  </p>
+                  <p className="mt-1 text-xs text-blue-600">
+                    Calculado desde costo + impuestos del proveedor
+                  </p>
                 </div>
+                        
+                <div className="bg-amber-50 border border-amber-300 p-3 rounded-lg">
+                  <label className="block text-sm font-medium text-amber-800">Precio de Oferta (Manual Override)</label>
+                  <input type="text" inputMode="decimal" name="Precio de Oferta" value={toInputValue(formData['Precio de Oferta'])} onChange={handleNumericChange} className="mt-2 block w-full border-amber-300 rounded-md text-lg font-semibold text-amber-900" disabled={isSaving} placeholder="Dejar vacío para usar automático" />
+                  <p className="mt-1 text-xs text-amber-700">
+                    Si tiene valor, OVERRIDE el precio automático
+                  </p>
+                </div>
+              </div>
 
-                {/* Row 3: Active Selling Price (Computed) */}
-                <div className="border-t pt-4">
-                    <div className={`rounded-lg p-4 border-2 ${pricingMode === 'MANUAL / OFERTA' ? 'bg-red-50 border-red-400' : 'bg-green-50 border-green-400'}`}>
-                        <div className="flex justify-between items-start mb-2">
-                            <div>
-                                <label className="block text-sm font-medium">PRECIO FINAL DE VENTA (Se guardará este)</label>
-                                <p className={`mt-2 text-3xl font-bold ${pricingMode === 'MANUAL / OFERTA' ? 'text-red-900' : 'text-green-900'}`}>
-                                    ${(activeSellPrice ?? 0).toLocaleString('es-AR')}
-                                </p>
-                            </div>
-                            <div className={`px-3 py-1 rounded-full text-sm font-semibold ${pricingMode === 'MANUAL / OFERTA' ? 'bg-red-200 text-red-900' : 'bg-green-200 text-green-900'}`}>
-                                {pricingMode}
-                            </div>
-                        </div>
-                        <p className={`text-sm ${pricingMode === 'MANUAL / OFERTA' ? 'text-red-700' : 'text-green-700'}`}>
-                            {pricingMode === 'MANUAL / OFERTA' 
-                                ? `Usando Precio de Oferta manual ($${precioOferta.toLocaleString('es-AR')})`
-                                : `Usando precio automático del proveedor`
-                            }
-                        </p>
+              {/* Row 3: Active Selling Price (Computed) */}
+              <div className="border-t pt-4">
+                <div className={`rounded-lg p-4 border-2 ${pricingMode === 'MANUAL / OFERTA' ? 'bg-red-50 border-red-400' : 'bg-green-50 border-green-400'}`}>
+                  <div className="flex justify-between items-start mb-2">
+                    <div>
+                      <label className="block text-sm font-medium">PRECIO FINAL DE VENTA (Se guardará este)</label>
+                      <p className={`mt-2 text-3xl font-bold ${pricingMode === 'MANUAL / OFERTA' ? 'text-red-900' : 'text-green-900'}`}>
+                        ${(activeSellPrice ?? 0).toLocaleString('es-AR')}
+                      </p>
                     </div>
+                    <div className={`px-3 py-1 rounded-full text-sm font-semibold ${pricingMode === 'MANUAL / OFERTA' ? 'bg-red-200 text-red-900' : 'bg-green-200 text-green-900'}`}>
+                      {pricingMode}
+                    </div>
+                  </div>
+                  <p className={`text-sm ${pricingMode === 'MANUAL / OFERTA' ? 'text-red-700' : 'text-green-700'}`}>
+                    {pricingMode === 'MANUAL / OFERTA' 
+                      ? `Usando Precio de Oferta manual ($${precioOferta.toLocaleString('es-AR')})`
+                      : `Usando precio automático del proveedor`
+                    }
+                  </p>
                 </div>
+              </div>
             </div>
 
             {/* Supplier Tax Info Section */}
             <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                <p className="font-semibold text-slate-800">📌 Información de Precios por Proveedor</p>
-                <p className="mt-1 text-xs leading-relaxed">
-                  El precio automático se calcula multiplicando el costo por los impuestos del proveedor asociado.
-                  Puedes usar "Precio de Oferta" para establecer un precio diferente cuando necesites una excepción.
-                </p>
-                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Proveedor asociado</p>
-                    <p className="font-medium text-slate-900">{formData.Proveedor || 'Sin asignar'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 1</p>
-                    <p className="font-medium text-slate-900">{formatPercent(supplierTax1)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 2</p>
-                    <p className="font-medium text-slate-900">{formatPercent(supplierTax2)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 3</p>
-                    <p className="font-medium text-slate-900">{formatPercent(supplierTax3)}</p>
-                  </div>
+              <p className="font-semibold text-slate-800">📌 Información de Precios por Proveedor</p>
+              <p className="mt-1 text-xs leading-relaxed">
+                El precio automático se calcula multiplicando el costo por los impuestos del proveedor asociado.
+                Puedes usar "Precio de Oferta" para establecer un precio diferente cuando necesites una excepción.
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">Proveedor asociado</p>
+                <p className="font-medium text-slate-900">{formData.Proveedor || 'Sin asignar'}</p>
                 </div>
+                <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 1</p>
+                <p className="font-medium text-slate-900">{formatPercent(supplierTax1)}</p>
+                </div>
+                <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 2</p>
+                <p className="font-medium text-slate-900">{formatPercent(supplierTax2)}</p>
+                </div>
+                <div>
+                <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 3</p>
+                <p className="font-medium text-slate-900">{formatPercent(supplierTax3)}</p>
+                </div>
+              </div>
             </div>
+            </>
+          )}
         </fieldset>
         
         {/* --- STOCK --- */}
+        {!isKitProduct && (
         <fieldset className="border p-4 rounded-lg">
              <legend className="text-lg font-semibold px-2">Stock</legend>
             <div className={`grid grid-cols-2 ${!isCreating ? 'md:grid-cols-5' : 'md:grid-cols-3'} gap-4`}>
@@ -570,49 +819,54 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
               </div>
             )}
         </fieldset>
+        )}
 
          {/* --- CLASIFICACIÓN --- */}
          <fieldset className="border p-4 rounded-lg">
              <legend className="text-lg font-semibold px-2">Clasificación y Estado</legend>
              <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-3 gap-4">
-                <div>
-                    <label className="block text-sm font-medium">Categoría</label>
-                  <select
-                    name="Categoria"
-                    value={toInputValue(selectedCategoryId)}
-                    onChange={(e) => handleCategorySelectChange(e.target.value)}
-                    className="mt-1 block w-full border-gray-300 rounded-md"
-                    disabled={isSaving}
-                  >
-                        <option value="">Seleccionar Categoría</option>
-                    {effectiveCategoryTree.map((category) => (
-                      <option key={category.id} value={category.id}>{category.name}</option>
-                    ))}
-                    </select>
-                </div>
-                <div>
-                    <label className="block text-sm font-medium">Subcategoría</label>
-                    <select 
-                        name="Sub Categoria" 
-                        value={toInputValue(formData['Sub Categoria'])} 
-                        onChange={handleChange} 
-                        className="mt-1 block w-full border-gray-300 rounded-md" 
-                        disabled={isSaving || !selectedCategoryId || displayableSubCategories.length === 0}
-                    >
-                        <option value="">Seleccionar Subcategoría</option>
-                        {displayableSubCategories.map(sc => <option key={sc} value={sc}>{sc}</option>)}
-                    </select>
-                </div>
-                 <div>
-                    <label className="block text-sm font-medium">Proveedor</label>
-                     <select name="Proveedor" value={toInputValue(formData.Proveedor)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
-                        <option value="">Seleccionar Proveedor</option>
-                        {providers.map(p => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                    <p className="mt-1 text-xs text-gray-500">
-                     {formData.Proveedor || 'Sin proveedor asociado'}
-                    </p>
-                </div>
+                {!isKitProduct && (
+                  <>
+                    <div>
+                        <label className="block text-sm font-medium">Categoría</label>
+                      <select
+                        name="Categoria"
+                        value={toInputValue(selectedCategoryId)}
+                        onChange={(e) => handleCategorySelectChange(e.target.value)}
+                        className="mt-1 block w-full border-gray-300 rounded-md"
+                        disabled={isSaving}
+                      >
+                            <option value="">Seleccionar Categoría</option>
+                        {effectiveCategoryTree.map((category) => (
+                          <option key={category.id} value={category.id}>{category.name}</option>
+                        ))}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Subcategoría</label>
+                        <select 
+                            name="Sub Categoria" 
+                            value={toInputValue(formData['Sub Categoria'])} 
+                            onChange={handleChange} 
+                            className="mt-1 block w-full border-gray-300 rounded-md" 
+                            disabled={isSaving || !selectedCategoryId || displayableSubCategories.length === 0}
+                        >
+                            <option value="">Seleccionar Subcategoría</option>
+                            {displayableSubCategories.map(sc => <option key={sc} value={sc}>{sc}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium">Proveedor</label>
+                         <select name="Proveedor" value={toInputValue(formData.Proveedor)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>
+                            <option value="">Seleccionar Proveedor</option>
+                            {providers.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                        <p className="mt-1 text-xs text-gray-500">
+                         {formData.Proveedor || 'Sin proveedor asociado'}
+                        </p>
+                    </div>
+                  </>
+                )}
                 <div>
                     <label className="block text-sm font-medium">Estado</label>
                     <select name="Activo" value={formData.Activo === undefined ? '' : String(!!formData.Activo)} onChange={handleChange} className="mt-1 block w-full border-gray-300 rounded-md" disabled={isSaving}>

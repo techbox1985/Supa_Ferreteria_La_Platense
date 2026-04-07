@@ -1,7 +1,9 @@
 import React, { useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { Product } from '../../types';
 import { Icon } from '../ui/Icon';
 import { sanitizeProductDisplayText } from '../../utils/productFilters';
+import * as api from '../../services/api';
 
 interface ProductCardProps {
   product: Product;
@@ -43,13 +45,28 @@ const parseDate = (dateString: string | null | undefined): Date | null => {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, onAddToCart, onViewDetails, allowOutOfStock = false, imageHeightClass = 'h-32' }) => {
+  const [kitAvailability, setKitAvailability] = useState<number | null>(null);
   const displayName = sanitizeProductDisplayText(product.Producto);
   const displayCategory = sanitizeProductDisplayText(product.Categoria);
   const stock = product.stockk ?? 0;
+  const isKit = (product as any).product_type === 'kit';
+  const effectiveStock = isKit ? (kitAvailability ?? 0) : stock;
   const minimo = product.Minimo ?? 0;
-  const canBeAdded = product.Activo && (allowOutOfStock || stock > 0);
-  const isLowOnStock = stock > 0 && minimo > 0 && stock < minimo;
+  const canBeAdded = product.Activo && (allowOutOfStock || effectiveStock > 0);
+  const isLowOnStock = effectiveStock > 0 && minimo > 0 && effectiveStock < minimo;
   const isOnSale = product['Precio de Oferta'] && product['Precio de Oferta'] > 0;
+
+  useEffect(() => {
+    setKitAvailability(null);
+    if (isKit && (product as any).id) {
+      api.getKitAvailability((product as any).id)
+        .then(availability => setKitAvailability(availability))
+        .catch(err => {
+          console.warn('[ProductCard] Error fetching kit availability:', err);
+          setKitAvailability(0);
+        });
+    }
+  }, [(product as any).id, isKit]);
 
   const handleImageClick = () => {
     if (canBeAdded) {
@@ -58,8 +75,8 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
   };
   
   // POS Mode (original logic)
-  const stockColor = stock > 10 ? 'bg-green-100 text-green-800' : 
-                     stock > 0 ? 'bg-yellow-100 text-yellow-800' : 
+  const stockColor = effectiveStock > 10 ? 'bg-green-100 text-green-800' : 
+                     effectiveStock > 0 ? 'bg-yellow-100 text-yellow-800' : 
                      'bg-red-100 text-red-800';
   
   const lastUpdateStr = product['Ultima.Actualizacion'];
@@ -101,7 +118,7 @@ export const ProductCard: React.FC<ProductCardProps> = React.memo(({ product, on
             title={isLowOnStock ? `Bajo stock (Mínimo: ${product.Minimo})` : undefined}
          >
             {isLowOnStock && <Icon path="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" className="w-3 h-3"/>}
-            <span>Stock: {stock}</span>
+            <span>Stock: {effectiveStock}</span>
         </div>
         <button 
             onClick={() => onViewDetails(product)}
