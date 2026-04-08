@@ -4,6 +4,7 @@ import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { generateProductDescription } from '../../services/geminiService';
 import { calculateFinalPriceFromSupplierTaxes, getKitComponents } from '../../services/api';
+import { SearchableSelect } from '../ui/SearchableSelect';
 import { useToast } from '../../contexts/ToastContext';
 
 const normalize = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
@@ -618,17 +619,15 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                       <div className="mt-3 border-t pt-3">
                         <div className="space-y-2">
                           <label className="block text-sm font-medium">Seleccionar Producto</label>
-                          <select 
-                            value={selectedComponentCod} 
-                            onChange={(e) => setSelectedComponentCod(e.target.value)}
-                            className="w-full border-gray-300 rounded-md"
-                          >
-                            <option value="">-- Elige un producto --</option>
-                            {allProducts
+                          <SearchableSelect
+                            options={allProducts
                               .filter(p => p.product_type !== 'kit' && !kitComponents.some(c => c.cod === p.cod))
-                              .map(p => <option key={p.cod} value={p.cod}>{p.Producto} ({p.cod})</option>)
-                            }
-                          </select>
+                              .map(p => ({ value: p.cod, label: p.Producto }))}
+                            value={selectedComponentCod}
+                            onChange={setSelectedComponentCod}
+                            placeholder="Buscar producto por nombre..."
+                            disabled={isSaving}
+                          />
                           
                           <div className="grid grid-cols-2 gap-2">
                             <div>

@@ -384,6 +384,7 @@ export const SalesDashboard: React.FC<
   >(new Map());
   const { activeShift } = useContext(AuthContext);
   const { addToast } = useToast();
+  const isAdmin = false;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1207,6 +1208,10 @@ export const SalesDashboard: React.FC<
 
   const handleDeleteSale = useCallback(
     async (saleId: string) => {
+      if (!isAdmin) {
+        addToast('Solo un administrador puede anular ventas o presupuestos.', 'error');
+        return;
+      }
       setIsProcessingAction(true);
       try {
         await api.annulSale(saleId);
@@ -1220,7 +1225,7 @@ export const SalesDashboard: React.FC<
         setSaleToDeleteId(null);
       }
     },
-    [addToast, refreshData]
+    [addToast, refreshData, isAdmin]
   );
 
   const handleConfirmDelete = useCallback(() => {
@@ -1555,15 +1560,18 @@ export const SalesDashboard: React.FC<
         />
       )}
 
-      <ConfirmationModal
-        isOpen={!!saleToDeleteId}
-        onClose={() => setSaleToDeleteId(null)}
-        onConfirm={handleConfirmDelete}
-        isProcessing={isProcessingAction}
-        title="Anular Venta"
-        message="¿Está seguro de que desea anular esta venta? Esta acción revertirá el stock y no se puede deshacer."
-        confirmText="Sí, Anular"
-      />
+      {/* Solo administrador puede ver el modal de anulación */}
+      {isAdmin && (
+        <ConfirmationModal
+          isOpen={!!saleToDeleteId}
+          onClose={() => setSaleToDeleteId(null)}
+          onConfirm={handleConfirmDelete}
+          isProcessing={isProcessingAction}
+          title="Anular Venta"
+          message="¿Está seguro de que desea anular esta venta? Esta acción revertirá el stock y no se puede deshacer."
+          confirmText="Sí, Anular"
+        />
+      )}
 
       {sendModalState.isOpen && sendModalState.sale && (
         <Modal
