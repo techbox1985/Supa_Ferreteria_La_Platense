@@ -1828,6 +1828,19 @@ export const SalesDashboard: React.FC<
               {selectedItemForActions.type === 'sale' &&
               (selectedItemForActions.item as SaleWithDocumentType).document_type === 'budget' ? (
                 <>
+                  {onEditSale && (selectedItemForActions.item as Sale).status !== 'annulled' && !isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
+                    <button
+                      onClick={() => {
+                        onEditSale(selectedItemForActions.item as Sale);
+                        setSelectedItemForActions(null);
+                      }}
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-cyan-50 text-cyan-700 rounded-xl transition-colors"
+                    >
+                      <Icon path="M4.5 7.5h15m-15 4.5h15m-15 4.5h10.5M3.75 5.25A2.25 2.25 0 016 3h12a2.25 2.25 0 012.25 2.25v13.5A2.25 2.25 0 0118 21H6a2.25 2.25 0 01-2.25-2.25V5.25z" className="w-6 h-6" />
+                      <span className="font-medium">Editar Presupuesto</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => {
                       handleOpenBudgetToSaleModal(selectedItemForActions.item as Sale);

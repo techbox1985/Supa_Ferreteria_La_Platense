@@ -122,12 +122,17 @@ const POSView: React.FC<POSViewProps> = ({
     }, [isCheckoutOpen, saleBeingEdited]);
 
   useEffect(() => {
-    if (!saleBeingEdited) return;
+      if (!saleBeingEdited) return;
 
-    setIsBudgetMode(false);
-    setIsMobileCartOpen(false);
-    setCheckoutOpen(true);
-  }, [saleBeingEdited]);
+      // Si es presupuesto, abrir en modo presupuesto
+      if ((saleBeingEdited as any).document_type === 'budget') {
+        setIsBudgetMode(true);
+      } else {
+        setIsBudgetMode(false);
+      }
+      setIsMobileCartOpen(false);
+      setCheckoutOpen(true);
+    }, [saleBeingEdited]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
