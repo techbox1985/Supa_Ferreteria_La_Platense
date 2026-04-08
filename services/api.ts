@@ -1187,10 +1187,11 @@ export const updateSupplierSupabase = async (supplierData: any): Promise<any> =>
     if (supplierData.Contacto !== undefined) mapping.contacto = textOrNull(supplierData.Contacto);
     if (supplierData.Direccion !== undefined) mapping.direccion = textOrNull(supplierData.Direccion);
     if (supplierData.Activo !== undefined) mapping.activo = supplierData.Activo === 'SI';
-    if (supplierData.tax_1_percent !== undefined) mapping.tax_1_percent = parsePercentValue(supplierData.tax_1_percent);
-    if (supplierData.tax_2_percent !== undefined) mapping.tax_2_percent = parsePercentValue(supplierData.tax_2_percent);
-    if (supplierData.tax_3_percent !== undefined) mapping.tax_3_percent = parsePercentValue(supplierData.tax_3_percent);
-    if (supplierData.tax_4_percent !== undefined) mapping.tax_4_percent = parsePercentValue(supplierData.tax_4_percent);
+    // Agregado explícito de los 4 impuestos para persistencia en edición
+    if (supplierData.tax_1_percent !== undefined) mapping.tax_1_percent = supplierData.tax_1_percent;
+    if (supplierData.tax_2_percent !== undefined) mapping.tax_2_percent = supplierData.tax_2_percent;
+    if (supplierData.tax_3_percent !== undefined) mapping.tax_3_percent = supplierData.tax_3_percent;
+    if (supplierData.tax_4_percent !== undefined) mapping.tax_4_percent = supplierData.tax_4_percent;
 
     const { data, error } = await supabase
         .from('st_suppliers')
@@ -3826,6 +3827,7 @@ export const getSuppliers = async (): Promise<Supplier[]> => {
             tax_1_percent: parsePercentValue(item.tax_1_percent),
             tax_2_percent: parsePercentValue(item.tax_2_percent),
             tax_3_percent: parsePercentValue(item.tax_3_percent),
+            tax_4_percent: parsePercentValue(item.tax_4_percent),
             CUIT: item.cuit || item.CUIT || '',
             Condicion_IVA: item.condicion_iva || item.iva_condition || item.Condicion_IVA || 'Responsable Inscripto',
             Email: item.email || item.Email || '',
