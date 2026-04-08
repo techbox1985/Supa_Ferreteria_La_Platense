@@ -106,6 +106,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ allSuppliers, refr
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Imp. 1</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Imp. 2</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Imp. 3</th>
+                                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Imp. 4</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Facturado</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Pagado</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Saldo</th>
@@ -124,6 +125,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ allSuppliers, refr
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{formatPercent(s.tax_1_percent)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{formatPercent(s.tax_2_percent)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{formatPercent(s.tax_3_percent)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">{formatPercent(s.tax_4_percent)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-700">
                                             {isSummaryLoading ? '…' : (summary ? formatCurrency(summary.total_facturado) : '—')}
                                         </td>

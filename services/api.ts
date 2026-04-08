@@ -1146,16 +1146,16 @@ export const addSupplierSupabase = async (supplierData: any): Promise<any> => {
     const mapping = {
         nombre: supplierData.Nombre,
         cuit: supplierData.CUIT,
-        iva_condition: supplierData.Condicion_IVA,
+        condicion_iva: supplierData.Condicion_IVA,
         email: supplierData.Email,
-        phone: supplierData.Telefono,
-        contact_person: supplierData.Contacto,
-        address: supplierData.Direccion,
-        is_active: supplierData.Activo === 'SI',
+        telefono: supplierData.Telefono,
+        contacto: supplierData.Contacto,
+        direccion: supplierData.Direccion,
+        activo: supplierData.Activo === 'SI',
         tax_1_percent: parsePercentValue(supplierData.tax_1_percent),
         tax_2_percent: parsePercentValue(supplierData.tax_2_percent),
         tax_3_percent: parsePercentValue(supplierData.tax_3_percent),
-        is_deleted: false
+        tax_4_percent: parsePercentValue(supplierData.tax_4_percent)
     };
 
     const { data, error } = await supabase
@@ -1190,6 +1190,7 @@ export const updateSupplierSupabase = async (supplierData: any): Promise<any> =>
     if (supplierData.tax_1_percent !== undefined) mapping.tax_1_percent = parsePercentValue(supplierData.tax_1_percent);
     if (supplierData.tax_2_percent !== undefined) mapping.tax_2_percent = parsePercentValue(supplierData.tax_2_percent);
     if (supplierData.tax_3_percent !== undefined) mapping.tax_3_percent = parsePercentValue(supplierData.tax_3_percent);
+    if (supplierData.tax_4_percent !== undefined) mapping.tax_4_percent = parsePercentValue(supplierData.tax_4_percent);
 
     const { data, error } = await supabase
         .from('st_suppliers')
@@ -3819,10 +3820,6 @@ export const deleteSubCategoryById = async (subcategoryId: string): Promise<any>
 export const getSuppliers = async (): Promise<Supplier[]> => {
     const data = await getSuppliersSupabase();
     return data
-        .filter((item: any) => {
-            const isDeleted = item.is_deleted || item.Eliminado || item.eliminado || false;
-            return !isDeleted;
-        })
         .map((item: any) => ({
             ID_Proveedor: String(item.id || item.ID_Proveedor || ''),
             Nombre: item.nombre || item.name || item.Nombre || '',
@@ -3844,17 +3841,18 @@ export const addSupplier = async (data: any): Promise<Supplier> => {
     const item = await addSupplierSupabase(data);
     return {
         ID_Proveedor: String(item.id),
-        Nombre: item.nombre || item.name || '',
+        Nombre: item.nombre || '',
         tax_1_percent: parsePercentValue(item.tax_1_percent),
         tax_2_percent: parsePercentValue(item.tax_2_percent),
         tax_3_percent: parsePercentValue(item.tax_3_percent),
+        tax_4_percent: parsePercentValue(item.tax_4_percent),
         CUIT: item.cuit,
-        Condicion_IVA: item.iva_condition,
+        Condicion_IVA: item.condicion_iva,
         Email: item.email,
-        Telefono: item.phone,
-        Contacto: item.contact_person,
-        Direccion: item.address,
-        Activo: item.is_active ? 'SI' : 'NO',
+        Telefono: item.telefono,
+        Contacto: item.contacto,
+        Direccion: item.direccion,
+        Activo: item.activo ? 'SI' : 'NO',
         Fecha_Creacion: item.created_at
     } as Supplier;
 };

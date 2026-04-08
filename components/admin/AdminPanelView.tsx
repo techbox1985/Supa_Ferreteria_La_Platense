@@ -32,18 +32,24 @@ interface AdminPanelViewProps {
 }
 
 export const AdminPanelView: React.FC<AdminPanelViewProps> = ({ products, customers, suppliers, allUsers, processedSales, historyProcessedSales, shifts, isLoading, refreshData, fetchSalesForDateRange, currentSubView, onEditSale }) => {
+    const [localSuppliers, setLocalSuppliers] = React.useState<Supplier[]>(suppliers);
+    React.useEffect(() => { setLocalSuppliers(suppliers); }, [suppliers]);
+    const refreshOnlySuppliers = async () => {
+        const suppliersResult = await import('../../services/api').then(m => m.getSuppliers());
+        setLocalSuppliers(suppliersResult || []);
+    };
     const renderCurrentView = () => {
         switch(currentSubView) {
             case 'products':
-                return <ProductAdminView products={products} suppliers={suppliers} refreshProducts={refreshData} isLoading={isLoading} />;
+                return <ProductAdminView products={products} suppliers={localSuppliers} refreshProducts={refreshData} isLoading={isLoading} />;
             case 'low-stock-admin':
-                return <LowStockAdminSection products={products} suppliers={suppliers} isLoading={isLoading} />;
+                return <LowStockAdminSection products={products} suppliers={localSuppliers} isLoading={isLoading} />;
             case 'quick-edit':
                 return <QuickPriceEditorView products={products} refreshData={refreshData} isLoading={isLoading} />;
             case 'stock-entry':
                 return <StockEntryView products={products} refreshData={refreshData} isLoading={isLoading} />;
             case 'suppliers':
-                return <SuppliersView allSuppliers={suppliers} refreshSuppliers={refreshData} isLoading={isLoading} />;
+                return <SuppliersView allSuppliers={localSuppliers} refreshSuppliers={refreshOnlySuppliers} isLoading={isLoading} />;
             case 'users':
                 return <UsersView allUsers={allUsers} refreshUsers={refreshData} isLoading={isLoading} />;
             case 'sales-history':

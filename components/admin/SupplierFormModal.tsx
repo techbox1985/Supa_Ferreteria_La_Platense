@@ -22,6 +22,7 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
     tax_1_percent: 0,
     tax_2_percent: 0,
     tax_3_percent: 0,
+    tax_4_percent: 0,
     Activo: 'SI',
   });
   const [isSaving, setIsSaving] = useState(false);
@@ -36,7 +37,7 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
         } else {
           setFormData({
             Nombre: '', CUIT: '', Condicion_IVA: 'Responsable Inscripto', Email: '',
-            Telefono: '', Contacto: '', Direccion: '', tax_1_percent: 0, tax_2_percent: 0, tax_3_percent: 0, Activo: 'SI',
+            Telefono: '', Contacto: '', Direccion: '', tax_1_percent: 0, tax_2_percent: 0, tax_3_percent: 0, tax_4_percent: 0, Activo: 'SI',
           });
         }
         setIsSaving(false);
@@ -72,10 +73,11 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
     const normalizedTax1 = Number.isFinite(Number(formData.tax_1_percent)) ? Number(formData.tax_1_percent) : 0;
     const normalizedTax2 = Number.isFinite(Number(formData.tax_2_percent)) ? Number(formData.tax_2_percent) : 0;
     const normalizedTax3 = Number.isFinite(Number(formData.tax_3_percent)) ? Number(formData.tax_3_percent) : 0;
+    const normalizedTax4 = Number.isFinite(Number(formData.tax_4_percent)) ? formData.tax_4_percent : 0;
 
     const dataToSave = isEditing 
-      ? { ...formData, tax_1_percent: normalizedTax1, tax_2_percent: normalizedTax2, tax_3_percent: normalizedTax3, ID_Proveedor: supplierToEdit.ID_Proveedor }
-      : { ...formData, tax_1_percent: normalizedTax1, tax_2_percent: normalizedTax2, tax_3_percent: normalizedTax3 };
+      ? { ...formData, tax_1_percent: normalizedTax1, tax_2_percent: normalizedTax2, tax_3_percent: normalizedTax3, tax_4_percent: normalizedTax4, ID_Proveedor: supplierToEdit.ID_Proveedor }
+      : { ...formData, tax_1_percent: normalizedTax1, tax_2_percent: normalizedTax2, tax_3_percent: normalizedTax3, tax_4_percent: normalizedTax4 };
 
     try {
         await onSave(dataToSave as Supplier | Omit<Supplier, 'ID_Proveedor'>);
@@ -158,6 +160,18 @@ export const SupplierFormModal: React.FC<SupplierFormModalProps> = ({ isOpen, on
                 name="tax_3_percent"
                 step="0.01"
                 value={formData.tax_3_percent ?? 0}
+                onChange={handleTaxChange}
+                className="mt-1 block w-full border-gray-300 rounded-md"
+                disabled={isSaving}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Impuesto 4 (%)</label>
+              <input
+                type="number"
+                name="tax_4_percent"
+                step="0.01"
+                value={formData.tax_4_percent ?? 0}
                 onChange={handleTaxChange}
                 className="mt-1 block w-full border-gray-300 rounded-md"
                 disabled={isSaving}
