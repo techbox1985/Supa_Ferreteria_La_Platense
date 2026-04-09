@@ -121,22 +121,100 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         }
     };
 
-  const handleViewTicket = (saleId: string) => {
-    const sale = allSales.find(s => s.id === saleId);
-    if (sale) {
-        const printStyles = getPrintStyles();
-        const ticketHtml = generateReceiptHtml(sale, printStyles);
-        const ticketWindow = window.open('', '_blank', 'width=350,height=650,scrollbars=yes,resizable=yes');
-        if (ticketWindow) {
-            ticketWindow.document.write(ticketHtml);
-            ticketWindow.document.close();
-        } else {
-            alert("La ventana del ticket fue bloqueada. Por favor, habilite las ventanas emergentes.");
+    // Reutiliza el flujo de Historial de Ventas para ver ticket
+    // Debug y resolución robusta de venta original
+    const handleViewTicket = (originalSaleId: string) => {
+        // Buscar la transacción actual
+        const tx = transactions.find(t => String(t.originalSaleId) === String(originalSaleId) || String(t.id) === String(originalSaleId));
+        console.log('[STATEMENT DEBUG] tx:', tx);
+        console.log('[STATEMENT DEBUG] originalSaleId:', originalSaleId);
+        console.log('[STATEMENT DEBUG] allSales count:', allSales.length);
+        console.log('[STATEMENT DEBUG] sample sale ids:', allSales.slice(0, 10).map(s => s.id));
+
+        // Resolución robusta
+        let sale = allSales.find(s => s.id === originalSaleId);
+        if (!sale) sale = allSales.find(s => String(s.id).trim() === String(originalSaleId).trim());
+        if (!sale) sale = allSales.find(s => String(s.id).slice(0, 8) === String(originalSaleId).slice(0, 8));
+        if (!sale && allSales.length > 0) {
+            // Buscar por coincidencia parcial si hay UUIDs
+            sale = allSales.find(s => String(s.id).includes(String(originalSaleId)) || String(originalSaleId).includes(String(s.id)));
         }
-    } else {
-        alert('No se encontraron los detalles de la venta original para este movimiento.');
-    }
-  };
+        console.log('[STATEMENT DEBUG] sale encontrado:', sale);
+
+        // Fallback: intentar buscar por API si no está en allSales
+        const openSale = (saleObj: any) => {
+            if (saleObj) {
+                // Normalización de items
+                // Normalización completa de campos esperados por Receipt
+                const safeSale = {
+                    ...saleObj,
+                    items: Array.isArray(saleObj.items) ? saleObj.items : [],
+                    customer: saleObj.customer ?? null,
+                    subtotal: typeof saleObj.subtotal === 'number' ? saleObj.subtotal : 0,
+                    adjustmentAmount: typeof saleObj.adjustmentAmount === 'number' ? saleObj.adjustmentAmount : 0,
+                    adjustmentDescription: saleObj.adjustmentDescription ?? '',
+                    total: typeof saleObj.total === 'number' ? saleObj.total : 0,
+                    payment: {
+                        cash: saleObj.payment?.cash ?? 0,
+                        digital: saleObj.payment?.digital ?? 0,
+                        credit: saleObj.payment?.credit ?? 0,
+                        echeqs: Array.isArray(saleObj.payment?.echeqs) ? saleObj.payment.echeqs : [],
+                    },
+                    date: saleObj.date ? new Date(saleObj.date) : new Date(),
+                    id: saleObj.id ?? '',
+                    facturaInfo: saleObj.facturaInfo ?? saleObj.factura_info ?? null,
+                };
+                if (!safeSale.items || safeSale.items.length === 0) {
+                    console.warn('[TICKET WARN] venta sin items:', safeSale);
+                }
+                console.log('[TICKET SAFE SALE]', safeSale);
+                if (safeSale.facturaInfo) {
+                    const officialUrl = safeSale.facturaInfo.ticketUrl || safeSale.facturaInfo.url;
+                    if (officialUrl) {
+                        window.open(officialUrl, '_blank');
+                        return;
+                    }
+                }
+                const printStyles = getPrintStyles();
+                const ticketHtml = safeSale.facturaInfo && safeSale.facturaInfo.cae
+                    ? require('../shared/SalesDashboard').generateInvoiceHtml(safeSale, printStyles)
+                    : generateReceiptHtml(safeSale, printStyles);
+                const ticketWindow = window.open('', '_blank', 'width=350,height=650,scrollbars=yes,resizable=yes');
+                if (ticketWindow) {
+                    ticketWindow.document.write(ticketHtml);
+                    ticketWindow.document.close();
+                } else {
+                    alert('La ventana del ticket fue bloqueada. Por favor, habilite las ventanas emergentes.');
+                }
+            } else {
+                alert('No se encontraron los detalles de la venta original para este movimiento.');
+            }
+        };
+
+        if (sale) {
+            openSale(sale);
+        } else {
+            // Fallback mínimo: buscar por Supabase si no está en allSales
+            if (api && api.supabase) {
+                api.supabase
+                    .from('st_sales')
+                    .select('*')
+                    .eq('id', originalSaleId)
+                    .maybeSingle()
+                    .then(({ data, error }) => {
+                        if (error || !data) {
+                            console.error('[STATEMENT DEBUG] error getSaleById:', error);
+                            alert('No se encontraron los detalles de la venta original para este movimiento.');
+                        } else {
+                            console.log('[STATEMENT DEBUG] sale obtenido por Supabase:', data);
+                            openSale(data);
+                        }
+                    });
+            } else {
+                alert('No se encontraron los detalles de la venta original para este movimiento.');
+            }
+        }
+    };
   
     const handleDeleteRequest = (tx: AccountTransaction) => {
         setTxToDelete(tx);
