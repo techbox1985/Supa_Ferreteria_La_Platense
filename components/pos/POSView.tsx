@@ -12,7 +12,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { sendTicketViaWhatsApp } from '../../utils/whatsappHelper';
 import { ProductDetailModal } from './ProductDetailModal';
 import { getPrintStyles } from '../../utils/printStyles';
-import { getProductSearchRelevance, matchesProductSearch, sanitizeProductDisplayText } from '../../utils/productFilters';
+import { matchesProductSearch, sanitizeProductDisplayText } from '../../utils/productFilters';
 
 interface POSViewProps {
     onNavigateBudgets: () => void;
@@ -166,6 +166,20 @@ const categoryOptions = useMemo(() => {
   return ['All', ...unique];
 }, [categories]);
 
+
+  // Memo: Mapa productId/cod -> cantidad vendida histórica neta
+  const productSalesMap = useMemo(() => {
+    // Preferimos usar la prop "Vendidos" si existe, si no, calculamos desde ventas históricas si están disponibles
+    // Si el producto tiene campo Vendidos, lo usamos directamente
+    const map = new Map<string, number>();
+    products.forEach((p) => {
+      if (typeof p.Vendidos === 'number' && Number.isFinite(p.Vendidos)) {
+        map.set(p.cod, p.Vendidos);
+      }
+    });
+    return map;
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     const filtered = products.filter(p => {
       const matchesCategory = selectedCategory === 'All' || p.Categoria === selectedCategory;
@@ -176,18 +190,15 @@ const categoryOptions = useMemo(() => {
     const normalizedSearch = debouncedSearchTerm.trim();
     if (!normalizedSearch) return filtered;
 
-    return filtered
-      .map((product, index) => ({
-        product,
-        index,
-        relevance: getProductSearchRelevance(product, normalizedSearch),
-      }))
-      .sort((a, b) => {
-        if (a.relevance !== b.relevance) return a.relevance - b.relevance;
-        return a.index - b.index;
-      })
-      .map((entry) => entry.product);
-  }, [products, debouncedSearchTerm, selectedCategory]);
+    // Ordenar por cantidad vendida histórica descendente, estable por nombre asc
+    return filtered.slice().sort((a, b) => {
+      const soldA = productSalesMap.get(a.cod) ?? 0;
+      const soldB = productSalesMap.get(b.cod) ?? 0;
+      if (soldA !== soldB) return soldB - soldA;
+      // Si empatan, ordenar por nombre ascendente
+      return (a.Producto || '').localeCompare(b.Producto || '', 'es');
+    });
+  }, [products, debouncedSearchTerm, selectedCategory, productSalesMap]);
 
   const hasActiveSearch = debouncedSearchTerm.trim().length > 0;
   const visibleProducts = useMemo(() => {
