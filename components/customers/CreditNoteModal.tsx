@@ -5,6 +5,11 @@ import { Icon } from '../ui/Icon';
 import { useToast } from '../../contexts/ToastContext';
 import { SearchableSelect } from '../ui/SearchableSelect';
 import { getProductSearchText } from '../../utils/productFilters';
+import { supabase } from '../../services/api';
+
+function formatCurrency(amount: number) {
+  return amount.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 });
+}
 
 interface CreditNoteModalProps {
   isOpen: boolean;
@@ -32,21 +37,35 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
       const isForSaleReturn = initialItems.length > 0;
       
       if (isForSaleReturn) {
-          const previouslyReturnedQuantities = new Map<string, number>();
-          allCreditNotesForSale.forEach(note => {
-            note.items?.forEach(item => {
-              previouslyReturnedQuantities.set(item.product.cod, (previouslyReturnedQuantities.get(item.product.cod) || 0) + item.quantity);
-            });
+        const previouslyReturnedQuantities = new Map<string, number>();
+        allCreditNotesForSale.forEach(note => {
+          note.items?.forEach(item => {
+            previouslyReturnedQuantities.set(item.product.cod, (previouslyReturnedQuantities.get(item.product.cod) || 0) + item.quantity);
           });
+        });
 
-          const itemsToReturn = initialItems.map(item => {
-              const alreadyReturned = previouslyReturnedQuantities.get(item.product.cod) || 0;
-              const availableToReturn = item.quantity - alreadyReturned;
-              return { ...item, quantity: availableToReturn };
-          }).filter(item => item.quantity > 0);
-          setItems(itemsToReturn);
+        const itemsToReturn = initialItems.map(item => {
+          // LOG: item original
+          console.log('[NC DEBUG] item original:', item);
+          const alreadyReturned = previouslyReturnedQuantities.get(item.product.cod) || 0;
+          const availableToReturn = item.quantity - alreadyReturned;
+          // Fallback de precio robusto
+          const resolvedPrice =
+            Number(item.price) ||
+            Number(item.product?.Precio) ||
+            Number(item.product?.['Precio de Oferta']) ||
+            Number(item.product?.['Precio Final']) ||
+            0;
+          if (!resolvedPrice) {
+            console.warn('[NC WARN] item con precio 0:', item);
+          }
+          // LOG: precio resuelto
+          console.log('[NC DEBUG] precio resuelto:', resolvedPrice);
+          return { ...item, quantity: availableToReturn, price: resolvedPrice };
+        }).filter(item => item.quantity > 0);
+        setItems(itemsToReturn);
       } else {
-          setItems([]);
+        setItems([]);
       }
       
       setDescription(isForSaleReturn ? 'Devolución de Venta' : 'Ajuste manual de cuenta');
@@ -120,21 +139,104 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (items.length === 0) {
-        addToast('Debe seleccionar una cantidad mayor a 0 para al menos un producto.', 'error');
-        return;
+      addToast('Debe seleccionar una cantidad mayor a 0 para al menos un producto.', 'error');
+      return;
     }
     if (!description) {
-        addToast('Por favor, ingrese un motivo para la nota de crédito.', 'error');
-        return;
+      addToast('Por favor, ingrese un motivo para la nota de crédito.', 'error');
+      return;
     }
     setIsSaving(true);
+    // Calcular refundAmount de forma robusta y segura
+    const refundAmount = items.reduce((acc, item) => {
+      const qty = Number(item.quantity || 0);
+      const price = Number(item.price || 0);
+      return acc + qty * price;
+    }, 0);
+    // Normalización y validación
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
+      console.error('[NC ERROR] refundAmount inválido:', refundAmount);
+      addToast('El monto de la nota de crédito es inválido', 'error');
+      setIsSaving(false);
+      return;
+    }
+    console.log('[NC DEBUG] refundAmount corregido:', refundAmount);
+    const clientId = customer?.Id_Cliente;
+    const clientName = customer?.['Nombre y Apellido'];
+    let resolvedClientId = clientId;
     try {
-        await onSave({ items, description, total });
-    } catch (error: any) {
-        console.error("Failed to save credit note:", error);
-        addToast(`Error al procesar la operación: ${error.message || 'Intente de nuevo.'}`, 'error');
-    } finally {
+      await onSave({ items, description, total: refundAmount });
+      // Resolver UUID real del cliente
+      function isUUID(str: string) {
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
+      }
+      if (!isUUID(clientId)) {
+        // Buscar en clients por legacy_id o id
+        if (!supabase) {
+          console.error('Supabase no inicializado');
+          addToast('Error de conexión. No se pudo acreditar el saldo en cuenta corriente.', 'error');
+          setIsSaving(false);
+          return;
+        }
+        const { data, error } = await supabase
+          .from('clients')
+          .select('id, legacy_id, name')
+          .or(`legacy_id.eq.${clientId},id.eq.${clientId}`)
+          .limit(1)
+          .maybeSingle();
+        if (error || !data) {
+          console.error('[NC DEBUG] No se pudo resolver UUID real del cliente', { clientId, error });
+          addToast('No se pudo identificar el cliente en la base de datos. No se completó la nota de crédito.', 'error');
+          setIsSaving(false);
+          return;
+        }
+        resolvedClientId = data.id;
+      }
+      // Logs de depuración
+      console.log('[NC DEBUG] clientId:', clientId);
+      console.log('[NC DEBUG] resolvedClientId:', resolvedClientId);
+      console.log('[NC DEBUG] clientName:', clientName);
+      console.log('[NC DEBUG] refundAmount:', refundAmount);
+      if (!supabase) {
+        console.error('Supabase no inicializado');
+        addToast('Error de conexión. No se pudo acreditar el saldo en cuenta corriente.', 'error');
         setIsSaving(false);
+        return;
+      }
+      // Insertar movimiento real en st_account_transactions
+      const { error: insertError } = await supabase
+        .from('st_account_transactions')
+        .insert([
+          {
+            customer_id: resolvedClientId,
+            type: 'Nota de Crédito',
+            description: description || 'Nota de crédito',
+            debit: 0,
+            credit: refundAmount,
+            items: JSON.stringify(items),
+            date: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      if (insertError) {
+        console.error('[NC DEBUG] error al insertar movimiento en cuenta corriente:', insertError);
+        addToast('Error al acreditar el saldo en cuenta corriente del cliente. No se completó la nota de crédito.', 'error');
+        setIsSaving(false);
+        return;
+      } else {
+        console.log('[NC DEBUG] devolución aplicada correctamente a cuenta corriente');
+      }
+      addToast(
+        `Nota de crédito exitosa. Se devolvieron ${formatCurrency(refundAmount)} al cliente ${clientName}.`,
+        'success'
+      );
+      // Refrescar vista/callback
+      if (typeof onClose === 'function') onClose();
+    } catch (error: any) {
+      console.error('Failed to save credit note:', error);
+      addToast(`Error al procesar la operación: ${error.message || 'Intente de nuevo.'}`, 'error');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -168,7 +270,16 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
                        <div className="flex-1">
                            <p className="font-semibold text-gray-800 truncate" title={initialItem.product.Producto}>{initialItem.product.Producto}</p>
                            <p className="text-xs text-gray-500">
-                               Cant. Original: {initialItem.quantity} / Disp: {availableToReturn} / P.U.: ${Number(initialItem.price || 0).toLocaleString('es-AR')}
+                               {(() => {
+                                 // Mostrar el precio resuelto igual que en el mapeo
+                                 const resolvedPrice =
+                                   Number(initialItem.price) ||
+                                   Number(initialItem.product?.Precio) ||
+                                   Number(initialItem.product?.['Precio de Oferta']) ||
+                                   Number(initialItem.product?.['Precio Final']) ||
+                                   0;
+                                 return `Cant. Original: ${initialItem.quantity} / Disp: ${availableToReturn} / P.U.: $${resolvedPrice.toLocaleString('es-AR')}`;
+                               })()}
                            </p>
                        </div>
                        <div className="flex items-center space-x-2">
@@ -206,7 +317,20 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
                 <div key={item.product.cod} className="flex items-center justify-between text-sm p-2 bg-white rounded shadow-sm gap-4">
                     <div className="flex-1">
                         <p className="font-semibold text-gray-800 truncate" title={item.product.Producto}>{item.product.Producto}</p>
-                        <p className="text-xs text-gray-500">P.U: ${Number(item.price || 0).toLocaleString('es-AR')}</p>
+                        <p className="text-xs text-gray-500">{
+                          (() => {
+                            const resolvedPrice =
+                              Number(item.price) ||
+                              Number(item.product?.Precio) ||
+                              Number(item.product?.['Precio de Oferta']) ||
+                              Number(item.product?.['Precio Final']) ||
+                              0;
+                            if (!resolvedPrice) {
+                              console.warn('[NC WARN] item con precio 0:', item);
+                            }
+                            return `P.U: $${resolvedPrice.toLocaleString('es-AR')}`;
+                          })()
+                        }</p>
                     </div>
                     <div className="flex items-center space-x-2">
                         <label htmlFor={`qty-${item.product.cod}`} className="text-xs text-gray-600">Cantidad:</label>

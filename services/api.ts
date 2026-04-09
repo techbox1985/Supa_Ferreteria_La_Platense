@@ -454,7 +454,8 @@ export const fetchUsdArsExchangeRateSuggestion = async (): Promise<{ rate: numbe
     throw new Error(lastError instanceof Error ? lastError.message : 'No se pudo obtener cotizacion USD/ARS');
 };
 
-let supabase: ReturnType<typeof createClient<Database>> | null = null;
+
+export let supabase: ReturnType<typeof createClient<Database>> | null = null;
 
 if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -3524,6 +3525,7 @@ export const massUpdatePrices = async (data: any): Promise<any> => {
             ? Number((currentValue * (1 + updateValue / 100)).toFixed(2))
             : Number((currentValue + updateValue).toFixed(2));
 
+        if (!supabase) throw new Error('Supabase no inicializado');
         const { error } = await supabase
             .from('st_products')
             .update({ [fieldName]: nextValue, updated_at: new Date().toISOString() })
