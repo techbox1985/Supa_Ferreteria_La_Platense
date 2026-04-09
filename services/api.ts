@@ -1,3 +1,14 @@
+// Elimina un pago de st_account_transactions por id
+export const deletePayment = async (paymentId: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!paymentId) throw new Error('ID de pago inválido');
+    const { error } = await supabase
+        .from('st_account_transactions')
+        .delete()
+        .eq('id', paymentId)
+        .eq('type', 'Pago');
+    if (error) throw error;
+};
 // --- PRODUCTOS SUPABASE: Métodos CRUD mínimos para ProductAdminView ---
 const buildProductSupabasePayload = (productData: any, options?: { includeUpdatedAt?: boolean }): Record<string, any> => {
     const mapping: Record<string, any> = {};
