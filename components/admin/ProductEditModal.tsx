@@ -251,15 +251,15 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   const supplierTax1 = Number.isFinite(Number(selectedSupplier?.tax_1_percent)) ? Number(selectedSupplier?.tax_1_percent) : 0;
   const supplierTax2 = Number.isFinite(Number(selectedSupplier?.tax_2_percent)) ? Number(selectedSupplier?.tax_2_percent) : 0;
   const supplierTax3 = Number.isFinite(Number(selectedSupplier?.tax_3_percent)) ? Number(selectedSupplier?.tax_3_percent) : 0;
+  const supplierTax4 = Number.isFinite(Number(selectedSupplier?.tax_4_percent)) ? Number(selectedSupplier?.tax_4_percent) : 0;
 
   const calculatedSupplierFinalPrice = useMemo(() => {
     const costValue = Number(formData['P.Costo']);
     if (!selectedSupplier || !Number.isFinite(costValue)) {
       return undefined;
     }
-
-    return calculateFinalPriceFromSupplierTaxes(costValue, supplierTax1, supplierTax2, supplierTax3);
-  }, [formData['P.Costo'], selectedSupplier, supplierTax1, supplierTax2, supplierTax3]);
+    return calculateFinalPriceFromSupplierTaxes(costValue, supplierTax1, supplierTax2, supplierTax3, supplierTax4);
+  }, [formData['P.Costo'], selectedSupplier, supplierTax1, supplierTax2, supplierTax3, supplierTax4]);
 
   // --- NEW: Pricing Priority Logic ---
   // Priority: Precio de Oferta (if > 0) > Automatic Supplier Price > undefined
@@ -753,22 +753,26 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                 El precio automático se calcula multiplicando el costo por los impuestos del proveedor asociado.
                 Puedes usar "Precio de Oferta" para establecer un precio diferente cuando necesites una excepción.
               </p>
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-4">
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-5">
                 <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">Proveedor asociado</p>
-                <p className="font-medium text-slate-900">{formData.Proveedor || 'Sin asignar'}</p>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Proveedor asociado</p>
+                  <p className="font-medium text-slate-900">{formData.Proveedor || 'Sin asignar'}</p>
                 </div>
                 <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 1</p>
-                <p className="font-medium text-slate-900">{formatPercent(supplierTax1)}</p>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 1</p>
+                  <p className="font-medium text-slate-900">{formatPercent(supplierTax1)}</p>
                 </div>
                 <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 2</p>
-                <p className="font-medium text-slate-900">{formatPercent(supplierTax2)}</p>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 2</p>
+                  <p className="font-medium text-slate-900">{formatPercent(supplierTax2)}</p>
                 </div>
                 <div>
-                <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 3</p>
-                <p className="font-medium text-slate-900">{formatPercent(supplierTax3)}</p>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 3</p>
+                  <p className="font-medium text-slate-900">{formatPercent(supplierTax3)}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Impuesto 4</p>
+                  <p className="font-medium text-slate-900">{formatPercent(supplierTax4)}</p>
                 </div>
               </div>
             </div>

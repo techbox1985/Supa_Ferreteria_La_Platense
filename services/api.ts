@@ -359,12 +359,14 @@ export const calculateFinalPriceFromSupplierTaxes = (
     costPrice: number,
     tax1Percent: number,
     tax2Percent: number,
-    tax3Percent: number
+    tax3Percent: number,
+    tax4Percent: number = 0
 ): number => {
     const t1 = parsePercentValue(tax1Percent);
     const t2 = parsePercentValue(tax2Percent);
     const t3 = parsePercentValue(tax3Percent);
-    return Number((costPrice * (1 + t1 / 100) * (1 + t2 / 100) * (1 + t3 / 100)).toFixed(2));
+    const t4 = parsePercentValue(tax4Percent);
+    return Number((costPrice * (1 + t1 / 100) * (1 + t2 / 100) * (1 + t3 / 100) * (1 + t4 / 100)).toFixed(2));
 };
 
 const computeFinalPriceFromSupplier = (
