@@ -1176,6 +1176,9 @@ export const SalesDashboard: React.FC<
           return next;
         });
 
+        // REFRESH SALES HISTORY IMMEDIATELY
+        await refreshData();
+
         if (ticketWindow) {
           const creditNote: CreditNote = {
             id: ncBillingInfo ? ncBillingInfo.nro : `NC-${crypto.randomUUID()}`,
@@ -1194,7 +1197,6 @@ export const SalesDashboard: React.FC<
 
         addToast('Nota de crédito procesada con éxito.', 'success');
         setSaleForCreditNote(null);
-        void Promise.resolve(refreshData());
       } catch (error) {
         if (ticketWindow) ticketWindow.close();
         const errMsg = error instanceof Error ? error.message : String(error);

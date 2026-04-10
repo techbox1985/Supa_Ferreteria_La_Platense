@@ -1,12 +1,21 @@
-// Elimina un pago de st_account_transactions por id
-export const deletePayment = async (paymentId: string): Promise<void> => {
+// Elimina cualquier transacción de st_account_transactions por id (pago, nota de crédito, etc)
+export const deleteAccountTransactionById = async (transactionId: string): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
-    if (!paymentId) throw new Error('ID de pago inválido');
+    if (!transactionId) throw new Error('ID de transacción inválido');
     const { error } = await supabase
         .from('st_account_transactions')
         .delete()
-        .eq('id', paymentId)
-        .eq('type', 'Pago');
+        .eq('id', transactionId);
+    if (error) throw error;
+};
+// Elimina un pago de st_account_transactions por id
+export const deletePayment = async (paymentId: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!paymentId) throw new Error('ID de movimiento inválido');
+    const { error } = await supabase
+        .from('st_account_transactions')
+        .delete()
+        .eq('id', paymentId);
     if (error) throw error;
 };
 // --- PRODUCTOS SUPABASE: Métodos CRUD mínimos para ProductAdminView ---
@@ -2800,8 +2809,35 @@ export const recordPayment = async (customerId: string, amount: number, descript
 
 export const createCreditNote = async (payload: any): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
+    const requestId = payload?.requestId || (typeof window !== 'undefined' && window.crypto?.randomUUID?.() || `${Date.now()}-${Math.floor(Math.random()*10000)}`);
+    console.log('[NC TRACE] createCreditNote start', requestId);
 
-    const { error } = await supabase
+    // Defensa anti-duplicado: buscar NC idéntica en los últimos 10 segundos
+    const now = new Date();
+    const tenSecondsAgo = new Date(now.getTime() - 10000).toISOString();
+    const { data: existing, error: fetchError } = await supabase
+        .from('st_account_transactions')
+        .select('id, customer_id, credit, type, date, description')
+        .eq('customer_id', payload.customerId)
+        .eq('type', 'Nota de Crédito')
+        .eq('credit', Number(payload.total || 0))
+        .gte('date', tenSecondsAgo)
+        .order('date', { ascending: false });
+    if (fetchError) {
+        console.warn('[NC TRACE] error buscando duplicados', requestId, fetchError);
+    }
+    if (existing && existing.length > 0) {
+        console.warn('[NC TRACE] duplicate prevented by recent existing transaction', requestId, existing[0]);
+        return;
+    }
+
+    console.log('[NC TRACE] createCreditNote before insert', requestId, {
+        customer_id: payload.customerId,
+        credit: Number(payload.total || 0),
+        description: payload.description,
+        itemsCount: Array.isArray(payload.items) ? payload.items.length : 0
+    });
+    const { data, error } = await supabase
         .from('st_account_transactions')
         .insert([{
             customer_id: payload.customerId,
@@ -2815,9 +2851,10 @@ export const createCreditNote = async (payload: any): Promise<void> => {
             factura_info: payload.facturaInfo ? JSON.stringify(payload.facturaInfo) : null,
             date: new Date().toISOString(),
             created_at: new Date().toISOString(),
-        }]);
-
+        }])
+        .select('id');
     if (error) throw error;
+    console.log('[NC TRACE] createCreditNote after insert', requestId, data?.[0]?.id);
 };
 
 export const restoreStockFromCreditNoteItems = async (items: CartItem[]): Promise<void> => {

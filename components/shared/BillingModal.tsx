@@ -131,69 +131,72 @@ export const BillingModal: React.FC<BillingModalProps> = ({ isOpen, onClose, sal
         } as Customer
     };
 
-    try {
-      const apiResponse = await api.generateElectronicInvoice(saleForBilling);
-      
-      const debugInfo = apiResponse.debug || [];
-      const rawResponseLine = debugInfo.find((line: string) => line.startsWith('API Response Body:'));
+        try {
+            const apiResponse = await api.generateElectronicInvoice(saleForBilling);
+
+            const debugInfo = apiResponse.debug || [];
+            const rawResponseLine = debugInfo.find((line: string) => line.startsWith('API Response Body:'));
             const rawResponse = rawResponseLine ? rawResponseLine.substring('API Response Body: '.length) : (debugInfo.length ? debugInfo.join('\n') : 'Sin detalle técnico devuelto por la función.');
-      setRawApiResponse(rawResponse);
+            setRawApiResponse(rawResponse);
 
-      if (apiResponse.status !== 'facturado' || !apiResponse.data) {
-        throw new Error(apiResponse.message || "El proveedor de facturación no devolvió datos válidos.");
-      }
+            if (apiResponse.status !== 'facturado' || !apiResponse.data) {
+                throw new Error(apiResponse.message || "El proveedor de facturación no devolvió datos válidos.");
+            }
 
-      const invoiceData = apiResponse.data;
-      const { cae, nro, vtoCae, qrData } = invoiceData;
-      
-      const a4Url = invoiceData.comprobante_pdf_url || invoiceData.url;
-      const ticketUrl = invoiceData.comprobante_ticket_url;
-      
-      if (!cae || !nro || cae === 'DEV_MODE_NO_CAE') {
-        const noCaeError = new Error("Respuesta exitosa, pero no se recibió un CAE. La cuenta del proveedor puede estar en modo de prueba.");
-        throw noCaeError;
-      }
+            const invoiceData = apiResponse.data;
+            const { cae, nro, vtoCae, qrData } = invoiceData;
 
-      const effectiveType = apiResponse.data?.effectiveType || billingData.facturacionType;
+            const a4Url = invoiceData.comprobante_pdf_url || invoiceData.url;
+            const ticketUrl = invoiceData.comprobante_ticket_url;
 
-      // Persistir localmente. Si falla (ej: columna inexistente, RLS), no bloquear el
-      // éxito de la UI: AFIP ya emitió la factura correctamente.
-      try {
-        await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url || '', ticketUrl, effectiveType);
-      } catch (persistErr: any) {
-        console.error('[BillingModal] persistencia local fallida tras emisión AFIP exitosa:', persistErr?.message || persistErr);
-      }
+            if (!cae || !nro || cae === 'DEV_MODE_NO_CAE') {
+                const noCaeError = new Error("Respuesta exitosa, pero no se recibió un CAE. La cuenta del proveedor puede estar en modo de prueba.");
+                throw noCaeError;
+            }
 
-      addToast(`Factura ${nro} generada y registrada con éxito.`, 'success');
-      onSuccess();
-      onClose();
+            const effectiveType = apiResponse.data?.effectiveType || billingData.facturacionType;
 
-// Abrir ticket oficial automáticamente tras éxito (solo si autoOpen === true)
-if (autoOpen) {
-  const officialUrl = ticketUrl || a4Url;
-  if (officialUrl) {
-    window.open(officialUrl, '_blank');
-  }
-}
+            // Persistir localmente. Si falla, bloquear éxito y mostrar error claro.
+            try {
+                await api.markSaleAsBilled(sale.id, cae, nro, vtoCae, qrData, new Date(), a4Url || '', ticketUrl, effectiveType);
+            } catch (persistErr: any) {
+                const persistMsg = persistErr?.message || persistErr?.toString() || 'Error desconocido';
+                setError('La factura fue emitida, pero no se pudo guardar correctamente en el sistema. No se marcará como éxito hasta resolverlo.\nDetalle: ' + persistMsg);
+                addToast('La factura fue emitida, pero no se pudo guardar correctamente en el sistema. No se marcará como éxito hasta resolverlo.', 'error');
+                setIsProcessing(false);
+                return;
+            }
 
-    } catch (err) {
-      const error = err as any;
-      const errorMessage = error.message || "Ocurrió un error desconocido al generar la factura.";
-      
-      if (!rawApiResponse && error.debugInfo) {
-        const debugInfo = error.debugInfo || [];
-        const rawResponseLine = debugInfo.find((line: string) => line.startsWith('API Response Body:'));
+            addToast(`Factura ${nro} generada y registrada con éxito.`, 'success');
+            onSuccess();
+            onClose();
+
+            // Abrir ticket oficial automáticamente tras éxito (solo si autoOpen === true)
+            if (autoOpen) {
+                const officialUrl = ticketUrl || a4Url;
+                if (officialUrl) {
+                    window.open(officialUrl, '_blank');
+                }
+            }
+
+        } catch (err) {
+            const error = err as any;
+            const errorMessage = error.message || "Ocurrió un error desconocido al generar la factura.";
+
+            if (!rawApiResponse && error.debugInfo) {
+                const debugInfo = error.debugInfo || [];
+                const rawResponseLine = debugInfo.find((line: string) => line.startsWith('API Response Body:'));
                 const rawResponse = rawResponseLine ? rawResponseLine.substring('API Response Body: '.length) : (debugInfo.length ? debugInfo.join('\n') : 'Sin detalle técnico devuelto por la función.');
-        setRawApiResponse(rawResponse);
-      }
+                setRawApiResponse(rawResponse);
+            }
 
-      setError(errorMessage);
-      addToast(errorMessage, 'error');
+            setError(errorMessage);
+            addToast(errorMessage, 'error');
 
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+        } finally {
+            setIsProcessing(false);
+        }
+    };
 
   return (
     <Modal isOpen={isOpen} onClose={isProcessing ? () => {} : onClose} title={`Facturar Venta #${sale.id.slice(0, 8)}`}>

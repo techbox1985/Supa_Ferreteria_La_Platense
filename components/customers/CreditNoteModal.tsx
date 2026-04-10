@@ -4,21 +4,19 @@ import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { useToast } from '../../contexts/ToastContext';
 import { SearchableSelect } from '../ui/SearchableSelect';
+import { useRef } from 'react';
 import { getProductSearchText } from '../../utils/productFilters';
-import { supabase } from '../../services/api';
 
-function formatCurrency(amount: number) {
-  return amount.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 });
-}
 
 interface CreditNoteModalProps {
   isOpen: boolean;
   onClose: () => void;
   customer: Customer;
   products: Product[];
-  onSave: (data: { items: CartItem[], description: string, total: number }) => Promise<void>;
+  onSave: (data: { items: CartItem[]; description: string; total: number; requestId?: string }) => Promise<void>;
   initialItems?: CartItem[];
   allCreditNotesForSale?: AccountTransaction[];
+// End of interface
 }
 
 export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClose, customer, products, onSave, initialItems = [], allCreditNotesForSale = [] }) => {
@@ -27,6 +25,7 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
   const [isSaving, setIsSaving] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const { addToast } = useToast();
+  const submitLockRef = useRef(false);
 
   const isReturnFromSale = useMemo(() => initialItems.length > 0, [initialItems]);
   const total = useMemo(() => items.reduce((sum, item) => sum + item.price * item.quantity, 0), [items]);
@@ -138,12 +137,21 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const requestId = (window.crypto?.randomUUID?.() || `${Date.now()}-${Math.floor(Math.random()*10000)}`);
+    if (isSaving || submitLockRef.current) {
+      console.log('[NC TRACE] submit blocked by isSaving', requestId);
+      return;
+    }
+    submitLockRef.current = true;
+    console.log('[NC TRACE] submit start', requestId);
     if (items.length === 0) {
       addToast('Debe seleccionar una cantidad mayor a 0 para al menos un producto.', 'error');
+      submitLockRef.current = false;
       return;
     }
     if (!description) {
       addToast('Por favor, ingrese un motivo para la nota de crédito.', 'error');
+      submitLockRef.current = false;
       return;
     }
     setIsSaving(true);
@@ -158,85 +166,20 @@ export const CreditNoteModal: React.FC<CreditNoteModalProps> = ({ isOpen, onClos
       console.error('[NC ERROR] refundAmount inválido:', refundAmount);
       addToast('El monto de la nota de crédito es inválido', 'error');
       setIsSaving(false);
+      submitLockRef.current = false;
       return;
     }
-    console.log('[NC DEBUG] refundAmount corregido:', refundAmount);
-    const clientId = customer?.Id_Cliente;
-    const clientName = customer?.['Nombre y Apellido'];
-    let resolvedClientId = clientId;
+    console.log('[NC TRACE] calling onSave', requestId, { itemsCount: items.length, description, total: refundAmount });
     try {
-      await onSave({ items, description, total: refundAmount });
-      // Resolver UUID real del cliente
-      function isUUID(str: string) {
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str);
-      }
-      if (!isUUID(clientId)) {
-        // Buscar en clients por legacy_id o id
-        if (!supabase) {
-          console.error('Supabase no inicializado');
-          addToast('Error de conexión. No se pudo acreditar el saldo en cuenta corriente.', 'error');
-          setIsSaving(false);
-          return;
-        }
-        const { data, error } = await supabase
-          .from('clients')
-          .select('id, legacy_id, name')
-          .or(`legacy_id.eq.${clientId},id.eq.${clientId}`)
-          .limit(1)
-          .maybeSingle();
-        if (error || !data) {
-          console.error('[NC DEBUG] No se pudo resolver UUID real del cliente', { clientId, error });
-          addToast('No se pudo identificar el cliente en la base de datos. No se completó la nota de crédito.', 'error');
-          setIsSaving(false);
-          return;
-        }
-        resolvedClientId = data.id;
-      }
-      // Logs de depuración
-      console.log('[NC DEBUG] clientId:', clientId);
-      console.log('[NC DEBUG] resolvedClientId:', resolvedClientId);
-      console.log('[NC DEBUG] clientName:', clientName);
-      console.log('[NC DEBUG] refundAmount:', refundAmount);
-      if (!supabase) {
-        console.error('Supabase no inicializado');
-        addToast('Error de conexión. No se pudo acreditar el saldo en cuenta corriente.', 'error');
-        setIsSaving(false);
-        return;
-      }
-      // Insertar movimiento real en st_account_transactions
-      const { error: insertError } = await supabase
-        .from('st_account_transactions')
-        .insert([
-          {
-            customer_id: resolvedClientId,
-            type: 'Nota de Crédito',
-            description: description || 'Nota de crédito',
-            debit: 0,
-            credit: refundAmount,
-            items: JSON.stringify(items),
-            date: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-          },
-        ]);
-      if (insertError) {
-        console.error('[NC DEBUG] error al insertar movimiento en cuenta corriente:', insertError);
-        addToast('Error al acreditar el saldo en cuenta corriente del cliente. No se completó la nota de crédito.', 'error');
-        setIsSaving(false);
-        return;
-      } else {
-        console.log('[NC DEBUG] devolución aplicada correctamente a cuenta corriente');
-      }
-      addToast(
-        `Nota de crédito exitosa. Se devolvieron ${formatCurrency(refundAmount)} al cliente ${clientName}.`,
-        'success'
-      );
-      // Refrescar vista/callback
+      await onSave({ items, description, total: refundAmount, requestId });
+      console.log('[NC TRACE] insert success with id', requestId);
       if (typeof onClose === 'function') onClose();
     } catch (error: any) {
       console.error('Failed to save credit note:', error);
       addToast(`Error al procesar la operación: ${error.message || 'Intente de nuevo.'}`, 'error');
     } finally {
       setIsSaving(false);
+      submitLockRef.current = false;
     }
   };
 
