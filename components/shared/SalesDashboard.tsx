@@ -342,11 +342,7 @@ export const SalesDashboard: React.FC<
   });
   const [targetCustomerId, setTargetCustomerId] = useState<string>('');
 
-  const [budgetToSaleModal, setBudgetToSaleModal] = useState<{ isOpen: boolean; budget: Sale | null }>({
-    isOpen: false,
-    budget: null,
-  });
-  const [isConvertingBudget, setIsConvertingBudget] = useState(false);
+  // Eliminados duplicados de estados y contextos
   const [paymentEditState, setPaymentEditState] = useState<{
     isOpen: boolean;
     sale: Sale | null;
@@ -360,21 +356,6 @@ export const SalesDashboard: React.FC<
     cash: '0',
     digital: '0',
     credit: '0',
-    isSaving: false,
-  });
-  const [discountEditState, setDiscountEditState] = useState<{
-    isOpen: boolean;
-    sale: Sale | null;
-    subtotalBase: number;
-    adjustmentAmount: string;
-    adjustmentDescription: string;
-    isSaving: boolean;
-  }>({
-    isOpen: false,
-    sale: null,
-    subtotalBase: 0,
-    adjustmentAmount: '0',
-    adjustmentDescription: '',
     isSaving: false,
   });
   const [patchedPayments, setPatchedPayments] = useState<Map<string, { cash: number; digital: number; credit: number }>>(new Map());
@@ -776,20 +757,8 @@ export const SalesDashboard: React.FC<
     });
   }, []);
 
-  const handleOpenDiscountEditModal = useCallback((sale: Sale) => {
-    setSelectedItemForActions(null);
-
-    const subtotalBase = resolveSaleSubtotalBase(sale);
-    setDiscountEditState({
-      isOpen: true,
-      sale,
-      subtotalBase,
-      adjustmentAmount: formatMoneyInput(Number(sale.adjustmentAmount ?? 0)),
-      adjustmentDescription: String(sale.adjustmentDescription || '').trim(),
-      isSaving: false,
-    });
-  }, []);
-  void handleOpenDiscountEditModal;
+  // (Eliminado handleOpenDiscountEditModal y setDiscountEditState, ya no se usan)
+  // void handleOpenDiscountEditModal; (eliminado)
 
   const paymentEditTotals = useMemo(() => {
     const sumPayments =
@@ -816,27 +785,7 @@ export const SalesDashboard: React.FC<
     });
   }, [paymentEditState.isSaving]);
 
-  const handleCloseDiscountEditModal = useCallback(() => {
-    if (discountEditState.isSaving) return;
-    setDiscountEditState({
-      isOpen: false,
-      sale: null,
-      subtotalBase: 0,
-      adjustmentAmount: '0',
-      adjustmentDescription: '',
-      isSaving: false,
-    });
-  }, [discountEditState.isSaving]);
 
-  const discountEditComputed = useMemo(() => {
-    const subtotalBase = Number(discountEditState.subtotalBase || 0);
-    const adjustmentAmount = parseMoneyInput(discountEditState.adjustmentAmount);
-    return {
-      subtotalBase,
-      adjustmentAmount,
-      total: subtotalBase + adjustmentAmount,
-    };
-  }, [discountEditState.adjustmentAmount, discountEditState.subtotalBase]);
 
   const handleSavePaymentEdit = useCallback(async () => {
     if (!paymentEditState.sale) return;
@@ -876,56 +825,6 @@ export const SalesDashboard: React.FC<
     }
   }, [addToast, paymentEditState.cash, paymentEditState.credit, paymentEditState.digital, paymentEditState.sale, refreshData]);
 
-  const handleSaveDiscountEdit = useCallback(async () => {
-    if (!discountEditState.sale) return;
-
-    const sale = discountEditState.sale;
-    const subtotalBase = Number(discountEditState.subtotalBase || 0);
-    const adjustmentAmount = parseMoneyInput(discountEditState.adjustmentAmount);
-    const adjustmentDescription = String(discountEditState.adjustmentDescription || '').trim();
-    const total = subtotalBase + adjustmentAmount;
-
-    setDiscountEditState(prev => ({ ...prev, isSaving: true }));
-
-    try {
-      await api.updateSaleAdjustment(sale.id, {
-        subtotal: subtotalBase,
-        adjustmentAmount,
-        adjustmentDescription,
-        echeqs: sale.payment.echeqs,
-      });
-
-      setPatchedAdjustments(prev => {
-        const next = new Map(prev);
-        next.set(sale.id, {
-          adjustmentAmount,
-          adjustmentDescription,
-          total,
-        });
-        return next;
-      });
-
-      addToast('Descuento/ajuste de la venta actualizado correctamente.', 'success');
-      setDiscountEditState({
-        isOpen: false,
-        sale: null,
-        subtotalBase: 0,
-        adjustmentAmount: '0',
-        adjustmentDescription: '',
-        isSaving: false,
-      });
-      await refreshData();
-    } catch (error) {
-      const errMsg =
-        error instanceof Error
-          ? error.message
-          : typeof (error as any)?.message === 'string'
-            ? (error as any).message
-            : JSON.stringify(error);
-      addToast(`No se pudo actualizar el descuento: ${errMsg}`, 'error');
-      setDiscountEditState(prev => ({ ...prev, isSaving: false }));
-    }
-  }, [addToast, discountEditState.adjustmentAmount, discountEditState.adjustmentDescription, discountEditState.sale, discountEditState.subtotalBase, refreshData]);
 
   const handleView = useCallback(
     (sale: Sale) => {
@@ -1241,58 +1140,7 @@ export const SalesDashboard: React.FC<
     refreshData();
   }, [addToast, refreshData]);
 
-  const handleOpenBudgetToSaleModal = useCallback((budget: Sale) => {
-    setBudgetToSaleModal({ isOpen: true, budget });
-  }, []);
-  const handleConvertBudgetToSale = useCallback(async () => {
-    if (!budgetToSaleModal.budget) return;
-
-    const budget = budgetToSaleModal.budget as SaleWithDocumentType;
-
-    if ((budget as any).converted_to_sale_id) {
-        addToast('Este presupuesto ya fue convertido a venta.', 'error');
-        return;
-    }
-
-    setIsConvertingBudget(true);
-
-    try {
-        await api.convertBudgetToSale(
-            {
-    id: budget.id,
-    date: budget.date,
-    customer: budget.customer,
-    items: budget.items,
-    total: budget.total,
-    status: 'pending',
-    shiftId: budget.shiftId || '',
-    subtotal: budget.subtotal,
-    adjustmentAmount: budget.adjustmentAmount
-},
-            {
-                cash: 0,
-                digital: 0,
-                credit: 0,
-                echeqs: []
-            },
-            activeShift?.ID_Turno || '',
-            'N',
-            budget.customer,
-            budget.total,
-            budget.adjustmentAmount || 0,
-            ''
-        );
-
-        addToast('Presupuesto convertido a venta correctamente.', 'success');
-        setBudgetToSaleModal({ isOpen: false, budget: null });
-        refreshData();
-    } catch (error: any) {
-        console.error('Error al convertir presupuesto:', error);
-        addToast(error?.message || 'Error al convertir presupuesto a venta.', 'error');
-    } finally {
-        setIsConvertingBudget(false);
-    }
-}, [budgetToSaleModal, activeShift, addToast, refreshData]);
+  // Eliminado: handleOpenBudgetToSaleModal (ya no se usa)
 
   
   return (
@@ -1310,7 +1158,7 @@ export const SalesDashboard: React.FC<
             <StatCard
               title={`Ingresos ${statTitlePrefix}`}
               value={formatCurrency(stats.totalRevenue)}
-              iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125-1.125h-.375m1.5-1.5H21a.75.75 0 00-.75-.75v-.75m0 0l-3.75-3.75M3 12m0 0l3.75 3.75M3.75 12H18m-9.75 6.75h1.5"
+              iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125-.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125-1.125h-.375m1.5-1.5H21a.75.75 0 00-.75-.75v-.75m0 0l-3.75-3.75M3 12m0 0l3.75 3.75M3.75 12H18m-9.75 6.75h1.5"
               iconBgColor="bg-blue-500"
               onClick={handleShowRevenueDetails}
             />
@@ -1626,155 +1474,7 @@ export const SalesDashboard: React.FC<
         </Modal>
       )}
 
-      {budgetToSaleModal.isOpen && budgetToSaleModal.budget && (
-        <Modal
-          isOpen={budgetToSaleModal.isOpen}
-          onClose={() => setBudgetToSaleModal({ isOpen: false, budget: null })}
-          title="Convertir Presupuesto a Venta"
-        >
-          <div className="space-y-4">
-            <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">
-              Esta acción genera una venta real en el sistema y marca el presupuesto como convertido.
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-gray-700 mb-1">Cliente</h4>
-              <div className="bg-gray-50 rounded px-3 py-2 text-gray-900">
-                {budgetToSaleModal.budget.customer?.['Nombre y Apellido'] || 'Consumidor Final'}
-              </div>
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-gray-700 mb-1">Detalle de productos</h4>
-              <ul className="bg-gray-50 rounded px-3 py-2 text-gray-900 divide-y max-h-64 overflow-y-auto">
-                {budgetToSaleModal.budget.items.map((item, idx) => (
-                  <li key={idx} className="py-2 flex justify-between gap-4">
-                    <span className="truncate">{item.product.Producto}</span>
-                    <span className="whitespace-nowrap">
-                      {item.quantity} x ${item.price.toLocaleString('es-AR')}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-
-              {discountEditState.isOpen && discountEditState.sale && (
-                <Modal
-                  isOpen={discountEditState.isOpen}
-                  onClose={handleCloseDiscountEditModal}
-                  title={`Editar Descuento Venta #${discountEditState.sale.id.slice(0, 8)}`}
-                  size="lg"
-                >
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
-                        <p className="text-gray-500 text-xs">ID Venta</p>
-                        <p className="font-semibold text-gray-800 font-mono">{discountEditState.sale.id.slice(0, 8)}</p>
-                      </div>
-                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
-                        <p className="text-gray-500 text-xs">Fecha</p>
-                        <p className="font-semibold text-gray-800">{new Date(discountEditState.sale.date).toLocaleString('es-AR')}</p>
-                      </div>
-                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3 md:col-span-2">
-                        <p className="text-gray-500 text-xs">Cliente</p>
-                        <p className="font-semibold text-gray-800">{discountEditState.sale.customer?.['Nombre y Apellido'] || 'Consumidor Final'}</p>
-                      </div>
-                      <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
-                        <p className="text-gray-500 text-xs">Subtotal base</p>
-                        <p className="font-semibold text-gray-800">{formatCurrency(discountEditComputed.subtotalBase)}</p>
-                      </div>
-                      <div className="bg-blue-50 rounded-md border border-blue-200 p-3">
-                        <p className="text-blue-700 text-xs">Total recalculado</p>
-                        <p className="font-bold text-blue-900 text-lg">{formatCurrency(discountEditComputed.total)}</p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Ajuste / descuento</label>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={discountEditState.adjustmentAmount}
-                          onChange={(e) => setDiscountEditState(prev => ({ ...prev, adjustmentAmount: e.target.value }))}
-                          disabled={discountEditState.isSaving}
-                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                        />
-                        <p className="mt-1 text-xs text-gray-500">Negativo = descuento. Positivo = recargo.</p>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Descripción del ajuste</label>
-                        <textarea
-                          value={discountEditState.adjustmentDescription}
-                          onChange={(e) => setDiscountEditState(prev => ({ ...prev, adjustmentDescription: e.target.value }))}
-                          disabled={discountEditState.isSaving}
-                          rows={3}
-                          className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm resize-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2">
-                      <button
-                        type="button"
-                        onClick={handleCloseDiscountEditModal}
-                        disabled={discountEditState.isSaving}
-                        className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-50"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSaveDiscountEdit}
-                        disabled={discountEditState.isSaving}
-                        className="px-4 py-2 text-sm rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
-                      >
-                        {discountEditState.isSaving ? 'Guardando...' : 'Guardar descuento'}
-                      </button>
-                    </div>
-                  </div>
-                </Modal>
-              )}
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-gray-700 mb-1">Descuento</h4>
-              <div className="bg-gray-50 rounded px-3 py-2 text-gray-900">
-                ${(budgetToSaleModal.budget.adjustmentAmount || 0).toLocaleString('es-AR')}
-              </div>
-            </div>
-
-            <div>
-              <h4 className="font-semibold text-gray-700 mb-1">Total</h4>
-              <div className="bg-gray-50 rounded px-3 py-2 text-gray-900 font-bold text-lg">
-                ${budgetToSaleModal.budget.total.toLocaleString('es-AR')}
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2 space-x-2">
-    <button
-        type="button"
-        onClick={() => setBudgetToSaleModal({ isOpen: false, budget: null })}
-        className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300"
-        disabled={isConvertingBudget}
-    >
-        Cancelar
-    </button>
-    <button
-        type="button"
-        onClick={handleConvertBudgetToSale}
-        className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700"
-        disabled={isConvertingBudget || !!(budgetToSaleModal.budget as any)?.converted_to_sale_id}
-    >
-        {isConvertingBudget ? 'Convirtiendo...' : 'Convertir a Venta'}
-    </button>
-</div>
-{(budgetToSaleModal.budget as any)?.converted_to_sale_id && (
-    <div className="text-red-600 mt-2">Este presupuesto ya fue convertido a venta.</div>
-)}
-          </div>
-        </Modal>
-      )}
+      {/* Eliminado: Modal de conversión de presupuesto a venta */}
 
       {selectedItemForActions && (
         <div
@@ -1845,7 +1545,10 @@ export const SalesDashboard: React.FC<
 
                   <button
                     onClick={() => {
-                      handleOpenBudgetToSaleModal(selectedItemForActions.item as Sale);
+                      if (typeof window !== 'undefined') {
+                        const event = new CustomEvent('edit-sale', { detail: selectedItemForActions.item });
+                        window.dispatchEvent(event);
+                      }
                       setSelectedItemForActions(null);
                     }}
                     className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
