@@ -790,20 +790,41 @@ const resolveSupplierImportProductMatch = (
     const rowCodeKey = normalizeSupplierImportKey(row.cod);
     const rowBarcodeKey = normalizeSupplierImportKey(row.barcode);
 
+    let matchByCod = null;
+    let matchByBarcode = null;
+
     if (rowCodeKey) {
-        const productByCodeMatch = productByCode.get(rowCodeKey);
-        if (productByCodeMatch) {
-            return { product: productByCodeMatch, matchedBy: 'code', reason: 'exact_code' };
+        matchByCod = productByCode.get(rowCodeKey) || null;
+        if (matchByCod) {
+            return { product: matchByCod, matchedBy: 'code', reason: 'exact_code' };
         }
     }
 
     if (rowBarcodeKey) {
-        const productByBarcodeMatch = productByBarcode.get(rowBarcodeKey);
-        if (productByBarcodeMatch) {
-            return { product: productByBarcodeMatch, matchedBy: 'barcode', reason: 'exact_barcode' };
+        matchByBarcode = productByBarcode.get(rowBarcodeKey) || null;
+        if (matchByBarcode) {
+            return { product: matchByBarcode, matchedBy: 'barcode', reason: 'exact_barcode' };
         }
     }
 
+    // Log detallado solo si no se encontró por ninguno
+    // eslint-disable-next-line no-console
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] rowNumber: N/A');
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] row.cod:', row.cod);
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] row.barcode:', row.barcode);
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] normalizedMain:', rowCodeKey);
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] normalizedSecondary:', rowBarcodeKey);
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] matchByCod:', matchByCod ? 'FOUND' : 'NOT FOUND');
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] matchByBarcode:', matchByBarcode ? 'FOUND' : 'NOT FOUND');
+    // eslint-disable-next-line no-console
+    console.log('[IMPORT DEBUG] finalResult: not found');
     return { product: null, matchedBy: 'none', reason: 'not_found' };
 };
 
