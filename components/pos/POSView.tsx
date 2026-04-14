@@ -54,6 +54,60 @@ const POSView: React.FC<POSViewProps> = ({
   const INITIAL_PRODUCTS_LIMIT = 80;
   const { activeShift, currentUser } = useContext(AuthContext);
   const { addToast } = useToast();
+
+  // --- Persistencia local del carrito ---
+  // Clave: pos_cart_draft_{userId}_{shiftId}
+  function getCartDraftKey() {
+    const userId = currentUser?.ID_Usuario || 'nouser';
+    const shiftId = activeShift?.ID_Turno || 'noshift';
+    return `pos_cart_draft_${userId}_${shiftId}`;
+  }
+
+  // Restaurar carrito solo si está vacío y hay draft válido
+  useEffect(() => {
+    if (!currentUser) return;
+    if (!Array.isArray(cart) || cart.length > 0) return;
+    const key = getCartDraftKey();
+    try {
+      const draft = localStorage.getItem(key);
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(item => item.product && item.quantity)) {
+          // Reemplazar el carrito actual por el draft, evitando duplicación
+          // Llama a onClearCart primero, luego agrega todos los productos con cantidades correctas
+          onClearCart();
+          parsed.forEach((item: CartItem) => {
+            for (let i = 0; i < item.quantity; i++) {
+              onAddToCart(item.product);
+            }
+          });
+        }
+      }
+    } catch {}
+    // eslint-disable-next-line
+  }, [currentUser, activeShift]);
+
+  // Guardar carrito en localStorage solo si tiene productos
+  useEffect(() => {
+    if (!currentUser) return;
+    const key = getCartDraftKey();
+    if (Array.isArray(cart) && cart.length > 0) {
+      try {
+        localStorage.setItem(key, JSON.stringify(cart));
+      } catch {}
+    }
+    // NO borrar draft si el carrito queda vacío automáticamente
+    // eslint-disable-next-line
+  }, [cart, currentUser, activeShift]);
+
+  // Handler real para vaciar carrito manualmente
+  const handleClearCartWithDraft = useCallback(() => {
+    const key = getCartDraftKey();
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+    onClearCart();
+  }, [onClearCart, currentUser, activeShift]);
   // Declaración de estados principales
   const [isCheckoutOpen, setCheckoutOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -225,142 +279,82 @@ const categoryOptions = useMemo(() => {
       throw new Error("Turno no activo.");
     }
 
-    // UPDATE OPTIMISTA INMEDIATO
-    onOptimisticAddSale({ ...sale, isPendingSync: true, shiftId: operationalShift.ID_Turno });
-    setCheckoutOpen(false);
-    onClearCart();
+    setCheckoutOpen(false); // Cierra el modal visual
 
     const saleWithShiftId = { ...sale, shiftId: operationalShift.ID_Turno };
     let finalSaleObject: Sale = { ...saleWithShiftId };
 
-    // 1) Modal inmediato (sin esperar facturación)
-    setSaleForPrintModal(finalSaleObject);
-    setPrintModalIsFiscal(!!generateInvoice);
-    setIsPrintModalOpen(true);
-
     try {
-      const processSaleInBackground = async () => {
-        try {
-          // 2) Si es fiscal, generar factura en background (NO bloquea el modal)
-          if (generateInvoice) {
-            addToast('Generando factura electrónica...', 'info');
+      // 1) Si es fiscal, generar factura primero
+      if (generateInvoice) {
+        addToast('Generando factura electrónica...', 'info');
 
-            console.log('[DIAG097 invoice sale id][before generateElectronicInvoice]', {
-              saleId: finalSaleObject.id,
-              shiftId: finalSaleObject.shiftId,
-              facturacion: finalSaleObject.facturacion,
-            });
-
-            console.log('[DIAG094][POSView][invoice request payload]', {
-              saleId: finalSaleObject.id,
-              facturacion: finalSaleObject.facturacion,
-              total: finalSaleObject.total,
-              itemCount: finalSaleObject.items?.length || 0,
-              customer: {
-                id: finalSaleObject.customer?.Id_Cliente,
-                condicionIVA: finalSaleObject.customer?.Condicion_IVA,
-                tipoDocumento: finalSaleObject.customer?.['Tipo.Documento'],
-                documento: finalSaleObject.customer?.Documento,
-              },
-              shiftId: finalSaleObject.shiftId,
-            });
-
-            const invoiceResponse = await api.generateElectronicInvoice(finalSaleObject);
-            console.log('[DIAG094][POSView][invoice response]', invoiceResponse);
-
-            if (invoiceResponse?.status !== 'facturado' || !invoiceResponse?.data) {
-              const providerMessage = invoiceResponse?.message || 'No se pudo obtener un comprobante fiscal válido.';
-              const reason = invoiceResponse?.reason ? ` (${invoiceResponse.reason})` : '';
-              const debugDetail = Array.isArray(invoiceResponse?.debug) && invoiceResponse.debug.length > 0
-                ? ` Detalle: ${invoiceResponse.debug.join(' | ')}`
-                : '';
-              throw new Error(`${providerMessage}${reason}.${debugDetail}`);
-            }
-
-            const invoiceData = invoiceResponse.data;
-
-            // B.4) CONSISTENCIA: Usar el tipo efectivo devuelto por el API
-            const effectiveType = invoiceData?.effectiveType || finalSaleObject.facturacion;
-            if (effectiveType !== finalSaleObject.facturacion) {
-              console.warn(`[POS] Mismatch de tipo. Solicitado: ${finalSaleObject.facturacion}, Emitido: ${effectiveType}`);
-              finalSaleObject.facturacion = effectiveType;
-            }
-
-            // Validación mínima: CAE obligatorio
-            if (!invoiceData || !invoiceData.cae || invoiceData.cae === 'DEV_MODE_NO_CAE') {
-              const providerHint = invoiceData?.message || invoiceData?.error || invoiceResponse?.message || 'Sin detalle adicional del proveedor.';
-              throw new Error(`El proveedor de facturación respondió sin un CAE. ${providerHint}`);
-            }
-
-            finalSaleObject.facturaInfo = {
-              cae: invoiceData.cae,
-              nro: invoiceData.nro,
-              vtoCae: invoiceData.vtoCae,
-              qrData: invoiceData.qrData,
-              fecha: new Date().toLocaleString('es-AR'),
-              url: invoiceData.comprobante_pdf_url || invoiceData.url,
-              ticketUrl: invoiceData.comprobante_ticket_url || invoiceData.ticketUrl
-            };
-
-            // Campos planos para el Sheet
-            finalSaleObject.facturaInfo = {
-              ...finalSaleObject.facturaInfo,
-              nro: invoiceData.nro || '',
-              cae: invoiceData.cae || '',
-              vtoCae: invoiceData.vtoCae || '',
-              qrData: invoiceData.qrData || '',
-              fecha: new Date().toLocaleString('es-AR'),
-            };
-            // Eliminado: finalSaleObject.Factura_URL (no existe en Sale)
-            // @ts-expect-error: Factura_Ticket_URL might not be in Sale type but is sent to webhook
-            finalSaleObject.Factura_Ticket_URL =
-              invoiceData.comprobante_ticket_url ||
-              invoiceData.ticketUrl ||
-              '';
-
-            addToast(`Factura ${invoiceData.nro} generada.`, 'success');
-
-            // 3) Actualizar el modal (habilitar botones fiscales)
-            setSaleForPrintModal(prev => (prev ? { ...prev, ...finalSaleObject } : finalSaleObject));
-          }
-
-          // 4) Guardar venta SIEMPRE (fiscal o no)
-          if (saleBeingEdited) {
-            await api.updateSale(saleBeingEdited, finalSaleObject);
-          } else {
-            console.log('[DIAG097 addSale sale id][before api.addSale]', {
-              saleId: finalSaleObject.id,
-              shiftId: operationalShift.ID_Turno,
-              generateInvoice,
-            });
-            await api.addSale(finalSaleObject, operationalShift.ID_Turno);
-          }
-
-          // Confirmamos el fin del sync quitando la bandera
-          onOptimisticAddSale({ ...finalSaleObject, isPendingSync: false });
-          onClearSaleBeingEdited();
-          addToast("Venta registrada con éxito.", 'success');
-
-        } catch (err) {
-          const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error inesperado.';
-          console.error("Error en proceso de venta en segundo plano:", err);
-          addToast(`Error al registrar la venta: ${errorMessage}. Se intentará sincronizar más tarde.`, 'error');
-        } finally {
-          refreshData();
+        const invoiceResponse = await api.generateElectronicInvoice(finalSaleObject);
+        if (invoiceResponse?.status !== 'facturado' || !invoiceResponse?.data) {
+          const providerMessage = invoiceResponse?.message || 'No se pudo obtener un comprobante fiscal válido.';
+          const reason = invoiceResponse?.reason ? ` (${invoiceResponse.reason})` : '';
+          const debugDetail = Array.isArray(invoiceResponse?.debug) && invoiceResponse.debug.length > 0
+            ? ` Detalle: ${invoiceResponse.debug.join(' | ')}`
+            : '';
+          throw new Error(`${providerMessage}${reason}.${debugDetail}`);
         }
-      };
 
-      queueMicrotask(() => {
-        processSaleInBackground().catch(() => {
-          // ya se toastea/loguea adentro
-        });
-      });
+        const invoiceData = invoiceResponse.data;
+        const effectiveType = invoiceData?.effectiveType || finalSaleObject.facturacion;
+        if (effectiveType !== finalSaleObject.facturacion) {
+          console.warn(`[POS] Mismatch de tipo. Solicitado: ${finalSaleObject.facturacion}, Emitido: ${effectiveType}`);
+          finalSaleObject.facturacion = effectiveType;
+        }
+        if (!invoiceData || !invoiceData.cae || invoiceData.cae === 'DEV_MODE_NO_CAE') {
+          const providerHint = invoiceData?.message || invoiceData?.error || invoiceResponse?.message || 'Sin detalle adicional del proveedor.';
+          throw new Error(`El proveedor de facturación respondió sin un CAE. ${providerHint}`);
+        }
+        finalSaleObject.facturaInfo = {
+          cae: invoiceData.cae,
+          nro: invoiceData.nro,
+          vtoCae: invoiceData.vtoCae,
+          qrData: invoiceData.qrData,
+          fecha: new Date().toLocaleString('es-AR'),
+          url: invoiceData.comprobante_pdf_url || invoiceData.url,
+          ticketUrl: invoiceData.comprobante_ticket_url || invoiceData.ticketUrl
+        };
+        finalSaleObject.facturaInfo = {
+          ...finalSaleObject.facturaInfo,
+          nro: invoiceData.nro || '',
+          cae: invoiceData.cae || '',
+          vtoCae: invoiceData.vtoCae || '',
+          qrData: invoiceData.qrData || '',
+          fecha: new Date().toLocaleString('es-AR'),
+        };
+        // @ts-expect-error: Factura_Ticket_URL might not be in Sale type but is sent to webhook
+        finalSaleObject.Factura_Ticket_URL =
+          invoiceData.comprobante_ticket_url ||
+          invoiceData.ticketUrl ||
+          '';
+        addToast(`Factura ${invoiceData.nro} generada.`, 'success');
+      }
+
+      // 2) Guardar venta (fiscal o no)
+      if (saleBeingEdited) {
+        await api.updateSale(saleBeingEdited, finalSaleObject);
+      } else {
+        await api.addSale(finalSaleObject, operationalShift.ID_Turno);
+      }
+
+      // 3) Confirmar éxito y mostrar impresión recién ahora
+      onOptimisticAddSale({ ...finalSaleObject, isPendingSync: false });
+      onClearSaleBeingEdited();
+      setSaleForPrintModal(finalSaleObject);
+      setPrintModalIsFiscal(!!generateInvoice);
+      setIsPrintModalOpen(true);
+      onClearCart();
+      addToast("Venta registrada con éxito.", 'success');
+      refreshData();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error inesperado.';
-      console.error("Error inicial al finalizar venta (antes del proceso en segundo plano):", err);
-      addToast(`Error crítico al iniciar la venta: ${errorMessage}`, 'error');
-      refreshData();
-      throw err;
+      console.error("Error al finalizar venta:", err);
+      addToast(`Error al registrar la venta: ${errorMessage}. No se imprimió ticket ni se limpió el carrito.`, 'error');
+      // No limpiar carrito, no abrir impresión, no toast éxito
     }
   }, [
     activeShift,
@@ -493,7 +487,7 @@ const categoryOptions = useMemo(() => {
           cart={cart}
           onUpdateQuantity={onUpdateQuantity}
           onRemoveItem={onRemoveItem}
-          onClearCart={onClearCart}
+          onClearCart={handleClearCartWithDraft}
           onCheckout={() => {
             setIsBudgetMode(false);
             setCheckoutOpen(true);
@@ -555,7 +549,7 @@ const categoryOptions = useMemo(() => {
               cart={cart}
               onUpdateQuantity={onUpdateQuantity}
               onRemoveItem={onRemoveItem}
-              onClearCart={onClearCart}
+              onClearCart={handleClearCartWithDraft}
               onCheckout={() => {
                 setIsBudgetMode(false);
                 setCheckoutOpen(true);
