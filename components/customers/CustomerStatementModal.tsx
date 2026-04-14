@@ -144,25 +144,75 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         // Fallback: intentar buscar por API si no está en allSales
         const openSale = (saleObj: any) => {
             if (saleObj) {
-                // Normalización de items
-                // Normalización completa de campos esperados por Receipt
+                // Normalización de items y shape mínimo para ventas obtenidas directo de st_sales
+                let items = [];
+                if (Array.isArray(saleObj.items)) {
+                    items = saleObj.items;
+                } else if (typeof saleObj.items === 'string') {
+                    try {
+                        items = JSON.parse(saleObj.items);
+                    } catch {}
+                }
+                // Normalización de payment
+                let payment = { cash: 0, digital: 0, credit: 0, echeqs: [] };
+                if (saleObj.payment) {
+                    payment = {
+                        cash: saleObj.payment.cash ?? 0,
+                        digital: saleObj.payment.digital ?? 0,
+                        credit: saleObj.payment.credit ?? 0,
+                        echeqs: Array.isArray(saleObj.payment.echeqs) ? saleObj.payment.echeqs : [],
+                    };
+                } else {
+                    // Puede venir como string JSON
+                    if (typeof saleObj.payment === 'string') {
+                        try {
+                            const parsed = JSON.parse(saleObj.payment);
+                            payment = {
+                                cash: parsed.cash ?? 0,
+                                digital: parsed.digital ?? 0,
+                                credit: parsed.credit ?? 0,
+                                echeqs: Array.isArray(parsed.echeqs) ? parsed.echeqs : [],
+                            };
+                        } catch {}
+                    }
+                }
+                // Normalización de customer
+                let customer = saleObj.customer ?? null;
+                if (!customer && saleObj.customer_id) {
+                    customer = { Id_Cliente: saleObj.customer_id };
+                }
+                // Normalización de facturaInfo
+                const facturaInfo = saleObj.facturaInfo ?? saleObj.factura_info ?? null;
+                // Normalización de campos numéricos
+                const subtotal = typeof saleObj.subtotal === 'number' ? saleObj.subtotal : Number(saleObj.subtotal ?? 0);
+                const adjustmentAmount = typeof saleObj.adjustmentAmount === 'number' ? saleObj.adjustmentAmount : Number(saleObj.adjustmentAmount ?? 0);
+                const total = typeof saleObj.total === 'number' ? saleObj.total : Number(saleObj.total ?? 0);
+                // Normalización de fecha (prioridad: sold_at > created_at > date > fallback)
+                let date: Date;
+                if (saleObj.sold_at) {
+                    date = new Date(saleObj.sold_at);
+                } else if (saleObj.created_at) {
+                    date = new Date(saleObj.created_at);
+                } else if (saleObj.date) {
+                    date = new Date(saleObj.date);
+                } else {
+                    date = new Date();
+                }
+                // Normalización de descripción de ajuste
+                const adjustmentDescription = saleObj.adjustmentDescription ?? saleObj.notes ?? '';
+                // Shape final
                 const safeSale = {
                     ...saleObj,
-                    items: Array.isArray(saleObj.items) ? saleObj.items : [],
-                    customer: saleObj.customer ?? null,
-                    subtotal: typeof saleObj.subtotal === 'number' ? saleObj.subtotal : 0,
-                    adjustmentAmount: typeof saleObj.adjustmentAmount === 'number' ? saleObj.adjustmentAmount : 0,
-                    adjustmentDescription: saleObj.adjustmentDescription ?? '',
-                    total: typeof saleObj.total === 'number' ? saleObj.total : 0,
-                    payment: {
-                        cash: saleObj.payment?.cash ?? 0,
-                        digital: saleObj.payment?.digital ?? 0,
-                        credit: saleObj.payment?.credit ?? 0,
-                        echeqs: Array.isArray(saleObj.payment?.echeqs) ? saleObj.payment.echeqs : [],
-                    },
-                    date: saleObj.date ? new Date(saleObj.date) : new Date(),
+                    items,
+                    customer,
+                    subtotal,
+                    adjustmentAmount,
+                    adjustmentDescription,
+                    total,
+                    payment,
+                    date,
                     id: saleObj.id ?? '',
-                    facturaInfo: saleObj.facturaInfo ?? saleObj.factura_info ?? null,
+                    facturaInfo,
                 };
                 if (!safeSale.items || safeSale.items.length === 0) {
                     console.warn('[TICKET WARN] venta sin items:', safeSale);
@@ -194,25 +244,37 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         if (sale) {
             openSale(sale);
         } else {
-            // Fallback mínimo: buscar por Supabase si no está en allSales
-            if (api && api.supabase) {
-                api.supabase
-                    .from('st_sales')
-                    .select('*')
-                    .eq('id', originalSaleId)
-                    .maybeSingle()
-                    .then(({ data, error }) => {
-                        if (error || !data) {
-                            console.error('[STATEMENT DEBUG] error getSaleById:', error);
-                            alert('No se encontraron los detalles de la venta original para este movimiento.');
-                        } else {
-                            console.log('[STATEMENT DEBUG] sale obtenido por Supabase:', data);
-                            openSale(data);
-                        }
-                    });
-            } else {
-                alert('No se encontraron los detalles de la venta original para este movimiento.');
-            }
+            // Lookup Supabase: primero por id, luego por legacy_sale_id
+            (async () => {
+                if (api && api.supabase) {
+                    const { data: primarySale } = await api.supabase
+                        .from('st_sales')
+                        .select('*')
+                        .eq('id', originalSaleId)
+                        .maybeSingle();
+
+                    let foundSale = primarySale;
+
+                    if (!foundSale) {
+                        const { data: legacySale } = await api.supabase
+                            .from('st_sales')
+                            .select('*')
+                            .eq('legacy_sale_id', originalSaleId)
+                            .maybeSingle();
+
+                        foundSale = legacySale;
+                    }
+
+                    if (!foundSale) {
+                        alert('No se encontraron los detalles de la venta original para este movimiento.');
+                        return;
+                    }
+
+                    openSale(foundSale);
+                } else {
+                    alert('No se encontraron los detalles de la venta original para este movimiento.');
+                }
+            })();
         }
     };
   
