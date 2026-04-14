@@ -1360,9 +1360,15 @@ const normalizeCustomerForTusFacturas = (customer: any) => {
 
     const doc = String(customer.Documento || '').replace(/\D/g, '');
     if (normalized['Tipo.Documento'] === 'CUIT' && doc.length !== 11) {
-        normalized.Condicion_IVA = 'CF';
-        normalized['Tipo.Documento'] = '99';
-        normalized.Documento = '0';
+        if (normalized.Condicion_IVA === 'E') {
+            // Para exentos sin CUIT válido, asignar tipo y número genéricos pero mantener exento
+            normalized['Tipo.Documento'] = '99';
+            normalized.Documento = '0';
+        } else {
+            normalized.Condicion_IVA = 'CF';
+            normalized['Tipo.Documento'] = '99';
+            normalized.Documento = '0';
+        }
     } else if (normalized['Tipo.Documento'] === 'DNI' && (!doc || parseInt(doc) <= 0)) {
         normalized.Documento = '';
     } else {
