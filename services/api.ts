@@ -1342,6 +1342,13 @@ const normalizeCustomerForTusFacturas = (customer: any) => {
     if (iva.includes('RESPONSABLE INSCRIPTO')) normalized.Condicion_IVA = 'RI';
     else if (iva.includes('MONOTRIBUTO')) normalized.Condicion_IVA = 'M';
     else if (iva.includes('CONSUMIDOR FINAL')) normalized.Condicion_IVA = 'CF';
+    else if (
+        iva.includes('EXENTO') ||
+        iva.includes('SUJETO EXENTO') ||
+        iva.includes('IVA EXENTO')
+    ) {
+        normalized.Condicion_IVA = 'E'; // Código TusFacturas para Exento
+    }
     else normalized.Condicion_IVA = 'CF';
 
     const docType = String(customer['Tipo.Documento'] || '').toUpperCase();
