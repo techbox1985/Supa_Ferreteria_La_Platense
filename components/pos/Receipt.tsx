@@ -36,17 +36,30 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
     const totalFontWeight = styles.boldAll ? 'bold' : (styles.boldTotal ? 'bold' : 'normal');
     const unitPriceFontWeight = styles.boldAll ? 'bold' : styles.unitPriceFontWeight;
 
+    // Función defensiva para obtener el precio unitario
+    function getSafeUnitPrice(item: any) {
+        if (typeof item.price === 'number' && Number.isFinite(item.price)) return item.price;
+        if (typeof item.precio === 'number' && Number.isFinite(item.precio)) return item.precio;
+        if (
+            typeof item.subtotal === 'number' && Number.isFinite(item.subtotal) &&
+            typeof item.quantity === 'number' && Number.isFinite(item.quantity) && item.quantity !== 0
+        ) {
+            return item.subtotal / item.quantity;
+        }
+        return 0;
+    }
+
     const itemsHtml = sale.items.map(item => `
         <div class="item">
             <div class="item-info">
                 <span>${item.quantity}x</span>
                 <span class="description">${item.product.Producto}</span>
             </div>
-            <div class="price">${formatCurrency(item.price * item.quantity)}</div>
+            <div class="price">${formatCurrency(getSafeUnitPrice(item) * item.quantity)}</div>
         </div>
         ${item.quantity !== 1 ? `
         <div class="item-unit-price">
-            (${formatCurrency(item.price)} c/u)
+            (${formatCurrency(getSafeUnitPrice(item))} c/u)
         </div>` : ''}
     `).join('');
 

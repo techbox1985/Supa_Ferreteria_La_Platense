@@ -2257,7 +2257,8 @@ export const getSales = async (options?: { startDate?: string; endDate?: string;
                 Producto: si.st_products?.name || si.product_name_snapshot || '',
                 Precio: Number(si.unit_price ?? 0)
             },
-            quantity: Number(si.quantity ?? 0)
+            quantity: Number(si.quantity ?? 0),
+            price: Number(si.unit_price ?? 0)
         }));
 
         const estado =
