@@ -142,16 +142,45 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         console.log('[STATEMENT DEBUG] sale encontrado:', sale);
 
         // Fallback: intentar buscar por API si no está en allSales
-        const openSale = (saleObj: any) => {
+        const openSale = async (saleObj: any) => {
             if (saleObj) {
                 // Normalización de items y shape mínimo para ventas obtenidas directo de st_sales
                 let items = [];
-                if (Array.isArray(saleObj.items)) {
+                if (Array.isArray(saleObj.items) && saleObj.items.length > 0) {
                     items = saleObj.items;
                 } else if (typeof saleObj.items === 'string') {
                     try {
-                        items = JSON.parse(saleObj.items);
+                        const parsed = JSON.parse(saleObj.items);
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            items = parsed;
+                        }
                     } catch {}
+                }
+                // Si sigue vacío, buscar en st_sale_items
+                if ((!items || items.length === 0) && saleObj.id) {
+                    try {
+                        console.log('[TICKET DIAG] Consultando st_sale_items para venta:', saleObj.id);
+                        if (!api.supabase) throw new Error('Supabase no inicializado');
+                        const { data: saleItems, error } = await api.supabase
+                            .from('st_sale_items')
+                            .select('quantity, unit_price, product_name_snapshot')
+                            .eq('sale_id', saleObj.id);
+                        if (error) {
+                            console.error('[TICKET DIAG] Error en query st_sale_items:', error);
+                        }
+                        if (Array.isArray(saleItems)) {
+                            console.log('[TICKET DIAG] st_sale_items encontrados:', saleItems.length);
+                            items = saleItems.map((row: any) => ({
+                                quantity: row.quantity,
+                                price: row.unit_price,
+                                product: { Producto: row.product_name_snapshot }
+                            }));
+                        } else {
+                            console.log('[TICKET DIAG] st_sale_items vacíos o malformados');
+                        }
+                    } catch (err) {
+                        console.error('[TICKET DIAG] Error consultando st_sale_items:', err);
+                    }
                 }
                 // Normalización de payment
                 let payment = { cash: 0, digital: 0, credit: 0, echeqs: [] };
@@ -214,6 +243,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                     id: saleObj.id ?? '',
                     facturaInfo,
                 };
+                console.log('[TICKET DIAG] safeSale.items length:', safeSale.items?.length ?? 0);
                 if (!safeSale.items || safeSale.items.length === 0) {
                     console.warn('[TICKET WARN] venta sin items:', safeSale);
                 }
