@@ -353,6 +353,11 @@ const categoryOptions = useMemo(() => {
       setSaleForPrintModal(finalSaleObject);
       setPrintModalIsFiscal(!!generateInvoice);
       setIsPrintModalOpen(true);
+      // Eliminar draft igual que presupuesto
+      const key = getCartDraftKey();
+      try {
+        localStorage.removeItem(key);
+      } catch {}
       onClearCart();
       addToast("Venta registrada con éxito.", 'success');
       refreshData();
