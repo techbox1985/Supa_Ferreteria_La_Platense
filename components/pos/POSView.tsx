@@ -140,14 +140,20 @@ const POSView: React.FC<POSViewProps> = ({
         await api.addBudgetSupabase({ ...budget, customer: budget.customer, status: 'pending' });
       }
       setCheckoutOpen(false);
+      // Limpiar draft local igual que venta exitosa
+      const key = getCartDraftKey();
+      try {
+        localStorage.removeItem(key);
+      } catch {}
       onClearCart();
       addToast('Presupuesto guardado correctamente.', 'success');
       refreshData();
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Ocurrió un error inesperado.';
       addToast(`Error al guardar presupuesto: ${errorMessage}`, 'error');
+      // NO limpiar carrito ni draft
     }
-  }, [activeShift, addToast, currentUser?.Rol, onClearCart, refreshData]);
+  }, [activeShift, addToast, currentUser?.Rol, onClearCart, refreshData, getCartDraftKey]);
     // Focus search input on mount and add Ctrl+/ shortcut
     useEffect(() => {
       if (searchInputRef.current) {
