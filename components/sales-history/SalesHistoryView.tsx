@@ -240,6 +240,15 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     const handleEditSale = (sale: Sale) => {
         if (onEditSale) onEditSale(sale);
     };
+    // Refresco inmediato tras anulación
+    const handleRefreshAfterDelete = async () => {
+        if (fetchSalesForDateRange) {
+            await fetchSalesForDateRange(startDate, endDate);
+        } else {
+            refreshData();
+        }
+    };
+
     return (
         <div className="h-full p-2 space-y-3 md:space-y-4">
             {/* Historial de Ventas */}
@@ -247,7 +256,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                 title=""
                 salesData={filteredByDocType}
                 customers={customers}
-                refreshData={refreshData}
+                refreshData={handleRefreshAfterDelete}
                 isLoading={isLoading}
                 headerChildren={filtersAndSearch}
                 noDataMessage="No se encontraron ventas para el período o filtro seleccionado."
