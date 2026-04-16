@@ -363,9 +363,10 @@ export const SalesDashboard: React.FC<
   const [patchedSaleVisualState, setPatchedSaleVisualState] = useState<
     Map<string, { status?: 'active' | 'annulled'; returnedTotal?: number }>
   >(new Map());
-  const { activeShift } = useContext(AuthContext);
+  const { activeShift, currentUser } = useContext(AuthContext);
   const { addToast } = useToast();
-  const isAdmin = false;
+  // Permisos: permitir eliminar a Admin, Oficina, Encargado
+  const canDeleteSale = currentUser && ['Admin', 'Oficina', 'Encargado'].includes(currentUser.Rol);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1109,8 +1110,8 @@ export const SalesDashboard: React.FC<
 
   const handleDeleteSale = useCallback(
     async (saleId: string) => {
-      if (!isAdmin) {
-        addToast('Solo un administrador puede anular ventas o presupuestos.', 'error');
+      if (!canDeleteSale) {
+        addToast('Solo usuarios autorizados pueden anular ventas o presupuestos.', 'error');
         return;
       }
       setIsProcessingAction(true);
@@ -1126,7 +1127,7 @@ export const SalesDashboard: React.FC<
         setSaleToDeleteId(null);
       }
     },
-    [addToast, refreshData, isAdmin]
+    [addToast, refreshData, canDeleteSale]
   );
 
   const handleConfirmDelete = useCallback(() => {
@@ -1411,7 +1412,7 @@ export const SalesDashboard: React.FC<
       )}
 
       {/* Solo administrador puede ver el modal de anulación */}
-      {isAdmin && (
+      {canDeleteSale && (
         <ConfirmationModal
           isOpen={!!saleToDeleteId}
           onClose={() => setSaleToDeleteId(null)}
@@ -1697,6 +1698,27 @@ export const SalesDashboard: React.FC<
                   >
                     <Icon path="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" className="w-6 h-6" />
                     <span className="font-medium">Generar Nota de Crédito</span>
+                  </button>
+
+                  {/* Restaurado botón Eliminar Venta - PROMPT 013 */}
+                  <button
+                    onClick={() => {
+                      const id = (selectedItemForActions.item as Sale).id;
+                      console.log('[DELETE_SALE_UI] click en Eliminar Venta, id:', id);
+                      setSaleToDeleteId(id);
+                      console.log('[DELETE_SALE_UI] después de setSaleToDeleteId, saleToDeleteId:', id);
+                      setTimeout(() => {
+                        // Delay para ver si el modal se monta
+                        console.log('[DELETE_SALE_UI] setSelectedItemForActions(null) ejecutado');
+                        setSelectedItemForActions(null);
+                      }, 100);
+                    }}
+                    disabled={(selectedItemForActions.item as Sale).status === 'annulled'}
+                    className="flex items-center space-x-3 w-full p-3 text-left bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    {/* Icono destructivo: papelera o warning, reutilizado si existe */}
+                    <Icon path="M6 18L18 6M6 6l12 12" className="w-6 h-6" />
+                    <span className="font-medium">Eliminar Venta</span>
                   </button>
                 </>
               ) : (

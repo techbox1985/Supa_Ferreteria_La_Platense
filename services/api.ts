@@ -3080,6 +3080,58 @@ export const convertBudgetToSaleSupabase = async (
     adjustmentAmount: number,
     adjustmentDescription: string
 ): Promise<any> => {
+
+
+    // --- Normalización defensiva de customer e items (solo propiedades reales) ---
+    // Normalizar customer
+    const safeCustomer = customer && typeof customer === 'object' ? customer : {};
+    const safeCustomerId = (typeof safeCustomer.Id_Cliente === 'string' && safeCustomer.Id_Cliente !== '0' && !safeCustomer.Id_Cliente.startsWith('CLAD'))
+        ? safeCustomer.Id_Cliente : null;
+    const safeCustomerName = typeof safeCustomer['Nombre y Apellido'] === 'string' && safeCustomer['Nombre y Apellido'].trim() !== ''
+        ? safeCustomer['Nombre y Apellido'] : 'Consumidor Final';
+    const safeCustomerDocumento = typeof safeCustomer.Documento === 'string' ? safeCustomer.Documento : null;
+
+    // Normalizar items (CartItem shape: { product: Product, quantity: number, price: number })
+    const rawItems = Array.isArray(budget?.items) ? budget.items : [];
+    const normalizedItems = rawItems.map((item) => {
+        const product = item && typeof item === 'object' && item.product && typeof item.product === 'object' ? item.product : null;
+        const productCode = product && typeof product.cod === 'string' ? product.cod : null;
+        const productName = product && typeof product.Producto === 'string' ? product.Producto : '';
+        const quantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
+        const price = typeof item.price === 'number' && !isNaN(item.price) ? item.price : 0;
+        const subtotal = quantity * price;
+        return {
+            productCode,
+            productName,
+            quantity,
+            price,
+            subtotal,
+            _original: item
+        };
+    });
+
+    // Validaciones defensivas
+    if (!safeCustomerId) {
+        // ...existing code...
+        throw new Error('Presupuesto sin cliente válido');
+    }
+    if (!normalizedItems.length) {
+        // ...existing code...
+        throw new Error('Presupuesto sin ítems válidos para convertir');
+    }
+    for (const item of normalizedItems) {
+        if (!item.productCode || !item.productName || item.quantity <= 0) {
+            // ...existing code...
+            throw new Error('Ítem de presupuesto inválido: falta código, nombre o cantidad');
+        }
+    }
+
+    // Log de diagnóstico de normalización
+    // ...existing code...
+
+    // ...existing code...
+    // ...existing code...
+    // payload eliminado: no se usaba
     if (!supabase) throw new Error('Supabase no inicializado');
 
     const { data: currentBudget, error: currentBudgetError } = await supabase
@@ -3088,9 +3140,16 @@ export const convertBudgetToSaleSupabase = async (
         .eq('id', budget.id)
         .maybeSingle();
 
-    if (currentBudgetError) throw currentBudgetError;
-    if (!currentBudget) throw new Error('No se encontró el presupuesto.');
+    if (currentBudgetError) {
+        // ...existing code...
+        throw currentBudgetError;
+    }
+    if (!currentBudget) {
+        // ...existing code...
+        throw new Error('No se encontró el presupuesto.');
+    }
     if (currentBudget.converted_to_sale_id) {
+        // ...existing code...
         throw new Error('Este presupuesto ya fue convertido a venta.');
     }
 
@@ -3101,16 +3160,16 @@ export const convertBudgetToSaleSupabase = async (
         .limit(1)
         .maybeSingle();
 
-    if (lastSaleError) throw lastSaleError;
+    if (lastSaleError) {
+        // ...existing code...
+        throw lastSaleError;
+    }
 
     const nextSaleNumber = Number(lastSale?.sale_number ?? 0) + 1;
 
-    const customerId =
-        customer?.Id_Cliente &&
-        customer.Id_Cliente !== '0' &&
-        !String(customer.Id_Cliente).startsWith('CLAD')
-            ? customer.Id_Cliente
-            : null;
+
+    // Usar siempre safeCustomerId
+    const customerId = safeCustomerId;
 
     const saleInsert = {
         sale_number: nextSaleNumber,
@@ -3125,8 +3184,8 @@ export const convertBudgetToSaleSupabase = async (
         payment_credit: Number(payment?.credit ?? 0),
         invoice_type: facturacion || 'N',
         status: 'active',
-        customer_name_snapshot: customer?.['Nombre y Apellido'] || 'Consumidor Final',
-        customer_document_snapshot: customer?.Documento || null,
+        customer_name_snapshot: safeCustomerName,
+        customer_document_snapshot: safeCustomerDocumento,
         notes: buildSaleNotesWithEcheqs(adjustmentDescription, payment?.echeqs)
     };
 
@@ -3136,11 +3195,14 @@ export const convertBudgetToSaleSupabase = async (
         .select()
         .single();
 
-    if (saleError) throw saleError;
+    if (saleError) {
+        // ...existing code...
+        throw saleError;
+    }
+    // ...existing code...
 
-    const productCodes = budget.items
-        .map(i => i.product?.cod)
-        .filter(Boolean);
+
+    const productCodes = normalizedItems.map(i => i.productCode).filter((c): c is string => !!c);
 
     let productMap = new Map<string, string>();
 
@@ -3151,21 +3213,24 @@ export const convertBudgetToSaleSupabase = async (
             .in('cod', productCodes);
 
         if (productError) {
+            // ...existing code...
             await supabase.from('st_sales').delete().eq('id', insertedSale.id);
             throw productError;
         }
 
         productMap = new Map((productRows || []).map((p: any) => [p.cod, p.id]));
+        // ...existing code...
     }
 
-    const itemsToInsert = budget.items.map(item => ({
+
+    const itemsToInsert = normalizedItems.map(item => ({
         sale_id: insertedSale.id,
-        product_id: productMap.get(item.product.cod) || null,
-        product_code: item.product.cod || null,
-        product_name_snapshot: item.product.Producto || 'Producto',
-        quantity: Number(item.quantity ?? 0),
-        unit_price: Number(item.price ?? 0),
-        line_total: Number(item.quantity ?? 0) * Number(item.price ?? 0)
+        product_id: item.productCode ? productMap.get(item.productCode) || null : null,
+        product_code: item.productCode,
+        product_name_snapshot: item.productName,
+        quantity: item.quantity,
+        unit_price: item.price,
+        line_total: item.subtotal
     }));
 
     if (itemsToInsert.length > 0) {
@@ -3174,9 +3239,11 @@ export const convertBudgetToSaleSupabase = async (
             .insert(itemsToInsert);
 
         if (itemsError) {
+            // ...existing code...
             await supabase.from('st_sales').delete().eq('id', insertedSale.id);
             throw itemsError;
         }
+        // ...existing code...
     }
 
     if (customerId && Number(payment?.credit ?? 0) > 0) {
@@ -3188,7 +3255,7 @@ export const convertBudgetToSaleSupabase = async (
             credit: 0,
             original_sale_id: insertedSale.id,
             shift_id: shiftId || null,
-            items: budget.items ? JSON.stringify(budget.items) : null,
+            items: JSON.stringify(normalizedItems),
             factura_info: null,
             date: new Date().toISOString(),
             created_at: new Date().toISOString(),
@@ -3199,7 +3266,9 @@ export const convertBudgetToSaleSupabase = async (
             .insert([debitMovement]);
 
         if (debitError) {
-            console.error('[Cuenta Corriente] Error al insertar movimiento de débito:', debitError);
+            // ...existing code...
+        } else {
+            // ...existing code...
         }
     }
 
@@ -3213,13 +3282,15 @@ export const convertBudgetToSaleSupabase = async (
         .eq('id', budget.id);
 
     if (budgetUpdateError) {
+        // ...existing code...
         await supabase.from('st_sale_items').delete().eq('sale_id', insertedSale.id);
         await supabase.from('st_sales').delete().eq('id', insertedSale.id);
         throw budgetUpdateError;
     }
 
+    // ...existing code...
     return insertedSale;
-};
+}
 
 export const convertBudgetToSale = async (
     budget: Budget,

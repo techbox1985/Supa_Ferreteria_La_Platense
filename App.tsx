@@ -860,7 +860,11 @@ const AppContent: React.FC = () => {
 
     const openSaleInPosEditor = useCallback((sale: Sale) => {
         setCart(buildCartFromSale(sale));
-        setSaleBeingEdited(sale);
+        if ((sale as any).document_type === 'budget') {
+            setSaleBeingEdited(null);
+        } else {
+            setSaleBeingEdited(sale);
+        }
         setCurrentView('pos');
     }, [buildCartFromSale]);
 
