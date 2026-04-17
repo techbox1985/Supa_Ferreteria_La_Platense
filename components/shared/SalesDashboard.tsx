@@ -1701,25 +1701,28 @@ export const SalesDashboard: React.FC<
                   </button>
 
                   {/* Restaurado botón Eliminar Venta - PROMPT 013 */}
-                  <button
-                    onClick={() => {
-                      const id = (selectedItemForActions.item as Sale).id;
-                      console.log('[DELETE_SALE_UI] click en Eliminar Venta, id:', id);
-                      setSaleToDeleteId(id);
-                      console.log('[DELETE_SALE_UI] después de setSaleToDeleteId, saleToDeleteId:', id);
-                      setTimeout(() => {
-                        // Delay para ver si el modal se monta
-                        console.log('[DELETE_SALE_UI] setSelectedItemForActions(null) ejecutado');
-                        setSelectedItemForActions(null);
-                      }, 100);
-                    }}
-                    disabled={(selectedItemForActions.item as Sale).status === 'annulled'}
-                    className="flex items-center space-x-3 w-full p-3 text-left bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    {/* Icono destructivo: papelera o warning, reutilizado si existe */}
-                    <Icon path="M6 18L18 6M6 6l12 12" className="w-6 h-6" />
-                    <span className="font-medium">Eliminar Venta</span>
-                  </button>
+                  {/* Solo mostrar Eliminar Venta si el usuario es Admin */}
+                  {currentUser?.Rol === 'Admin' && (
+                    <button
+                      onClick={() => {
+                        const id = (selectedItemForActions.item as Sale).id;
+                        console.log('[DELETE_SALE_UI] click en Eliminar Venta, id:', id);
+                        setSaleToDeleteId(id);
+                        console.log('[DELETE_SALE_UI] después de setSaleToDeleteId, saleToDeleteId:', id);
+                        setTimeout(() => {
+                          // Delay para ver si el modal se monta
+                          console.log('[DELETE_SALE_UI] setSelectedItemForActions(null) ejecutado');
+                          setSelectedItemForActions(null);
+                        }, 100);
+                      }}
+                      disabled={(selectedItemForActions.item as Sale).status === 'annulled'}
+                      className="flex items-center space-x-3 w-full p-3 text-left bg-red-600 hover:bg-red-700 text-white rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      {/* Icono destructivo: papelera o warning, reutilizado si existe */}
+                      <Icon path="M6 18L18 6M6 6l12 12" className="w-6 h-6" />
+                      <span className="font-medium">Eliminar Venta</span>
+                    </button>
+                  )}
                 </>
               ) : (
                 <button
