@@ -55,13 +55,15 @@ const buildProductSupabasePayload = (productData: any, options?: { includeUpdate
 
 export const updateProductSupabase = async (productData: any): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
-    if (!productData.cod) throw new Error('Falta el código de producto');
+    if (!productData.cod && !productData.id) throw new Error('Falta el código o id de producto');
     const mapping = buildProductSupabasePayload(productData, { includeUpdatedAt: true });
-    const { data, error } = await supabase
-        .from('st_products')
-        .update(mapping)
-        .eq('cod', productData.cod)
-        .select();
+    let query = supabase.from('st_products').update(mapping);
+    if (productData.id) {
+        query = query.eq('id', productData.id);
+    } else {
+        query = query.eq('cod', productData.cod);
+    }
+    const { data, error } = await query.select();
     if (error) throw error;
     return data?.[0] || null;
 };

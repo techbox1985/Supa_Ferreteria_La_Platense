@@ -514,6 +514,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       const { kitComponents, ...dataWithoutKit } = productData as any;
       const dataWithIds = {
         ...dataWithoutKit,
+        id: productToEdit?.id, // Pass the original id for updates
         Categoria: resolvedCategoryName,
         category_id: resolvedCategoryId || undefined,
         supplier_id: resolvedSupplierId || undefined,
@@ -781,7 +782,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
           className="overflow-x-auto max-h-[70vh]"
           onScroll={handleTableScroll}
         >
-          <table ref={tableRef} className="min-w-[1200px] w-full divide-y divide-gray-200">
+          <table ref={tableRef} className="min-w-300 w-full divide-y divide-gray-200">
             <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Imagen</th>
