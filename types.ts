@@ -160,6 +160,9 @@ export interface Expense {
   Efectivo: number;
   Digital: number;
   shiftId?: string;
+  // Campos de autoría para filtro quirúrgico
+  user_profile_id?: string;
+  id_usuario_registro?: string;
 }
 
 export interface User {

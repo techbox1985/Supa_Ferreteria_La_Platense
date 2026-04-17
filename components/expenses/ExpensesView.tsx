@@ -79,11 +79,25 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
 
     const safeExpensesSource = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
 
-    // Mostrar todos los gastos por defecto para todos los roles
+    // Mostrar todos los gastos por defecto para roles administrativos, filtrar para vendedores
     const visibleExpenses = useMemo(() => {
         if (!currentUser) return [];
+        // Solo filtrar para vendedores (y roles operativos si se agregan)
+        if (['Vendedor', 'Chofer', 'Acompañante'].includes(currentUser.Rol)) {
+            // El campo de usuario real es id_usuario_registro (en Supabase: user_profile_id)
+            // En el modelo Expense, aún no está mapeado, pero el backend lo trae como user_profile_id
+            // Por compatibilidad, intentar ambos
+            return safeExpensesSource.filter(e => {
+                // e.user_profile_id o e.id_usuario_registro
+                // El ID del usuario actual es currentUser.ID_Usuario
+                return (
+                    (e.user_profile_id && e.user_profile_id === currentUser.ID_Usuario) ||
+                    (e.id_usuario_registro && e.id_usuario_registro === currentUser.ID_Usuario)
+                );
+            });
+        }
+        // Admin, Oficina, Encargado ven todo
         return safeExpensesSource;
-        // Si se quiere filtrar por turno, implementar un filtro adicional aquí
     }, [safeExpensesSource, currentUser]);
 
     const filteredExpenses = useMemo(() => {
