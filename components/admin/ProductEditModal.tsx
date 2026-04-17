@@ -481,7 +481,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Código</label>
-                        <input type="text" name="cod" value={toInputValue(formData.cod)} onChange={handleChange} className={`mt-1 block w-full border-gray-300 rounded-md ${!isCreating ? 'bg-gray-100' : ''}`} readOnly={!isCreating} required={isCreating} />
+                        <input type="text" name="cod" value={toInputValue(formData.cod)} onChange={handleChange} className={`mt-1 block w-full border-gray-300 rounded-md ${!isCreating ? 'bg-gray-100' : ''}`} disabled={isSaving} required={isCreating} />
                     </div>
                     <div>
                         <label className="block text-sm font-medium">Cód. Barras</label>
