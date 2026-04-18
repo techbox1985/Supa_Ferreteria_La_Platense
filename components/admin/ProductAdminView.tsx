@@ -512,7 +512,8 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         : productData.Categoria;
 
       const { kitComponents, ...dataWithoutKit } = productData as any;
-      const dataWithIds = {
+      // PROMPT 031: Propagar correctamente offer_price: null si corresponde
+      let dataWithIds = {
         ...dataWithoutKit,
         id: productToEdit?.id, // Pass the original id for updates
         Categoria: resolvedCategoryName,
@@ -520,6 +521,14 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         supplier_id: resolvedSupplierId || undefined,
         product_type: (productData as any).product_type || 'simple',
       };
+      if (
+        ('Precio de Oferta' in dataWithIds) &&
+        (dataWithIds['Precio de Oferta'] === null || dataWithIds['Precio de Oferta'] === undefined)
+      ) {
+        dataWithIds.offer_price = null;
+      } else if ('Precio de Oferta' in dataWithIds) {
+        dataWithIds.offer_price = dataWithIds['Precio de Oferta'];
+      }
 
       const resolvedSupplierName = resolvedSupplierId
         ? supplierNameById.get(resolvedSupplierId) || productData.Proveedor || ''

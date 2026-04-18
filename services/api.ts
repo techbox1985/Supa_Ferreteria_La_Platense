@@ -38,7 +38,13 @@ const buildProductSupabasePayload = (productData: any, options?: { includeUpdate
     if (productData.last_exchange_rate !== undefined) mapping.last_exchange_rate = productData.last_exchange_rate;
     if (productData.Precio !== undefined) mapping.list_price = productData.Precio;
     if (productData['Precio Final'] !== undefined) mapping.final_price = productData['Precio Final'];
-    if (productData['Precio de Oferta'] !== undefined) mapping.offer_price = productData['Precio de Oferta'];
+    // PROMPT 031: Si viene null, pasar null explícitamente
+    if (productData['Precio de Oferta'] !== undefined) {
+        mapping.offer_price = productData['Precio de Oferta'] === null ? null : productData['Precio de Oferta'];
+    }
+    if (productData.offer_price !== undefined) {
+        mapping.offer_price = productData.offer_price;
+    }
     if (productData.auto_price !== undefined) mapping.auto_price = !!productData.auto_price;
     if (productData.stockk !== undefined) mapping.current_stock = productData.stockk;
     if (productData.Minimo !== undefined) mapping.min_stock = productData.Minimo;

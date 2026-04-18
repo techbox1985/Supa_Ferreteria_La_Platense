@@ -410,6 +410,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
       const { stockk, 'Auto?': auto, ...dataToSave } = formData;
       // Fuente única para stock: persistimos current_stock usando la fórmula oficial del modal.
       const normalizedStockInicial = Math.max(0, Number(formData['Stock-Inicial'] || 0));
+      // PROMPT 030: Forzar persistencia correcta de Precio de Oferta
       const savePayload: Partial<Product> & { stockk?: number; product_type?: string; kitComponents?: any[] } = {
         ...dataToSave,
         'Stock-Inicial': normalizedStockInicial,
@@ -417,6 +418,19 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
         product_type: productType,
         kitComponents: productType === 'kit' ? kitComponents : undefined
       };
+
+      // Si el usuario borra el campo, eliminar la propiedad para que se persista como null
+      // PROMPT 031: Si el campo queda vacío, dejar undefined (ProductAdminView fuerza offer_price: null)
+      if (
+        !(
+          (typeof dataToSave['Precio de Oferta'] === 'string' && dataToSave['Precio de Oferta'] === '') ||
+          dataToSave['Precio de Oferta'] === undefined
+        )
+      ) {
+        savePayload['Precio de Oferta'] = Number(dataToSave['Precio de Oferta']);
+      } else {
+        savePayload['Precio de Oferta'] = undefined;
+      }
       
       // Precio final para kit: manual (Precio de Oferta). Para simple: lógica existente.
       savePayload['Precio Final'] = isKitProduct
