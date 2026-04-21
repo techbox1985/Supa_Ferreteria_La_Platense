@@ -710,6 +710,19 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
           >
             Actualización Masiva de Precios
           </button>
+
+          <button
+            onClick={() => {
+              // Exportar todos los productos visibles a Excel
+              import('../../utils/exportProductsExcel').then(({ exportProductsToExcel }) => {
+                exportProductsToExcel(products);
+              });
+            }}
+            className="bg-amber-500 hover:bg-amber-600 text-white font-semibold px-5 py-3 rounded-xl shadow-sm transition-colors"
+            title="Exportar todos los productos a Excel para edición masiva"
+          >
+            Exportar Excel
+          </button>
         </div>
       </div>
 
