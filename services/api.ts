@@ -1,3 +1,5 @@
+import { normalizeProductCode } from '../src/utils/importNormalizer';
+// ...existing code...
 // Elimina cualquier transacción de st_account_transactions por id (pago, nota de crédito, etc)
 export const deleteAccountTransactionById = async (transactionId: string): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
@@ -381,7 +383,6 @@ const parsePercentValue = (value: any): number => {
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const normalizeSupplierImportKey = (value: any): string => String(value || '').trim().toLowerCase();
 
 export const calculateFinalPriceFromSupplierTaxes = (
     costPrice: number,
@@ -727,7 +728,7 @@ interface SupplierImportOptions {
     exchangeRate?: number;
 }
 
-type SupplierImportMatchedBy = 'code' | 'barcode' | 'none';
+type SupplierImportMatchedBy = 'code' | 'barcode' | 'code_prefix' | 'barcode_prefix' | 'none';
 type SupplierImportMatchReason = 'exact_code' | 'exact_barcode' | 'not_found' | 'invalid_row';
 
 interface SupplierImportInvalidRow {
@@ -758,7 +759,7 @@ const normalizeSupplierImportRows = (
 
     for (const row of rows) {
         const rawCode = String(row.cod || '').trim();
-        const normalizedCode = normalizeSupplierImportKey(rawCode);
+        const normalizedCode = normalizeProductCode(rawCode);
         const cost = Number(row.cost_price);
 
         if (!normalizedCode || !Number.isFinite(cost)) {
@@ -795,44 +796,98 @@ const resolveSupplierImportProductMatch = (
     productByCode: Map<string, any>,
     productByBarcode: Map<string, any>
 ): SupplierImportMatchResult => {
-    const rowCodeKey = normalizeSupplierImportKey(row.cod);
-    const rowBarcodeKey = normalizeSupplierImportKey(row.barcode);
+    const excelCodeOriginal = row.cod;
+    const excelBarcodeOriginal = row.barcode;
+    const excelCodeNorm = normalizeProductCode(excelCodeOriginal || '');
+    const excelBarcodeNorm = normalizeProductCode(excelBarcodeOriginal || '');
 
-    let matchByCod = null;
-    let matchByBarcode = null;
+    let matchedProduct: any = null;
+    let matchedBy: SupplierImportMatchedBy | null = null;
+    let reason: 'exact_code' | 'exact_barcode' | 'not_found' = 'not_found';
 
-    if (rowCodeKey) {
-        matchByCod = productByCode.get(rowCodeKey) || null;
-        if (matchByCod) {
-            return { product: matchByCod, matchedBy: 'code', reason: 'exact_code' };
+
+    // Buscar por code
+    if (excelCodeNorm && productByCode.has(excelCodeNorm)) {
+        matchedProduct = productByCode.get(excelCodeNorm);
+        matchedBy = 'code';
+        reason = 'exact_code';
+    }
+    // Buscar por barcode si no encontró por code
+    if (!matchedProduct && excelCodeNorm && productByBarcode.has(excelCodeNorm)) {
+        matchedProduct = productByBarcode.get(excelCodeNorm);
+        matchedBy = 'barcode';
+        reason = 'exact_barcode';
+    }
+    // Buscar por code usando barcode del excel
+    if (!matchedProduct && excelBarcodeNorm && productByCode.has(excelBarcodeNorm)) {
+        matchedProduct = productByCode.get(excelBarcodeNorm);
+        matchedBy = 'code';
+        reason = 'exact_code';
+    }
+    // Buscar por barcode usando barcode del excel
+    if (!matchedProduct && excelBarcodeNorm && productByBarcode.has(excelBarcodeNorm)) {
+        matchedProduct = productByBarcode.get(excelBarcodeNorm);
+        matchedBy = 'barcode';
+        reason = 'exact_barcode';
+    }
+
+    // Fallback: prefijo controlado SOLO si no hubo match exacto
+    if (!matchedProduct && excelCodeNorm) {
+        // Buscar por code_prefix
+        const codePrefixProduct = Array.from(productByCode.entries()).find(([productCodeNorm]) =>
+            productCodeNorm.startsWith(excelCodeNorm + ' ') ||
+            productCodeNorm.startsWith(excelCodeNorm + '-')
+        );
+        if (codePrefixProduct) {
+            matchedProduct = codePrefixProduct[1];
+            matchedBy = 'code_prefix';
+            reason = 'exact_code';
+        }
+    }
+    if (!matchedProduct && excelCodeNorm) {
+        // Buscar por barcode_prefix
+        const barcodePrefixProduct = Array.from(productByBarcode.entries()).find(([productBarcodeNorm]) =>
+            productBarcodeNorm.startsWith(excelCodeNorm + ' ') ||
+            productBarcodeNorm.startsWith(excelCodeNorm + '-')
+        );
+        if (barcodePrefixProduct) {
+            matchedProduct = barcodePrefixProduct[1];
+            matchedBy = 'barcode_prefix';
+            reason = 'exact_barcode';
         }
     }
 
-    if (rowBarcodeKey) {
-        matchByBarcode = productByBarcode.get(rowBarcodeKey) || null;
-        if (matchByBarcode) {
-            return { product: matchByBarcode, matchedBy: 'barcode', reason: 'exact_barcode' };
-        }
-    }
 
-    // Log detallado solo si no se encontró por ninguno
-    // eslint-disable-next-line no-console
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] rowNumber: N/A');
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] row.cod:', row.cod);
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] row.barcode:', row.barcode);
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] normalizedMain:', rowCodeKey);
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] normalizedSecondary:', rowBarcodeKey);
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] matchByCod:', matchByCod ? 'FOUND' : 'NOT FOUND');
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] matchByBarcode:', matchByBarcode ? 'FOUND' : 'NOT FOUND');
-    // eslint-disable-next-line no-console
-    console.log('[IMPORT DEBUG] finalResult: not found');
+        // Log quirúrgico de decisión final
+        // eslint-disable-next-line no-console
+        console.log('[MASS_MATCH_DECISION]', {
+                excelCodeOriginal,
+                excelCodeNorm,
+                excelBarcodeOriginal,
+                excelBarcodeNorm,
+                matchedBy: matchedProduct
+                        ? (
+                                normalizeProductCode(matchedProduct.cod || '') === excelCodeNorm ||
+                                normalizeProductCode(matchedProduct.cod || '') === excelBarcodeNorm
+                                    ? 'code'
+                                    : normalizeProductCode(matchedProduct.barcode || '') === excelCodeNorm ||
+                                        normalizeProductCode(matchedProduct.barcode || '') === excelBarcodeNorm
+                                        ? 'barcode'
+                                        : matchedBy === 'code_prefix'
+                                            ? 'code_prefix'
+                                            : matchedBy === 'barcode_prefix'
+                                                ? 'barcode_prefix'
+                                                : 'unknown'
+                            )
+                        : null,
+                matchedProductId: matchedProduct?.id || null,
+                matchedProductCode: matchedProduct?.cod || null,
+                matchedProductBarcode: matchedProduct?.barcode || matchedProduct?.['cod.barras'] || null,
+        });
+
+    if (matchedProduct) {
+        return { product: matchedProduct, matchedBy: matchedBy || 'none', reason };
+    }
     return { product: null, matchedBy: 'none', reason: 'not_found' };
 };
 
@@ -892,11 +947,11 @@ const prepareSupplierImportContext = async (supplierId: string, rows: SupplierCo
     summary.existingSupplierProducts = supplierProducts.length;
 
     const fileCodeSet = new Set(
-        normalizedRows.flatMap((row) => [normalizeSupplierImportKey(row.cod), normalizeSupplierImportKey(row.barcode)]).filter(Boolean)
+        normalizedRows.flatMap((row) => [normalizeProductCode(row.cod || ''), normalizeProductCode(row.barcode || '')]).filter(Boolean)
     );
     summary.foundInFile = supplierProducts.reduce((acc: number, product: any) => {
-        const codKey = normalizeSupplierImportKey(product.cod);
-        const barcodeKey = normalizeSupplierImportKey(product.barcode);
+        const codKey = normalizeProductCode(product.cod);
+        const barcodeKey = normalizeProductCode(product.barcode);
         return (fileCodeSet.has(codKey) || fileCodeSet.has(barcodeKey)) ? acc + 1 : acc;
     }, 0);
     summary.notFoundInFile = Math.max(summary.existingSupplierProducts - summary.foundInFile, 0);
@@ -904,12 +959,12 @@ const prepareSupplierImportContext = async (supplierId: string, rows: SupplierCo
 
     const productByCode = new Map(
         supplierProducts
-            .map((product: any) => [normalizeSupplierImportKey(product.cod), product] as const)
+            .map((product: any) => [normalizeProductCode(product.cod || ''), product] as const)
             .filter(([key]) => key.length > 0)
     );
     const productByBarcode = new Map(
         supplierProducts
-            .map((product: any) => [normalizeSupplierImportKey(product.barcode), product] as const)
+            .map((product: any) => [normalizeProductCode(product.barcode || ''), product] as const)
             .filter(([key]) => key.length > 0)
     );
 
@@ -937,7 +992,7 @@ export const previewSupplierCostsSupabase = async (
     supplierId: string,
     rows: SupplierCostImportRow[],
     options?: SupplierImportOptions
-): Promise<SupplierCostImportPreviewRow[]> => {
+): Promise<{ previewRows: SupplierCostImportPreviewRow[]; matchedKeysSet: Set<string> }> => {
     const fileCurrency: 'ARS' | 'USD' = options?.fileCurrency === 'USD' ? 'USD' : 'ARS';
     const exchangeRate = Number(options?.exchangeRate ?? 1);
     const safeExchangeRate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
@@ -952,6 +1007,7 @@ export const previewSupplierCostsSupabase = async (
         supplierTax3Percent,
     } = await prepareSupplierImportContext(supplierId, rows);
 
+    const matchedKeysSet = new Set<string>();
     const validPreviewRows: Array<SupplierCostImportPreviewRow & SupplierImportPreviewMetadata> = normalizedRows.map((row) => {
         const matchResult = resolveSupplierImportProductMatch(row, productByCode, productByBarcode);
         const priceOutcome = computeSupplierImportPriceOutcome(
@@ -963,6 +1019,18 @@ export const previewSupplierCostsSupabase = async (
             supplierTax2Percent,
             supplierTax3Percent
         );
+
+        // Guardar claves matcheadas (code, barcode, code_prefix, barcode_prefix)
+        if (matchResult.product && matchResult.matchedBy) {
+            // code y code_prefix: clave de producto.cod
+            // barcode y barcode_prefix: clave de producto.barcode
+            if (matchResult.matchedBy === 'code' || matchResult.matchedBy === 'code_prefix') {
+                matchedKeysSet.add(normalizeProductCode(matchResult.product.cod || ''));
+            }
+            if (matchResult.matchedBy === 'barcode' || matchResult.matchedBy === 'barcode_prefix') {
+                matchedKeysSet.add(normalizeProductCode(matchResult.product.barcode || matchResult.product['cod.barras'] || ''));
+            }
+        }
 
         const status: 'found' | 'not found' = matchResult.product ? 'found' : 'not found';
         const result: 'will update' | 'no change' | 'not found' = matchResult.product
@@ -1014,7 +1082,10 @@ export const previewSupplierCostsSupabase = async (
         willUpdate: false,
     }));
 
-    return [...validPreviewRows, ...invalidPreviewRows];
+    return {
+        previewRows: [...validPreviewRows, ...invalidPreviewRows],
+        matchedKeysSet,
+    };
 };
 
 export const importSupplierCostsSupabase = async (

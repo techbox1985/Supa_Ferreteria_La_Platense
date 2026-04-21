@@ -1,4 +1,21 @@
 /**
+ * Normaliza códigos de producto para matching robusto entre sistema y Excel.
+ * - trim
+ * - mayúsculas
+ * - múltiples espacios → uno solo
+ * - guiones raros a '-'
+ * - elimina caracteres invisibles comunes
+ */
+export function normalizeProductCode(str: string): string {
+  return String(str || '')
+    .replace(/[‐‑‒–—―−﹘﹣－]/g, '-') // guiones raros a '-'
+    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // caracteres invisibles
+    .replace(/\s+/g, ' ') // múltiples espacios a uno
+    .trim()
+    .toUpperCase();
+}
+
+/**
  * importNormalizer.ts
  * Utility for normalizing messy Excel/CSV headers and detecting column types
  * for supplier import flows (e.g. ANSAL-like files).
