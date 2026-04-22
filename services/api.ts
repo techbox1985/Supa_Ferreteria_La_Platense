@@ -115,7 +115,9 @@ import {
     SupplierInvoiceItem,
     SupplierCostImportRow,
     SupplierCostImportPreviewRow,
+    SupplierCostImportPreviewResponse,
     SupplierCostImportSummary,
+    SupplierMissingProduct,
     SupplierAccountSummary,
     SupplierInvoiceBalance,
     SupplierPayment,
@@ -796,10 +798,53 @@ const resolveSupplierImportProductMatch = (
     productByCode: Map<string, any>,
     productByBarcode: Map<string, any>
 ): SupplierImportMatchResult => {
+    // eslint-disable-next-line no-console
+    console.log('[REAL_IMPORT_FLOW]', 'ESTA ES LA FUNCION REAL');
+    const DEBUG_CODE = 'CRQD-U05PG+';
+    const DEBUG_CODE_BASE = 'CRQD-U05PG';
+    const dumpChars = (value: string) =>
+        Array.from(String(value || '')).map((ch) => ({
+            ch,
+            code: ch.charCodeAt(0),
+        }));
+    const shouldDebugExactCode = (value: string) => {
+        const raw = String(value || '');
+        return raw.includes(DEBUG_CODE_BASE) || raw.includes(DEBUG_CODE);
+    };
+
     const excelCodeOriginal = row.cod;
     const excelBarcodeOriginal = row.barcode;
     const excelCodeNorm = normalizeProductCode(excelCodeOriginal || '');
     const excelBarcodeNorm = normalizeProductCode(excelBarcodeOriginal || '');
+
+    if (shouldDebugExactCode(String(excelCodeOriginal || '')) || shouldDebugExactCode(String(excelBarcodeOriginal || ''))) {
+        const productCandidateByCode = Array.from(productByCode.entries()).find(([productCodeNorm, product]) =>
+            shouldDebugExactCode(productCodeNorm) || shouldDebugExactCode(product?.cod || '')
+        )?.[1] || null;
+        const productCandidateByBarcode = Array.from(productByBarcode.entries()).find(([productBarcodeNorm, product]) =>
+            shouldDebugExactCode(productBarcodeNorm) || shouldDebugExactCode(product?.barcode || product?.['cod.barras'] || '')
+        )?.[1] || null;
+        const productCandidate = productCandidateByCode || productCandidateByBarcode;
+        const productOriginal = String(productCandidate?.cod || productCandidate?.barcode || productCandidate?.['cod.barras'] || '');
+        const productNormalized = normalizeProductCode(productOriginal || '');
+
+        // eslint-disable-next-line no-console
+        console.log('[EXACT_CODE_DEBUG]', {
+            excelOriginal: excelCodeOriginal,
+            productOriginal,
+            excelNormalized: excelCodeNorm,
+            productNormalized,
+            excelTrimmed: String(excelCodeOriginal || '').trim(),
+            productTrimmed: String(productOriginal || '').trim(),
+            excelChars: dumpChars(String(excelCodeOriginal || '')),
+            productChars: dumpChars(String(productOriginal || '')),
+            excelNormalizedChars: dumpChars(String(excelCodeNorm || '')),
+            productNormalizedChars: dumpChars(String(productNormalized || '')),
+            equalsOriginal: String(excelCodeOriginal || '') === String(productOriginal || ''),
+            equalsTrimmed: String(excelCodeOriginal || '').trim() === String(productOriginal || '').trim(),
+            equalsNormalized: String(excelCodeNorm || '') === String(productNormalized || ''),
+        });
+    }
 
     let matchedProduct: any = null;
     let matchedBy: SupplierImportMatchedBy | null = null;
@@ -886,10 +931,37 @@ const resolveSupplierImportProductMatch = (
         });
 
     if (matchedProduct) {
+        if (shouldDebugExactCode(excelCodeOriginal) || shouldDebugExactCode(matchedProduct?.cod || '') || shouldDebugExactCode(matchedProduct?.barcode || matchedProduct?.['cod.barras'] || '')) {
+            // eslint-disable-next-line no-console
+            console.log('[EXACT_CODE_MATCH_DECISION]', {
+                excelOriginal: excelCodeOriginal,
+                productOriginal: matchedProduct?.cod || matchedProduct?.barcode || matchedProduct?.['cod.barras'] || '',
+                excelNormalized: excelCodeNorm,
+                productNormalized: normalizeProductCode(matchedProduct?.cod || matchedProduct?.barcode || matchedProduct?.['cod.barras'] || ''),
+                matched: true,
+            });
+        }
         return { product: matchedProduct, matchedBy: matchedBy || 'none', reason };
+    }
+    if (shouldDebugExactCode(String(excelCodeOriginal || '')) || shouldDebugExactCode(String(excelBarcodeOriginal || ''))) {
+        // eslint-disable-next-line no-console
+        console.log('[EXACT_CODE_MATCH_DECISION]', {
+            excelOriginal: excelCodeOriginal,
+            productOriginal: '',
+            excelNormalized: excelCodeNorm,
+            productNormalized: '',
+            matched: false,
+        });
     }
     return { product: null, matchedBy: 'none', reason: 'not_found' };
 };
+
+// Shared source of truth for import matching (preview + process).
+const resolveMatch = (
+    row: SupplierCostImportRow,
+    productByCode: Map<string, any>,
+    productByBarcode: Map<string, any>
+): SupplierImportMatchResult => resolveSupplierImportProductMatch(row, productByCode, productByBarcode);
 
 const computeSupplierImportPriceOutcome = (
     product: any,
@@ -944,29 +1016,61 @@ const prepareSupplierImportContext = async (supplierId: string, rows: SupplierCo
     if (supplierProductsError) throw supplierProductsError;
 
     const supplierProducts = supplierProductsData || [];
+    const DEBUG_CODE = 'W180CO112';
+    // eslint-disable-next-line no-console
+    console.log('[SUPPLIER_PRODUCTS_DEBUG]', {
+        total: supplierProducts.length,
+        matchingProducts: supplierProducts
+            .filter((p: any) =>
+                String(p?.cod || p?.code || p?.barcode || p?.['cod.barras'] || '').includes(DEBUG_CODE)
+            )
+            .map((p: any) => ({
+                id: p?.id,
+                cod: p?.cod,
+                code: p?.code,
+                barcode: p?.barcode,
+                codBarras: p?.['cod.barras'],
+                name: p?.name,
+                supplier_id: p?.supplier_id,
+            })),
+    });
     summary.existingSupplierProducts = supplierProducts.length;
 
     const fileCodeSet = new Set(
         normalizedRows.flatMap((row) => [normalizeProductCode(row.cod || ''), normalizeProductCode(row.barcode || '')]).filter(Boolean)
     );
     summary.foundInFile = supplierProducts.reduce((acc: number, product: any) => {
-        const codKey = normalizeProductCode(product.cod);
-        const barcodeKey = normalizeProductCode(product.barcode);
+        const codKey = normalizeProductCode(product.cod || product.code || '');
+        const barcodeKey = normalizeProductCode(product.barcode || product['cod.barras'] || '');
         return (fileCodeSet.has(codKey) || fileCodeSet.has(barcodeKey)) ? acc + 1 : acc;
     }, 0);
     summary.notFoundInFile = Math.max(summary.existingSupplierProducts - summary.foundInFile, 0);
     summary.found = summary.foundInFile;
 
-    const productByCode = new Map(
-        supplierProducts
-            .map((product: any) => [normalizeProductCode(product.cod || ''), product] as const)
-            .filter(([key]) => key.length > 0)
-    );
-    const productByBarcode = new Map(
-        supplierProducts
-            .map((product: any) => [normalizeProductCode(product.barcode || ''), product] as const)
-            .filter(([key]) => key.length > 0)
-    );
+    const productByCode = new Map<string, any>();
+    const productByBarcode = new Map<string, any>();
+    for (const product of supplierProducts as any[]) {
+        const codeKey = normalizeProductCode(product.cod || product.code || '');
+        const barcodeKey = normalizeProductCode(product.barcode || product['cod.barras'] || '');
+        if (codeKey) {
+            productByCode.set(codeKey, product);
+        }
+        if (barcodeKey) {
+            productByBarcode.set(barcodeKey, product);
+        }
+    }
+    const normalizedDebugCode = normalizeProductCode(DEBUG_CODE);
+    // eslint-disable-next-line no-console
+    console.log('[PRODUCT_INDEX_DEBUG]', {
+        debugCode: DEBUG_CODE,
+        normalizedDebugCode,
+        hasByCode: productByCode.has(normalizedDebugCode),
+        byCodeValue: productByCode.get(normalizedDebugCode) || null,
+        hasByBarcode: productByBarcode.has(normalizedDebugCode),
+        byBarcodeValue: productByBarcode.get(normalizedDebugCode) || null,
+        productByCodeSize: productByCode.size,
+        productByBarcodeSize: productByBarcode.size,
+    });
 
     const { data: supplierData, error: supplierError } = await supabase
         .from('st_suppliers')
@@ -978,6 +1082,7 @@ const prepareSupplierImportContext = async (supplierId: string, rows: SupplierCo
 
     return {
         summary,
+        supplierProducts,
         normalizedRows,
         invalidRows,
         productByCode,
@@ -992,12 +1097,13 @@ export const previewSupplierCostsSupabase = async (
     supplierId: string,
     rows: SupplierCostImportRow[],
     options?: SupplierImportOptions
-): Promise<{ previewRows: SupplierCostImportPreviewRow[]; matchedKeysSet: Set<string> }> => {
+): Promise<SupplierCostImportPreviewResponse> => {
     const fileCurrency: 'ARS' | 'USD' = options?.fileCurrency === 'USD' ? 'USD' : 'ARS';
     const exchangeRate = Number(options?.exchangeRate ?? 1);
     const safeExchangeRate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
 
     const {
+        supplierProducts,
         normalizedRows,
         invalidRows,
         productByCode,
@@ -1008,8 +1114,9 @@ export const previewSupplierCostsSupabase = async (
     } = await prepareSupplierImportContext(supplierId, rows);
 
     const matchedKeysSet = new Set<string>();
+    const matchedProductIds = new Set<string>();
     const validPreviewRows: Array<SupplierCostImportPreviewRow & SupplierImportPreviewMetadata> = normalizedRows.map((row) => {
-        const matchResult = resolveSupplierImportProductMatch(row, productByCode, productByBarcode);
+        const matchResult = resolveMatch(row, productByCode, productByBarcode);
         const priceOutcome = computeSupplierImportPriceOutcome(
             matchResult.product,
             row,
@@ -1022,13 +1129,21 @@ export const previewSupplierCostsSupabase = async (
 
         // Guardar claves matcheadas (code, barcode, code_prefix, barcode_prefix)
         if (matchResult.product && matchResult.matchedBy) {
-            // code y code_prefix: clave de producto.cod
-            // barcode y barcode_prefix: clave de producto.barcode
-            if (matchResult.matchedBy === 'code' || matchResult.matchedBy === 'code_prefix') {
-                matchedKeysSet.add(normalizeProductCode(matchResult.product.cod || ''));
-            }
-            if (matchResult.matchedBy === 'barcode' || matchResult.matchedBy === 'barcode_prefix') {
-                matchedKeysSet.add(normalizeProductCode(matchResult.product.barcode || matchResult.product['cod.barras'] || ''));
+            const normalizedKey = normalizeProductCode(row.cod || row.barcode || '');
+            if (normalizedKey) {
+                matchedKeysSet.add(normalizedKey);
+                matchedProductIds.add(String(matchResult.product.id || ''));
+                // eslint-disable-next-line no-console
+                console.log('[MATCHED_KEY_ADDED]', {
+                    key: normalizedKey,
+                    matchedProductCode: matchResult.product.cod || matchResult.product.barcode || matchResult.product['cod.barras'] || '',
+                    matchedBy: matchResult.matchedBy,
+                });
+                // eslint-disable-next-line no-console
+                console.log('[PREVIEW_MATCH]', {
+                    key: normalizedKey,
+                    matched: !!matchResult.product,
+                });
             }
         }
 
@@ -1082,9 +1197,31 @@ export const previewSupplierCostsSupabase = async (
         willUpdate: false,
     }));
 
+    const previewRows = [...validPreviewRows, ...invalidPreviewRows];
+    const providerMissingProducts: SupplierMissingProduct[] = (supplierProducts || [])
+        .filter((product: any) => !matchedProductIds.has(String(product?.id || '')))
+        .map((product: any) => ({
+            id: String(product?.id || ''),
+            cod: String(product?.cod || product?.code || '').trim(),
+            barcode: String(product?.barcode || product?.['cod.barras'] || '').trim(),
+            description: String(product?.name || product?.description || '').trim(),
+            price: Number.isFinite(Number(product?.final_price))
+                ? Number(product?.final_price)
+                : Number.isFinite(Number(product?.cost_price))
+                    ? Number(product?.cost_price)
+                    : null,
+        }));
+
+    // eslint-disable-next-line no-console
+    console.log('[MATCHED_KEYSSET_FINAL_BACKEND]', {
+        size: matchedKeysSet.size,
+        providerMissingProducts: providerMissingProducts.length,
+    });
+
     return {
-        previewRows: [...validPreviewRows, ...invalidPreviewRows],
-        matchedKeysSet,
+        previewRows,
+        matchedKeysArray: Array.from(matchedKeysSet),
+        providerMissingProducts,
     };
 };
 
@@ -1110,7 +1247,7 @@ export const importSupplierCostsSupabase = async (
     } = await prepareSupplierImportContext(supplierId, rows);
 
     for (const row of normalizedRows) {
-        const matchResult = resolveSupplierImportProductMatch(row, productByCode, productByBarcode);
+        const matchResult = resolveMatch(row, productByCode, productByBarcode);
         if (!matchResult.product) {
             summary.notFound += 1;
             continue;

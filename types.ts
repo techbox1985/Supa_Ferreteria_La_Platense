@@ -325,6 +325,20 @@ export interface SupplierCostImportPreviewRow {
   result: 'will update' | 'no change' | 'not found';
 }
 
+export interface SupplierMissingProduct {
+  id: string;
+  cod: string;
+  barcode: string;
+  description: string;
+  price: number | null;
+}
+
+export interface SupplierCostImportPreviewResponse {
+  previewRows: SupplierCostImportPreviewRow[];
+  matchedKeysArray: string[];
+  providerMissingProducts: SupplierMissingProduct[];
+}
+
 export interface SupplierCostImportSummary {
   existingSupplierProducts: number;
   foundInFile: number;

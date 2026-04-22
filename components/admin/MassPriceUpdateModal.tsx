@@ -4,7 +4,7 @@ import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
-import { SupplierCostImportPreviewRow, SupplierCostImportRow, SupplierCostImportSummary } from '../../types';
+import { SupplierCostImportPreviewRow, SupplierCostImportRow, SupplierCostImportSummary, SupplierMissingProduct } from '../../types';
 import { parseSupplierTextFallback } from '../../src/utils/importTextFallback';
 import { normalizeProductCode } from '../../src/utils/importNormalizer';
 
@@ -60,13 +60,6 @@ interface SupplierApiRow {
   tax_3_percent?: number;
 }
 
-interface MissingInFileRow {
-  code: string;
-  barcode: string;
-  description: string;
-  price: number | null;
-}
-
 interface NotFoundProductRow {
   excel_code: string;
   excel_barcode: string;
@@ -98,6 +91,11 @@ const parseCostValue = (value: string): number => {
   }
 
   return Number(cleaned.replace(',', '.'));
+};
+
+const getRowKey = (row: SupplierCostImportPreviewRow) => {
+  const barcode = (row as SupplierCostImportPreviewRow & { barcode?: string }).barcode;
+  return normalizeProductCode((row.cod || barcode || '').toString());
 };
 
 
@@ -392,59 +390,42 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const [exchangeRateSource, setExchangeRateSource] = useState('');
   const [importSummary, setImportSummary] = useState<SupplierCostImportSummary | null>(null);
   const [notFoundCodeSamples, setNotFoundCodeSamples] = useState<string[]>([]);
+  const [providerMissingProducts, setProviderMissingProducts] = useState<SupplierMissingProduct[]>([]);
   const [showMissingModal, _setShowMissingModal] = useState(false);
-  const [missingInFileRows, _setMissingInFileRows] = useState<MissingInFileRow[]>([]);
-
-  // Estado para controlar si el resumen está listo
-  const [summaryReady, setSummaryReady] = useState(false);
+  const [matchedKeysSet, setMatchedKeysSet] = useState<Set<string>>(new Set());
 
   // Wrappers para logs de estado
   const setShowMissingModal = (val: boolean, origin = '') => {
+    const providerMissingLength = providerMissingProducts.length;
     // eslint-disable-next-line no-console
     console.log('[MASS_STATE_FLOW]', {
       action: 'setShowMissingModal',
       origin,
       value: val,
-      missingInFileRowsLength: missingInFileRows.length,
-      codes: missingInFileRows.slice(0, 3).map(r => r.code),
+      providerMissingLength,
       showMissingModal: val
     });
     _setShowMissingModal(val);
   };
 
-  const setMissingInFileRows = (rows: MissingInFileRow[], origin = '') => {
-    // eslint-disable-next-line no-console
-    console.log('[MASS_STATE_FLOW]', {
-      action: 'setMissingInFileRows',
-      origin,
-      valueLength: rows.length,
-      codes: rows.slice(0, 3).map((r: MissingInFileRow) => r.code),
-      showMissingModal
-    });
-    _setMissingInFileRows(rows);
-    // Marcar resumen como listo solo cuando se setea el array real (no en resets vacíos)
-    if (origin === 'importSupplierCosts missingProducts') {
-      setSummaryReady(true);
-    }
-  };
-
   // Log de cambios de estado
   useEffect(() => {
+    const providerMissingLength = providerMissingProducts.length;
     // eslint-disable-next-line no-console
     console.log('[MASS_STATE_FLOW]', {
       action: 'useEffect',
-      missingInFileRowsLength: missingInFileRows.length,
-      codes: missingInFileRows.slice(0, 3).map(r => r.code),
+      providerMissingLength,
       showMissingModal
     });
-  }, [missingInFileRows, showMissingModal]);
+  }, [providerMissingProducts, showMissingModal]);
 
   if (typeof window !== 'undefined') {
+    const providerMissingLength = providerMissingProducts.length;
     // eslint-disable-next-line no-console
     console.log('[MASS_MODAL_RENDER_ROOT]', {
       render: true,
       showMissingModal,
-      missingInFileRowsLength: missingInFileRows?.length,
+      providerMissingLength,
     });
   }
 
@@ -501,8 +482,9 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setExchangeRateSource('');
       setImportSummary(null);
       setNotFoundCodeSamples([]);
+      setProviderMissingProducts([]);
       setShowMissingModal(false, 'resetSupplierImportFlow');
-      setMissingInFileRows([], 'resetSupplierImportFlow');
+      setMatchedKeysSet(new Set());
       setIsProcessingUsdUpdate(false);
       setUsdUpdateStage('idle');
       setUsdUpdatePercent(0);
@@ -522,8 +504,9 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     setParsedImportRows([]);
     setImportSummary(null);
     setNotFoundCodeSamples([]);
+    setProviderMissingProducts([]);
     setShowMissingModal(false, 'useEffect mode change');
-    setMissingInFileRows([], 'useEffect mode change');
+    setMatchedKeysSet(new Set());
     setSupplierImportStep('edit');
     setSupplierImportProgress({ stage: 'idle', percent: 0 });
     setExchangeRateWarning('');
@@ -582,8 +565,9 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     setImportPreviewRows([]);
     setImportSummary(null);
     setNotFoundCodeSamples([]);
+    setProviderMissingProducts([]);
     setShowMissingModal(false);
-    setMissingInFileRows([]);
+    setMatchedKeysSet(new Set());
     setSupplierImportStep('edit');
     setSupplierImportProgress({ stage: 'idle', percent: 0 });
     setFileAnalysis(null);
@@ -703,7 +687,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
         );
         setSupplierImportProgress({ stage: 'idle', percent: 0 });
         setShowMissingModal(false, 'fallback error');
-        setMissingInFileRows([], 'fallback error');
+        setMatchedKeysSet(new Set());
         return;
       }
 
@@ -729,19 +713,28 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     if (resolvedCurrency === 'USD' && (!Number.isFinite(parsedExchangeRate) || parsedExchangeRate <= 0)) {
       setError('Debe ingresar un tipo de cambio válido mayor a 0 para archivos en USD.');
       setShowMissingModal(false, 'import error');
-      setMissingInFileRows([], 'import error');
+      setMatchedKeysSet(new Set());
       return;
     }
 
     setIsProcessing(true);
     try {
       setSupplierImportProgress({ stage: 'building-preview', percent: 55 });
-      const { previewRows } = await api.previewSupplierCostsSupabase(selectedSupplierId, resolvedRows, {
+      const response = await api.previewSupplierCostsSupabase(selectedSupplierId, resolvedRows, {
         fileCurrency: resolvedCurrency,
         exchangeRate: parsedExchangeRate,
       });
+      const { previewRows, matchedKeysArray, providerMissingProducts } = response;
+      const matchedKeysSet = new Set(matchedKeysArray);
+      // eslint-disable-next-line no-console
+      console.log('[FINAL_MATCH_FIXED]', {
+        arrayLength: matchedKeysArray.length,
+        setSize: matchedKeysSet.size,
+      });
       setParsedImportRows(resolvedRows);
       setImportPreviewRows(previewRows);
+      setProviderMissingProducts(providerMissingProducts);
+      setMatchedKeysSet(matchedKeysSet);
       setSupplierImportStep('preview');
       setSupplierImportProgress({ stage: 'done', percent: 100 });
     } catch (err) {
@@ -758,7 +751,6 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     setImportSummary(null);
     setNotFoundCodeSamples([]);
     setShowMissingModal(false, 'handleImportSupplierCosts start');
-    setMissingInFileRows([], 'handleImportSupplierCosts start');
 
     if (!selectedSupplierId) {
       setError('Debe seleccionar un proveedor para importar costos.');
@@ -780,11 +772,6 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     try {
 
       setSupplierImportProgress({ stage: 'importing-rows', percent: 70 });
-      // Usar previewSupplierCostsSupabase para obtener matchedKeysSet real
-      const { matchedKeysSet } = await api.previewSupplierCostsSupabase(selectedSupplierId, parsedImportRows, {
-        fileCurrency,
-        exchangeRate: parsedExchangeRate,
-      });
       const summary = await api.importSupplierCostsSupabase(selectedSupplierId, parsedImportRows, {
         fileCurrency,
         exchangeRate: parsedExchangeRate,
@@ -798,59 +785,6 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setImportSummary(mergedSummary);
       setSupplierImportStep('result');
       setSupplierImportProgress({ stage: 'finalizing', percent: 90 });
-
-      if (mergedSummary.notFound > 0 || mergedSummary.notFoundInFile > 0) {
-        try {
-          const allProducts = await api.getProductsSupabase();
-          const supplierProducts = allProducts.filter((product) => String(product.supplier_id || '') === selectedSupplierId);
-
-          const missingProducts: MissingInFileRow[] = [];
-          supplierProducts.forEach((product) => {
-            const productCode = String(product.cod || '').trim();
-            const productBarcode = String(product['cod.barras'] || '').trim();
-            const productCodeNorm = normalizeProductCode(productCode);
-            const productBarcodeNorm = normalizeProductCode(productBarcode);
-            const shouldBeMissing = !matchedKeysSet.has(productCodeNorm) && !matchedKeysSet.has(productBarcodeNorm);
-            // Log quirúrgico EGAS
-            if (productCodeNorm.includes('egas100') || productBarcodeNorm.includes('egas100')) {
-              // eslint-disable-next-line no-console
-              console.log('[EGAS_FINAL_CONSISTENCY]', {
-                matchedImportKeys: Array.from(matchedKeysSet || []).filter(x => String(x).includes('EGAS100')),
-                productCode,
-                productBarcode,
-                shouldBeMissing,
-              });
-            }
-            if (shouldBeMissing) {
-              missingProducts.push({
-                code: productCode,
-                barcode: productBarcode,
-                description: String(product.Producto || '').trim(),
-                price: Number.isFinite(Number(product['P.Costo'])) ? Number(product['P.Costo']) : null,
-              });
-            }
-          });
-          // [MASS_IMPORT_RESULT_FINAL] log justo antes de setMissingInFileRows
-          // eslint-disable-next-line no-console
-          console.log('[MASS_IMPORT_RESULT_FINAL]', {
-            length: missingProducts?.length,
-            sample: missingProducts?.slice(0, 5),
-          });
-          setMissingInFileRows(missingProducts, 'importSupplierCosts missingProducts');
-        } catch {
-          setNotFoundCodeSamples([]);
-          setMissingInFileRows([], 'importSupplierCosts error');
-        }
-      }
-  // [REAL_NOT_FOUND_TABLE_SOURCE] useEffect después de todos los hooks y antes del return
-  useEffect(() => {
-    // eslint-disable-next-line no-console
-    console.log('[REAL_NOT_FOUND_TABLE_SOURCE]', {
-      arrayName: 'missingInFileRows',
-      length: missingInFileRows?.length,
-      sample: missingInFileRows?.slice(0, 5),
-    });
-  }, [missingInFileRows]);
 
       addToast('Importación de costos finalizada.', 'success');
       onUpdate();
@@ -899,14 +833,15 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   };
 
   const handleCopyMissingList = async () => {
-    if (missingInFileRows.length === 0) {
+    if (providerMissingProducts.length === 0) {
       setShowMissingModal(false, 'handleCopyMissingList');
-      setMissingInFileRows([], 'handleCopyMissingList');
       return;
     }
 
-    const text = missingInFileRows
-      .map((row) => [row.code || '-', row.barcode || '-', row.description || '-', row.price != null ? String(row.price) : '-'].join('\t'))
+    const text = providerMissingProducts
+      .map((row) => {
+        return [row.cod || '-', row.barcode || '-', row.description || row.cod || '-', row.price != null ? String(row.price) : '-'].join('\t');
+      })
       .join('\n');
 
     try {
@@ -927,8 +862,11 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     }
 
     // Preparar fila por fila con la data de búsqueda fallida
-    const enrichedRows: NotFoundProductRow[] = safeImportPreviewRows
-      .filter((row: SupplierCostImportPreviewRow) => row.status === 'not found')
+    const missingRows = safeImportPreviewRows.filter(
+      (row: SupplierCostImportPreviewRow) => !matchedKeysSet.has(getRowKey(row))
+    );
+
+    const enrichedRows: NotFoundProductRow[] = missingRows
       .map((row: SupplierCostImportPreviewRow) => {
         const parsedRow = parsedImportRows.find((pr) => String(pr.cod || '') === String(row.cod || ''));
         const excelBarcode = String(parsedRow?.barcode || '').trim();
@@ -982,12 +920,21 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     setSupplierImportProgress({ stage: 'building-preview', percent: 55 });
     setIsProcessing(true);
     try {
-      const { previewRows } = await api.previewSupplierCostsSupabase(selectedSupplierId, updatedRows, {
+      const response = await api.previewSupplierCostsSupabase(selectedSupplierId, updatedRows, {
         fileCurrency,
         exchangeRate: parseFloat(String(exchangeRate).replace(',', '.')),
       });
+      const { previewRows, matchedKeysArray, providerMissingProducts } = response;
+      const matchedKeysSet = new Set(matchedKeysArray);
+      // eslint-disable-next-line no-console
+      console.log('[FINAL_MATCH_FIXED]', {
+        arrayLength: matchedKeysArray.length,
+        setSize: matchedKeysSet.size,
+      });
       setParsedImportRows(updatedRows);
       setImportPreviewRows(previewRows);
+      setProviderMissingProducts(providerMissingProducts);
+      setMatchedKeysSet(matchedKeysSet);
       setNotFoundProductRows([]);
       setEditingNotFoundRows(new Map());
       setSupplierImportProgress({ stage: 'done', percent: 100 });
@@ -1024,12 +971,54 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const confirmationText = `Va a actualizar el campo '${targetPrice === 'Precio' ? 'Precio Base (Lista)' : 'Precio de Costo'}' para todos los productos donde '${filterBy}' es '${filterBy === 'All' ? 'Todos' : filterValue}'. El precio se ${updateType === 'percentage' ? `incrementará en un ${updateValue}%` : `incrementará en $${updateValue}`}.`;
   const selectedSupplier = supplierOptions.find((supplier) => supplier.id === selectedSupplierId) || null;
   const isUsdFileCurrency = fileCurrency === 'USD';
+  const totalRows = safeImportPreviewRows.length;
+  const foundCount = safeImportPreviewRows.filter(
+    (row: SupplierCostImportPreviewRow) => matchedKeysSet.has(getRowKey(row))
+  ).length;
+  const missingCount = totalRows - foundCount;
   const previewCounts = {
-    found: safeImportPreviewRows.filter((row: SupplierCostImportPreviewRow) => row.status === 'found').length,
-    notFound: safeImportPreviewRows.filter((row: SupplierCostImportPreviewRow) => row.status === 'not found').length,
+    found: foundCount,
+    notFound: missingCount,
     willUpdate: safeImportPreviewRows.filter((row: SupplierCostImportPreviewRow) => row.result === 'will update').length,
     noChange: safeImportPreviewRows.filter((row: SupplierCostImportPreviewRow) => row.result === 'no change').length,
   };
+  const providerTotal = importSummary?.existingSupplierProducts ?? 0;
+  const providerMissingInFile = providerMissingProducts.length;
+  const providerFoundInFile = Math.max(providerTotal - providerMissingInFile, 0);
+
+  const fileProcessed = totalRows;
+  const fileFoundInBase = foundCount;
+  const fileMissingInBase = missingCount;
+  const fileUnmatchedRows = safeImportPreviewRows.filter(
+    (row: SupplierCostImportPreviewRow) => !matchedKeysSet.has(getRowKey(row))
+  );
+  // eslint-disable-next-line no-console
+  console.log('[KEY_COMPARE_DEBUG]', {
+    samplePreview: safeImportPreviewRows.slice(0, 5).map((r) => getRowKey(r)),
+    sampleMatched: Array.from(matchedKeysSet).slice(0, 5),
+  });
+  const suspiciousMissing = fileUnmatchedRows.filter((r: SupplierCostImportPreviewRow) =>
+    ['W180CO112', 'W180CO114', 'W180CO118'].includes(String(r.cod || (r as any).barcode || '').trim())
+  );
+  // eslint-disable-next-line no-console
+  console.log('[MODAL_MISSING_SOURCE]', {
+    previewCount: safeImportPreviewRows.length,
+    matchedCount: matchedKeysSet.size,
+    fileUnmatchedRowsCount: fileUnmatchedRows.length,
+    providerMissingProductsCount: providerMissingProducts.length,
+    sampleMissing: providerMissingProducts.slice(0, 10).map((r) => r.cod || r.barcode || '')
+  });
+  if (suspiciousMissing.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('[MODAL_SUSPICIOUS_MISSING]', suspiciousMissing);
+  }
+  // eslint-disable-next-line no-console
+  console.log('[FINAL_UI_COUNTS]', {
+    totalRows,
+    foundCount,
+    missingCount,
+    matchedSetSize: matchedKeysSet.size,
+  });
 
   const progressLabelByStage: Record<SupplierImportProgressStage, string> = {
     idle: 'Listo para iniciar',
@@ -1049,26 +1038,6 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     done: 'Completado',
     error: 'Error',
   };
-
-  // --- Unificación de fuente de verdad para resumen y modal ---
-  // Solo para supplierImportStep === 'result' y importSummary
-  let foundReal: number | string = '...';
-  let missingReal: number | string = '...';
-  if (supplierImportStep === 'result' && importSummary && summaryReady) {
-    // El total real de productos base es importSummary.existingSupplierProducts
-    // Los no encontrados reales son missingInFileRows.length
-    missingReal = missingInFileRows.length;
-    foundReal = importSummary.existingSupplierProducts - missingReal;
-    if (typeof foundReal === 'number' && foundReal < 0) foundReal = 0;
-    // Log quirúrgico final
-    // eslint-disable-next-line no-console
-    console.log('[MASS_FINAL_SUMMARY_REAL]', {
-      foundReal,
-      missingReal,
-      missingRowsLength: missingInFileRows?.length,
-      sampleMissing: missingInFileRows?.slice(0, 5),
-    });
-  }
 
   return (
     <Modal
@@ -1509,21 +1478,21 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                   <p className="font-semibold text-gray-900 mb-3">Resumen principal (base proveedor)</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-slate-600">Productos existentes del proveedor</p>
-                      <p className="text-2xl font-bold text-slate-900">{importSummary.existingSupplierProducts}</p>
+                      <p className="text-xs uppercase tracking-wide text-slate-600">Productos del proveedor en sistema</p>
+                      <p className="text-2xl font-bold text-slate-900">{providerTotal}</p>
                     </div>
                     <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-blue-700">Encontrados en archivo</p>
-                      <p className="text-2xl font-bold text-blue-900">{foundReal}</p>
+                      <p className="text-xs uppercase tracking-wide text-blue-700">Del proveedor encontrados en archivo</p>
+                      <p className="text-2xl font-bold text-blue-900">{providerFoundInFile}</p>
                     </div>
                     <div className="rounded-lg border border-green-200 bg-green-50 p-3">
                       <p className="text-xs uppercase tracking-wide text-green-700">Actualizados</p>
                       <p className="text-2xl font-bold text-green-900">{importSummary.updated}</p>
                     </div>
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                      <p className="text-xs uppercase tracking-wide text-amber-700">No encontrados en archivo</p>
-                      <p className="text-2xl font-bold text-amber-900">{missingReal}</p>
-                      {typeof missingReal === 'number' && missingReal > 0 && (
+                      <p className="text-xs uppercase tracking-wide text-amber-700">Del proveedor no presentes en archivo</p>
+                      <p className="text-2xl font-bold text-amber-900">{providerMissingInFile}</p>
+                      {providerMissingInFile > 0 && (
                         <button
                           type="button"
                           onClick={() => setShowMissingModal(true, 'Ver detalle btn')}
@@ -1538,18 +1507,22 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
                   <p className="font-semibold mb-2">Resumen secundario (archivo)</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                     <div className="rounded-md bg-white/80 p-2">
-                      <p className="text-xs text-blue-700">Total filas del archivo</p>
-                      <p className="text-lg font-semibold">{importSummary.totalRows}</p>
+                      <p className="text-xs text-blue-700">Filas procesadas del archivo</p>
+                      <p className="text-lg font-semibold">{fileProcessed}</p>
                     </div>
                     <div className="rounded-md bg-white/80 p-2">
                       <p className="text-xs text-blue-700">Ignorados</p>
                       <p className="text-lg font-semibold">{importSummary.ignored}</p>
                     </div>
                     <div className="rounded-md bg-white/80 p-2">
+                      <p className="text-xs text-blue-700">Códigos del archivo encontrados en base</p>
+                      <p className="text-lg font-semibold">{fileFoundInBase}</p>
+                    </div>
+                    <div className="rounded-md bg-white/80 p-2">
                       <p className="text-xs text-blue-700">Códigos del archivo no encontrados en base</p>
-                      <p className="text-lg font-semibold">{importSummary.notFound}</p>
+                      <p className="text-lg font-semibold">{fileMissingInBase}</p>
                     </div>
                   </div>
                 </div>
@@ -1568,7 +1541,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                   </div>
                 )}
 
-                {importSummary.notFound > 0 && notFoundCodeSamples.length === 0 && (
+                {fileMissingInBase > 0 && notFoundCodeSamples.length === 0 && (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                     No se pudo generar una muestra de códigos no encontrados en esta importación, pero el total sigue disponible en el resumen secundario.
                   </div>
@@ -1639,7 +1612,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                   <button
                     type="button"
                     onClick={handleCopyMissingList}
-                    disabled={missingInFileRows.length === 0}
+                    disabled={providerMissingProducts.length === 0}
                     className="bg-slate-100 text-slate-800 px-4 py-2 rounded-lg font-medium hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Copiar lista
@@ -1658,22 +1631,22 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                         </tr>
                       </thead>
                       <tbody>
-                        {missingInFileRows.map((row, index) => {
+                        {providerMissingProducts.map((row, index) => {
                           // [REAL_NOT_FOUND_TABLE_ROW] log por fila
                           // eslint-disable-next-line no-console
                           console.log('[REAL_NOT_FOUND_TABLE_ROW]', { index, row });
                           return (
-                            <tr key={`${row.code}-${index}`} className="border-t border-slate-100">
-                              <td className="px-3 py-2 font-mono text-xs">{row.code || '-'}</td>
+                            <tr key={`${row.id || row.cod}-${index}`} className="border-t border-slate-100">
+                              <td className="px-3 py-2 font-mono text-xs">{row.cod || '-'}</td>
                               <td className="px-3 py-2 font-mono text-xs text-slate-600">{row.barcode || '-'}</td>
-                              <td className="px-3 py-2 truncate" title={row.description || '-'}>{row.description || '-'}</td>
+                              <td className="px-3 py-2 truncate" title={row.description || row.cod || '-'}>{row.description || row.cod || '-'}</td>
                               <td className="px-3 py-2 text-right text-xs">
                                 {row.price != null ? `$${row.price.toLocaleString('es-AR')}` : '-'}
                               </td>
                             </tr>
                           );
                         })}
-                        {missingInFileRows.length === 0 && (
+                        {providerMissingProducts.length === 0 && (
                           <tr>
                             <td className="px-3 py-6 text-center text-slate-500" colSpan={4}>
                               No hay detalle disponible para esta importación.

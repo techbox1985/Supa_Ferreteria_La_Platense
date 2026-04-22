@@ -8,8 +8,10 @@
  */
 export function normalizeProductCode(str: string): string {
   return String(str || '')
+    .normalize('NFKC')
     .replace(/[‐‑‒–—―−﹘﹣－]/g, '-') // guiones raros a '-'
-    .replace(/[\u200B-\u200D\uFEFF\u00A0]/g, '') // caracteres invisibles
+    .replace(/[\u200B-\u200D\uFEFF]/g, '') // caracteres invisibles
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ') // espacios unicode a espacio normal
     .replace(/\s+/g, ' ') // múltiples espacios a uno
     .trim()
     .toUpperCase();
