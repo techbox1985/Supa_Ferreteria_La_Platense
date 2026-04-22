@@ -1469,6 +1469,59 @@ const normalizeCustomerForTusFacturas = (customer: any) => {
     return normalized;
 };
 
+const parseVatRateCandidate = (value: any): number | null => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        if (value > 0 && value <= 1) return Number((value * 100).toFixed(2));
+        if (value > 0 && value <= 100) return Number(value.toFixed(2));
+        return null;
+    }
+    const parsed = Number(String(value).replace(',', '.').trim());
+    if (!Number.isFinite(parsed)) return null;
+    if (parsed > 0 && parsed <= 1) return Number((parsed * 100).toFixed(2));
+    if (parsed > 0 && parsed <= 100) return Number(parsed.toFixed(2));
+    return null;
+};
+
+const resolveItemVatRate = (item: any): number | null => {
+    const itemCandidates = [
+        item?.iva,
+        item?.IVA,
+        item?.alicuota_iva,
+        item?.alicuotaIva,
+        item?.aliquot,
+        item?.vat_rate,
+        item?.tax_rate,
+        item?.AlicIva,
+        item?.ImpIVA,
+    ];
+
+    for (const candidate of itemCandidates) {
+        const parsed = parseVatRateCandidate(candidate);
+        if (parsed !== null) return parsed;
+    }
+
+    const product = item?.product || {};
+    const productCandidates = [
+        product?.iva,
+        product?.IVA,
+        product?.alicuota_iva,
+        product?.alicuotaIva,
+        product?.aliquot,
+        product?.vat_rate,
+        product?.tax_rate,
+        product?.AlicIva,
+        product?.ImpIVA,
+    ];
+
+    for (const candidate of productCandidates) {
+        const parsed = parseVatRateCandidate(candidate);
+        if (parsed !== null) return parsed;
+    }
+
+    return null;
+};
+
 const determineInvoiceType = (sale: any) => {
     const isCreditNote = !!sale.isCreditNote;
     const facturacion = sale.facturacion || (sale.cbteTipo === 1 ? 'A' : 'B');
@@ -1505,6 +1558,40 @@ export const generateElectronicInvoice = async (sale: Sale): Promise<any> => {
         const normalizedCustomer = normalizeCustomerForTusFacturas(sale.customer);
         const comprobante_tipo = determineInvoiceType(sale);
         const cbteTipo = getCbteTipo(sale);
+        const isFacturaB = cbteTipo === 6;
+        const isExemptCustomer = normalizedCustomer?.Condicion_IVA === 'E';
+        const forceTaxedBForExempt = isFacturaB && isExemptCustomer;
+
+        let fallback21UsedCount = 0;
+        const fiscalItems = (sale.items || []).map((item: any, index: number) => {
+            const detectedVatRate = resolveItemVatRate(item);
+            const fallback21Used = forceTaxedBForExempt && detectedVatRate === null;
+            if (fallback21Used) fallback21UsedCount += 1;
+            const appliedVatRate = forceTaxedBForExempt
+                ? (detectedVatRate ?? 21)
+                : detectedVatRate;
+
+            return {
+                ...item,
+                vat_rate: appliedVatRate,
+                fiscal_vat_rate: appliedVatRate,
+                fiscal_meta: {
+                    index,
+                    detectedVatRate,
+                    appliedVatRate,
+                    fallback21Used,
+                    forceTaxedBForExempt,
+                },
+            };
+        });
+
+        console.log('[EXEMPT_B_TAX_RULE]', {
+            cbteTipo,
+            condicionIVACliente: normalizedCustomer?.Condicion_IVA,
+            forceTaxedBForExempt,
+            appliedVatRates: fiscalItems.map((item: any) => item?.fiscal_meta?.appliedVatRate),
+            fallback21UsedCount,
+        });
 
         console.log('[DIAG097 invoice sale id][api.generateElectronicInvoice input]', {
             saleId: sale.id,
@@ -1514,11 +1601,17 @@ export const generateElectronicInvoice = async (sale: Sale): Promise<any> => {
 
         const saleForInvoice = { 
             ...sale, 
+            items: fiscalItems,
             customer: normalizedCustomer,
             cbteTipo: cbteTipo,
             comprobante_tipo: comprobante_tipo,
             requested_tipo: sale.facturacion,
-            sent_tipo: comprobante_tipo
+            sent_tipo: comprobante_tipo,
+            fiscal_rules: {
+                forceTaxedBForExempt,
+                defaultVatRate: 21,
+                applyVatByItemEvenForExemptOnFacturaB: forceTaxedBForExempt,
+            },
         };
 
         const payloadSummary = {
@@ -1534,6 +1627,9 @@ export const generateElectronicInvoice = async (sale: Sale): Promise<any> => {
                 tipoDocumento: normalizedCustomer?.['Tipo.Documento'],
                 documento: normalizedCustomer?.Documento,
             },
+            fiscal_rules: saleForInvoice.fiscal_rules,
+            appliedVatRates: fiscalItems.map((item: any) => item?.fiscal_meta?.appliedVatRate),
+            fallback21UsedCount,
         };
         console.log('[DIAG094][api.generateElectronicInvoice][payload]', payloadSummary);
 
