@@ -60,7 +60,7 @@ interface ExpensesViewProps {
     refreshExpenses: () => Promise<void>;
 }
 
-export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading, refreshExpenses }) => {
+export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, allUsers, isLoading, refreshExpenses }) => {
     const [isFormOpen, setFormOpen] = useState(false);
     const [expenseToEdit, setExpenseToEdit] = useState<Expense | null>(null);
     const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
@@ -79,26 +79,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
 
     const safeExpensesSource = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
 
-    // Mostrar todos los gastos por defecto para roles administrativos, filtrar para vendedores
-    const visibleExpenses = useMemo(() => {
-        if (!currentUser) return [];
-        // Solo filtrar para vendedores (y roles operativos si se agregan)
-        if (['Vendedor', 'Chofer', 'Acompañante'].includes(currentUser.Rol)) {
-            // El campo de usuario real es id_usuario_registro (en Supabase: user_profile_id)
-            // En el modelo Expense, aún no está mapeado, pero el backend lo trae como user_profile_id
-            // Por compatibilidad, intentar ambos
-            return safeExpensesSource.filter(e => {
-                // e.user_profile_id o e.id_usuario_registro
-                // El ID del usuario actual es currentUser.ID_Usuario
-                return (
-                    (e.user_profile_id && e.user_profile_id === currentUser.ID_Usuario) ||
-                    (e.id_usuario_registro && e.id_usuario_registro === currentUser.ID_Usuario)
-                );
-            });
-        }
-        // Admin, Oficina, Encargado ven todo
-        return safeExpensesSource;
-    }, [safeExpensesSource, currentUser]);
+    const visibleExpenses = useMemo(() => safeExpensesSource, [safeExpensesSource]);
+
+    const userNameById = useMemo(
+        () => new Map((allUsers || []).map((u) => [u.ID_Usuario, u.Nombre])),
+        [allUsers]
+    );
 
     const filteredExpenses = useMemo(() => {
         if (!startDate || !endDate) return [];
@@ -146,13 +132,13 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
             if (data.id_gastos) {
                                 if (typeof data.id_gastos === 'string' && data.id_gastos.length > 0) {
                                     const dataWithId: typeof data & { id_gastos: string } = { ...data, id_gastos: data.id_gastos };
-                                    await api.updateExpense(dataWithId);
+                                    await api.updateExpense({ ...dataWithId, userId: currentUser?.ID_Usuario });
                                 }
                 addToast('Gasto actualizado.', 'success');
             } else {
                 const isSeller = currentUser?.Rol === 'Vendedor';
                 if (isSeller && !activeShift) throw new Error("No hay turno activo");
-                await api.addExpense({ ...data, shiftId: isSeller ? activeShift?.ID_Turno : undefined });
+                await api.addExpense({ ...data, shiftId: isSeller ? activeShift?.ID_Turno : undefined, userId: currentUser?.ID_Usuario });
                 addToast('Gasto registrado.', 'success');
             }
             await refreshExpenses();
@@ -207,6 +193,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Detalle</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cargado por</th>
                                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Monto</th>
                                 <th className="px-6 py-3"></th>
                             </tr>
@@ -227,6 +214,12 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
                                             {expense.Tipo || 'Otros'}
                                         </span>
                                     </td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                        {expense.CargadoPor
+                                            || (expense.user_profile_id ? userNameById.get(expense.user_profile_id) : undefined)
+                                            || expense.user_profile_id
+                                            || '-'}
+                                    </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-red-600">{formatCurrency(expense.Monto)}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                                         <button onClick={() => handleEdit(expense)} className="text-blue-600 hover:text-blue-800"><Icon path="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" className="w-5 h-5" /></button>
@@ -235,7 +228,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, isLoading,
                                 </tr>
                             )}) : (
                                 <tr>
-                                    <td colSpan={5} className="text-center py-10 text-gray-500">Sin registros para este rango de fechas.</td>
+                                    <td colSpan={6} className="text-center py-10 text-gray-500">Sin registros para este rango de fechas.</td>
                                 </tr>
                             )}
                         </tbody>

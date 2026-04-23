@@ -4,7 +4,7 @@ import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import * as api from '../../services/api';
 import { useToast } from '../../contexts/ToastContext';
-import { SupplierCostImportPreviewRow, SupplierCostImportRow, SupplierCostImportSummary, SupplierMissingProduct } from '../../types';
+import { SupplierCostImportPreviewRow, SupplierCostImportRow, SupplierCostImportSummary, SupplierMissingProduct, SupplierPriceImportSessionResult, SupplierPriceUpdateResult, SupplierVsExcelSummary } from '../../types';
 import { parseSupplierTextFallback } from '../../src/utils/importTextFallback';
 import { normalizeProductCode } from '../../src/utils/importNormalizer';
 
@@ -21,7 +21,7 @@ interface MassPriceUpdateModalProps {
 type FilterByType = 'All' | 'Categoria' | 'Proveedor';
 type UpdateType = 'percentage' | 'fixed';
 type TargetPriceType = 'P.Costo' | 'Precio';
-type ActionMode = 'mass-update' | 'supplier-import';
+type ActionMode = 'mass-update' | 'supplier-import' | 'price-update';
 type ImportCurrency = 'ARS' | 'USD';
 type SupplierImportProgressStage = 'idle' | 'parsing-file' | 'building-preview' | 'importing-rows' | 'finalizing' | 'done';
 type UsdUpdateStage = 'idle' | 'searching' | 'recalculating' | 'saving' | 'finalizing' | 'done' | 'error';
@@ -201,7 +201,7 @@ const findHeaderIndex = (headers: string[], aliases: string[]): number => {
 
 const isPriceHeader = (normalizedHeader: string): boolean => {
   if (!normalizedHeader) return false;
-  return /precio|costo|cost|price|importe|tarifa/.test(normalizedHeader);
+  return /precio|costo|cost|price|importe|tarifa|pesos/.test(normalizedHeader);
 };
 
 const inferCurrencyFromHeader = (normalizedHeader: string): 'ARS' | 'USD' | null => {
@@ -218,7 +218,7 @@ const findAllPriceColumnCandidates = (rawHeaders: string[], normalizedHeaders: s
     return acc;
   }, []);
 
-const CODE_HEADER_ALIASES = ['cod', 'codigo', 'código', 'articulo', 'artículo', 'code', 'sku'];
+const CODE_HEADER_ALIASES = ['cod', 'codigo', 'código', 'articulo', 'artículo', 'code', 'sku', 'cod. articulo', 'cod articulo', 'cód. artículo', 'cód articulo', 'cod_articulo'];
 const DESC_HEADER_ALIASES = ['descripcion', 'descripción', 'description', 'detalle', 'producto', 'nombre', 'name'];
 
 const analyzeImportText = (raw: string): FileAnalysis => {
@@ -277,10 +277,10 @@ const parseSupplierImportRows = (
   if (opts?.selectedPriceLabel) {
     costIndex = headers.findIndex((h) => h === normalizeHeader(opts.selectedPriceLabel!));
     if (costIndex < 0) {
-      costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd']);
+      costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd', 'pesos + iva', 'precio + iva', 'precio final', 'precio con iva']);
     }
   } else {
-    costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd']);
+    costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd', 'pesos + iva', 'precio + iva', 'precio final', 'precio con iva']);
   }
 
   const barcodeIndex = findHeaderIndex(headers, ['barcode', 'ean', 'cod_barras', 'codigo de barras', 'código de barras', 'cod.barras']);
@@ -442,6 +442,30 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
   const [editingNotFoundRows, setEditingNotFoundRows] = useState<Map<string, string>>(new Map());
   const [showRetryAfterEdit, setShowRetryAfterEdit] = useState(false);
 
+  // ─── PROMPT 010: Estados del flujo "Actualización" ─────────────────────────
+  type PriceUpdateFlowStep = 'form' | 'uploading' | 'mapping' | 'preview' | 'confirming' | 'result';
+  const [puStep, setPuStep] = useState<PriceUpdateFlowStep>('form');
+  const [puSupplierId, setPuSupplierId] = useState('');
+  const [puCurrency, setPuCurrency] = useState<'ARS' | 'USD'>('ARS');
+  const [puExchangeRate, setPuExchangeRate] = useState('1000');
+  const [puFilename, setPuFilename] = useState('');
+  const [puRawImportText, setPuRawImportText] = useState('');
+  const [puHeadersDetected, setPuHeadersDetected] = useState<string[]>([]);
+  const [puColumnMapping, setPuColumnMapping] = useState<{ codeColumn: string | null; priceColumn: string | null }>({
+    codeColumn: null,
+    priceColumn: null,
+  });
+  const [puSessionResult, setPuSessionResult] = useState<SupplierPriceImportSessionResult | null>(null);
+  const [puUpdateResult, setPuUpdateResult] = useState<SupplierPriceUpdateResult | null>(null);
+  const [puError, setPuError] = useState('');
+  const [puSessionId, setPuSessionId] = useState('');
+  const [puMissingProducts, setPuMissingProducts] = useState<SupplierMissingProduct[]>([]);
+  const [puShowMissing, setPuShowMissing] = useState(false);
+  const [puSupplierTotalProducts, setPuSupplierTotalProducts] = useState(0);
+  const [puSupplierTotalLoading, setPuSupplierTotalLoading] = useState(false);
+  const [puVsExcelSummary, setPuVsExcelSummary] = useState<SupplierVsExcelSummary | null>(null);
+  // ──────────────────────────────────────────────────────────────────────────
+
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -495,6 +519,22 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       setNotFoundProductRows([]);
       setEditingNotFoundRows(new Map());
       setShowRetryAfterEdit(false);
+      // PROMPT 010: reset flujo Actualización
+      setPuStep('form');
+      setPuSupplierId('');
+      setPuCurrency('ARS');
+      setPuExchangeRate('1000');
+      setPuFilename('');
+      setPuRawImportText('');
+      setPuHeadersDetected([]);
+      setPuColumnMapping({ codeColumn: null, priceColumn: null });
+      setPuSessionResult(null);
+      setPuVsExcelSummary(null);
+      setPuUpdateResult(null);
+      setPuError('');
+      setPuSessionId('');
+      setPuSupplierTotalProducts(0);
+      setPuSupplierTotalLoading(false);
     }
   }, [isOpen]);
 
@@ -1020,6 +1060,345 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     matchedSetSize: matchedKeysSet.size,
   });
 
+  // ─── PROMPT 010: Handlers del flujo "Actualización" ───────────────────────
+  const extractHeadersForManualMapping = useCallback((rawText: string): string[] => {
+    const lines = rawText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (lines.length === 0) return [];
+
+    const analysis = analyzeImportText(rawText);
+    const headerRowIndex = Math.min(Math.max(analysis.headerRowIndex, 0), lines.length - 1);
+    const relevantLines = lines.slice(headerRowIndex);
+    if (relevantLines.length === 0) return [];
+
+    const delimiter = detectDelimiter(relevantLines);
+    return splitDelimitedLine(relevantLines[0], delimiter)
+      .map((h) => String(h || '').trim())
+      .filter((h) => h.length > 0);
+  }, []);
+
+  const parseWithManualMapping = useCallback((rawText: string, codeColumn: string, priceColumn: string) => {
+    const lines = rawText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (lines.length === 0) {
+      return { rows: [], ignored: 0, totalRows: 0, errors: ['No hay datos para importar.'] };
+    }
+
+    const analysis = analyzeImportText(rawText);
+    const headerRowIndex = Math.min(Math.max(analysis.headerRowIndex, 0), lines.length - 1);
+    const relevantLines = lines.slice(headerRowIndex);
+    if (relevantLines.length === 0) {
+      return { rows: [], ignored: 0, totalRows: 0, errors: ['No hay datos después de la fila de cabecera detectada.'] };
+    }
+
+    const delimiter = detectDelimiter(relevantLines);
+    const sourceHeaders = splitDelimitedLine(relevantLines[0], delimiter).map((h) => String(h || '').trim());
+    const normalizedHeaders = sourceHeaders.map((h) => normalizeHeader(h));
+    const codeIdx = normalizedHeaders.findIndex((h) => h === normalizeHeader(codeColumn));
+    const priceIdx = normalizedHeaders.findIndex((h) => h === normalizeHeader(priceColumn));
+
+    if (codeIdx < 0 || priceIdx < 0) {
+      return { rows: [], ignored: 0, totalRows: 0, errors: ['No se pudo aplicar el mapeo manual. Revisá las columnas elegidas.'] };
+    }
+
+    const remappedTsv = [
+      'cod\tcost_price',
+      ...relevantLines.slice(1).map((line) => {
+        const cols = splitDelimitedLine(line, delimiter).map((c) => String(c || '').trim());
+        return `${cols[codeIdx] || ''}\t${cols[priceIdx] || ''}`;
+      }),
+    ].join('\n');
+
+    return parseSupplierImportRows(remappedTsv, { headerRowIndex: 0 });
+  }, []);
+
+  const fetchSupplierVsExcelSummary = useCallback(async (sessionId: string, supplierId: string): Promise<{ summary: SupplierVsExcelSummary; missingProducts: SupplierMissingProduct[] }> => {
+    if (!api.supabase) {
+      return {
+        summary: { totalSupplier: 0, matchedByCod: 0, matchedByBarcode: 0, missingFromExcel: 0 },
+        missingProducts: [],
+      };
+    }
+
+    const [{ data: tempRows, error: tempErr }, { data: products, error: prodErr }] = await Promise.all([
+      api.supabase
+        .from('st_supplier_price_import_temp')
+        .select('excel_code')
+        .eq('import_session_id', sessionId),
+      api.supabase
+        .from('st_products')
+        .select('id, cod, barcode, name, final_price')
+        .eq('supplier_id', supplierId)
+        .eq('is_deleted', false),
+    ]);
+
+    if (tempErr) throw tempErr;
+    if (prodErr) throw prodErr;
+
+    const excelCodes = new Set<string>(
+      (tempRows || []).map((row: any) => String(row?.excel_code || '').trim().toLowerCase()).filter(Boolean)
+    );
+
+    let matchedByCod = 0;
+    let matchedByBarcode = 0;
+    const missingProducts: SupplierMissingProduct[] = [];
+
+    for (const product of (products || [])) {
+      const cod = String(product?.cod || '').trim().toLowerCase();
+      const barcode = String(product?.barcode || '').trim().toLowerCase();
+
+      if (cod && excelCodes.has(cod)) {
+        matchedByCod += 1;
+      } else if (barcode && excelCodes.has(barcode)) {
+        matchedByBarcode += 1;
+      } else {
+        missingProducts.push({
+          id: String(product?.id || ''),
+          cod: String(product?.cod || '').trim(),
+          barcode: String(product?.barcode || '').trim(),
+          description: String(product?.name || '').trim(),
+          price: Number.isFinite(Number(product?.final_price)) ? Number(product.final_price) : null,
+        });
+      }
+    }
+
+    return {
+      summary: {
+        totalSupplier: (products || []).length,
+        matchedByCod,
+        matchedByBarcode,
+        missingFromExcel: missingProducts.length,
+      },
+      missingProducts,
+    };
+  }, []);
+
+  const uploadParsedRowsToTemp = useCallback(async (rows: SupplierCostImportRow[], sourceFilename: string) => {
+    const selectedSupplier = supplierOptions.find((s) => s.id === puSupplierId);
+    const supplierName = selectedSupplier?.name ?? '';
+    const exchangeRateNum = puCurrency === 'USD' ? Number(puExchangeRate) || 1 : 1;
+
+    // eslint-disable-next-line no-console
+    console.log('[PRICE_UPDATE_SUPPLIER_SELECTED]', {
+      supplierId: puSupplierId,
+      supplierName,
+    });
+
+    const sessionId = api.createPriceImportSession();
+    setPuSessionId(sessionId);
+
+    try {
+      const tempRows = rows.map((row, idx) => ({
+        import_session_id: sessionId,
+        supplier_id: puSupplierId,
+        supplier_name_snapshot: supplierName,
+        source_filename: sourceFilename,
+        file_currency: puCurrency,
+        exchange_rate: exchangeRateNum,
+        row_number: idx + 1,
+        excel_code: row.cod ?? '',
+        excel_name: row.name ?? '',
+        excel_price: typeof row.cost_price === 'number' ? row.cost_price : null,
+      }));
+
+      const sessionResult = await api.uploadRowsToTempTable(tempRows);
+      setPuSessionResult(sessionResult);
+
+      // Resumen desde perspectiva del proveedor (COD-first, sin doble conteo)
+      const { summary, missingProducts } = await fetchSupplierVsExcelSummary(sessionId, puSupplierId);
+      setPuVsExcelSummary(summary);
+      setPuMissingProducts(missingProducts);
+      setPuStep('preview');
+    } catch (err) {
+      try { await api.cleanupTempImportSession(sessionId); } catch { /* ignore cleanup error */ }
+      setPuSessionId('');
+      throw err;
+    }
+  }, [puSupplierId, puCurrency, puExchangeRate, supplierOptions, fetchSupplierVsExcelSummary]);
+
+  const handlePriceUpdateFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!puSupplierId) { setPuError('Seleccioná un proveedor antes de subir el archivo.'); return; }
+    setPuError('');
+    setPuStep('uploading');
+    setPuFilename(file.name);
+    try {
+      // Leer el archivo respetando formato: xlsx/xls via XLSX, resto como texto
+      let text: string;
+      const ext = file.name.split('.').pop()?.toLowerCase() || '';
+      if (ext === 'xlsx' || ext === 'xls') {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const sheetName = workbook.SheetNames[0];
+        if (!sheetName) { setPuError('El archivo Excel no tiene hojas.'); setPuStep('form'); return; }
+        const worksheet = workbook.Sheets[sheetName];
+        const aoa = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, raw: false, defval: '' }) as unknown[][];
+        if (aoa.length === 0) { setPuError('El archivo Excel está vacío.'); setPuStep('form'); return; }
+        text = aoa.map((row) => (row as unknown[]).map((cell) => String(cell ?? '')).join('\t')).join('\n');
+      } else {
+        text = await file.text();
+      }
+      setPuRawImportText(text);
+
+      const parsed = parseSupplierImportRows(text, {
+        headerRowIndex: analyzeImportText(text).headerRowIndex,
+      });
+
+      if (parsed.rows.length === 0) {
+        const requiresManualMapping = parsed.errors.some((msg) =>
+          normalizeHeader(msg).includes('no_se_detectaron_columnas_requeridas')
+        );
+
+        if (requiresManualMapping) {
+          const detectedHeaders = extractHeadersForManualMapping(text);
+          if (detectedHeaders.length > 0) {
+            setPuHeadersDetected(detectedHeaders);
+
+            const storageKey = `supplier_column_mapping_${puSupplierId}`;
+            let savedCode: string | null = null;
+            let savedPrice: string | null = null;
+            try {
+              const rawSaved = localStorage.getItem(storageKey);
+              if (rawSaved) {
+                const parsedSaved = JSON.parse(rawSaved) as { codeColumn?: string; priceColumn?: string };
+                savedCode = parsedSaved.codeColumn || null;
+                savedPrice = parsedSaved.priceColumn || null;
+              }
+            } catch {
+              // ignore invalid localStorage
+            }
+
+            setPuColumnMapping({
+              codeColumn: savedCode && detectedHeaders.some((h) => normalizeHeader(h) === normalizeHeader(savedCode))
+                ? savedCode
+                : null,
+              priceColumn: savedPrice && detectedHeaders.some((h) => normalizeHeader(h) === normalizeHeader(savedPrice))
+                ? savedPrice
+                : null,
+            });
+
+            setPuStep('mapping');
+            return;
+          }
+        }
+
+        setPuError(parsed.errors.join(' ') || 'No se encontraron filas válidas en el archivo.');
+        setPuStep('form');
+        return;
+      }
+
+      await uploadParsedRowsToTemp(parsed.rows, file.name);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error al procesar el archivo';
+      setPuError(msg);
+      setPuStep('form');
+    }
+  }, [puSupplierId, extractHeadersForManualMapping, uploadParsedRowsToTemp]);
+
+  const handleConfirmManualMapping = useCallback(async () => {
+    if (!puRawImportText) {
+      setPuError('No hay archivo cargado para mapear.');
+      setPuStep('form');
+      return;
+    }
+    if (!puColumnMapping.codeColumn || !puColumnMapping.priceColumn) {
+      setPuError('Seleccioná una columna de código y una de precio.');
+      return;
+    }
+
+    setPuError('');
+    setPuStep('uploading');
+    const parsed = parseWithManualMapping(puRawImportText, puColumnMapping.codeColumn, puColumnMapping.priceColumn);
+
+    if (parsed.rows.length === 0) {
+      setPuError(parsed.errors.join(' ') || 'No se pudo parsear con el mapeo manual.');
+      setPuStep('mapping');
+      return;
+    }
+
+    try {
+      const storageKey = `supplier_column_mapping_${puSupplierId}`;
+      localStorage.setItem(storageKey, JSON.stringify(puColumnMapping));
+    } catch {
+      // ignore localStorage write errors
+    }
+
+    try {
+      await uploadParsedRowsToTemp(parsed.rows, puFilename || 'archivo_importado');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error al procesar el archivo';
+      setPuError(msg);
+      setPuStep('mapping');
+    }
+  }, [puRawImportText, puColumnMapping, parseWithManualMapping, uploadParsedRowsToTemp, puFilename, puSupplierId]);
+
+  const handlePriceUpdateConfirm = useCallback(async () => {
+    if (!puSessionId || !puSupplierId) return;
+    setPuStep('confirming');
+    setPuError('');
+    try {
+      const result = await api.executeUpdateFromTempTable(puSessionId, puSupplierId);
+      setPuUpdateResult(result);
+      await api.cleanupTempImportSession(puSessionId);
+      setPuSessionId('');
+      setPuStep('result');
+      addToast(`Precios actualizados: ${result.updatedCount} productos`, 'success');
+      onUpdate();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Error al ejecutar la actualización';
+      setPuError(msg);
+      setPuStep('preview');
+    }
+  }, [puSessionId, puSupplierId, addToast, onUpdate]);
+
+  const handlePriceUpdateCancel = useCallback(async () => {
+    if (puSessionId) {
+      try { await api.cleanupTempImportSession(puSessionId); } catch { /* ignore */ }
+      setPuSessionId('');
+    }
+    setPuStep('form');
+    setPuSessionResult(null);
+    setPuVsExcelSummary(null);
+    setPuUpdateResult(null);
+    setPuError('');
+    setPuFilename('');
+    setPuMissingProducts([]);
+    setPuShowMissing(false);
+  }, [puSessionId]);
+
+  const fetchSupplierProductCount = useCallback(async (supplierId: string): Promise<number> => {
+    if (!api.supabase) return 0;
+
+    const { count, error } = await api.supabase
+      .from('st_products')
+      .select('id', { count: 'exact', head: true })
+      .eq('supplier_id', supplierId)
+      .eq('is_deleted', false);
+
+    if (error) throw error;
+    return count ?? 0;
+  }, []);
+
+  // Cargar total de productos del proveedor al seleccionarlo en modo Actualización
+  useEffect(() => {
+    if (!puSupplierId) return;
+
+    setPuSupplierTotalLoading(true);
+
+    fetchSupplierProductCount(puSupplierId)
+      .then(count => setPuSupplierTotalProducts(count))
+      .catch(() => setPuSupplierTotalProducts(0))
+      .finally(() => setPuSupplierTotalLoading(false));
+  }, [puSupplierId, fetchSupplierProductCount]);
+  // ──────────────────────────────────────────────────────────────────────────
+
   const progressLabelByStage: Record<SupplierImportProgressStage, string> = {
     idle: 'Listo para iniciar',
     'parsing-file': 'Parseando archivo',
@@ -1044,7 +1423,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       isOpen={isOpen}
       onClose={isProcessing ? () => {} : onClose}
       title="Acciones Masivas de Precios"
-      size={mode === 'supplier-import' ? '5xl' : 'md'}
+      size={mode === 'supplier-import' || mode === 'price-update' ? '5xl' : 'md'}
     >
         <div className="flex gap-2 mb-4">
           <button
@@ -1066,6 +1445,30 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             className={`px-3 py-2 rounded-lg text-sm font-medium ${mode === 'supplier-import' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
           >
             Importar Lista de Proveedor
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode('price-update');
+              setError('');
+              setPuStep('form');
+              setPuSupplierId('');
+              setPuSupplierTotalProducts(0);
+              setPuSupplierTotalLoading(false);
+              setPuError('');
+              setPuFilename('');
+              setPuSessionResult(null);
+              setPuVsExcelSummary(null);
+              setPuUpdateResult(null);
+              setPuRawImportText('');
+              setPuHeadersDetected([]);
+              setPuColumnMapping({ codeColumn: null, priceColumn: null });
+              setPuMissingProducts([]);
+              setPuShowMissing(false);
+            }}
+            className={`px-3 py-2 rounded-lg text-sm font-medium ${mode === 'price-update' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+          >
+            Actualización
           </button>
         </div>
 
@@ -1786,6 +2189,252 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
             </Modal>
           </div>
         )}
+
+        {/* ─── PROMPT 010: Flujo "Actualización" ─────────────────────────── */}
+        {mode === 'price-update' && (
+          <div className="space-y-4">
+            {puError && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-md">{puError}</p>}
+
+            {puSupplierId && (
+              <div className="bg-slate-100 border border-slate-300 rounded-lg p-4">
+                <p className="text-sm font-medium text-slate-600">Total productos del proveedor</p>
+                <p className="text-4xl font-bold text-slate-800 mt-1">
+                  {puSupplierTotalLoading ? 'Cargando...' : puSupplierTotalProducts}
+                </p>
+              </div>
+            )}
+
+            {/* FORMULARIO */}
+            {puStep === 'form' && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 border-b pb-2">Actualización masiva por proveedor</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Proveedor</label>
+                  <select
+                    value={puSupplierId}
+                    onChange={(e) => { setPuSupplierId(e.target.value); setPuError(''); }}
+                    className="block w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  >
+                    <option value="">— Seleccioná un proveedor —</option>
+                    {[...supplierOptions]
+                      .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }))
+                      .map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Moneda del archivo</label>
+                  <div className="flex gap-3">
+                    <label className="flex items-center gap-1 text-sm">
+                      <input type="radio" name="pu-currency" value="ARS" checked={puCurrency === 'ARS'} onChange={() => setPuCurrency('ARS')} /> ARS
+                    </label>
+                    <label className="flex items-center gap-1 text-sm">
+                      <input type="radio" name="pu-currency" value="USD" checked={puCurrency === 'USD'} onChange={() => setPuCurrency('USD')} /> USD
+                    </label>
+                  </div>
+                </div>
+                {puCurrency === 'USD' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de cambio (ARS por USD)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={puExchangeRate}
+                      onChange={(e) => setPuExchangeRate(e.target.value)}
+                      className="block w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                      placeholder="Ej: 1000"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Archivo (Excel / CSV / TXT)</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv,.txt,.tsv"
+                    disabled={!puSupplierId}
+                    onChange={handlePriceUpdateFileChange}
+                    className="block w-full text-sm text-gray-600 file:mr-3 file:py-1 file:px-3 file:rounded-md file:border-0 file:bg-green-50 file:text-green-700 hover:file:bg-green-100 disabled:opacity-50"
+                  />
+                  {!puSupplierId && <p className="text-xs text-gray-500 mt-1">Seleccioná un proveedor para habilitar la carga de archivo.</p>}
+                </div>
+              </div>
+            )}
+
+            {/* SUBIENDO */}
+            {puStep === 'uploading' && (
+              <div className="py-8 text-center text-gray-500">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-3" />
+                <p className="text-sm">Subiendo filas a tabla temporal…</p>
+                {puFilename && <p className="text-xs text-gray-400 mt-1">{puFilename}</p>}
+              </div>
+            )}
+
+            {/* MAPE0 MANUAL */}
+            {puStep === 'mapping' && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 border-b pb-2">Mapeo manual de columnas</h3>
+                <p className="text-sm text-gray-600">
+                  No se pudieron detectar automáticamente las columnas requeridas. Seleccioná manualmente código y precio para continuar.
+                </p>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Seleccionar columna de código</label>
+                  <select
+                    value={puColumnMapping.codeColumn || ''}
+                    onChange={(e) => setPuColumnMapping((prev) => ({ ...prev, codeColumn: e.target.value || null }))}
+                    className="block w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  >
+                    <option value="">— Elegir columna —</option>
+                    {puHeadersDetected.map((header) => (
+                      <option key={`code-${header}`} value={header}>{header}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Seleccionar columna de precio</label>
+                  <select
+                    value={puColumnMapping.priceColumn || ''}
+                    onChange={(e) => setPuColumnMapping((prev) => ({ ...prev, priceColumn: e.target.value || null }))}
+                    className="block w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
+                  >
+                    <option value="">— Elegir columna —</option>
+                    {puHeadersDetected.map((header) => (
+                      <option key={`price-${header}`} value={header}>{header}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handlePriceUpdateCancel}
+                    className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmManualMapping}
+                    disabled={!puColumnMapping.codeColumn || !puColumnMapping.priceColumn}
+                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                  >
+                    Confirmar mapeo
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* PREVIEW / RESUMEN DE MATCH */}
+            {puStep === 'preview' && puSessionResult && puVsExcelSummary && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 border-b pb-2">Resumen antes de actualizar</h3>
+                <div className="bg-gray-50 rounded-lg p-4 text-sm space-y-1">
+                  <p><span className="text-gray-500">Archivo:</span> <span className="font-medium">{puSessionResult.sourceFilename}</span></p>
+                  <p><span className="text-gray-500">Proveedor:</span> <span className="font-medium">{puSessionResult.supplierName}</span></p>
+                  <p><span className="text-gray-500">Moneda:</span> <span className="font-medium">{puSessionResult.fileCurrency}{puSessionResult.fileCurrency === 'USD' ? ` (× ${puSessionResult.exchangeRate})` : ''}</span></p>
+                </div>
+                {/* 4 tarjetas perspectiva proveedor */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-gray-100 rounded p-3 text-center">
+                    <p className="text-2xl font-bold text-gray-800">{puVsExcelSummary.totalSupplier}</p>
+                    <p className="text-xs text-gray-600 mt-1">Total productos del proveedor</p>
+                  </div>
+                  <div className="bg-green-50 rounded p-3 text-center">
+                    <p className="text-2xl font-bold text-green-700">{puVsExcelSummary.matchedByCod}</p>
+                    <p className="text-xs text-gray-600 mt-1">Encontrados por COD</p>
+                  </div>
+                  <div className="bg-blue-50 rounded p-3 text-center">
+                    <p className="text-2xl font-bold text-blue-700">{puVsExcelSummary.matchedByBarcode}</p>
+                    <p className="text-xs text-gray-600 mt-1">Encontrados por BARCODE</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPuShowMissing(v => !v)}
+                    className="bg-orange-50 rounded p-3 text-center hover:bg-orange-100 transition-colors w-full"
+                  >
+                    <p className="text-2xl font-bold text-orange-700">{puVsExcelSummary.missingFromExcel}</p>
+                    <p className="text-xs text-gray-600 mt-1">No presentes en el Excel</p>
+                    {puVsExcelSummary.missingFromExcel > 0 && (
+                      <p className="text-xs text-orange-600 mt-0.5 underline">{puShowMissing ? 'Ocultar detalle' : 'Ver detalle'}</p>
+                    )}
+                  </button>
+                </div>
+                {/* Listado expandible de productos no en Excel */}
+                {puShowMissing && puMissingProducts.length > 0 && (
+                  <div className="border border-orange-200 rounded bg-white max-h-52 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="bg-orange-100 sticky top-0">
+                        <tr>
+                          <th className="text-left px-2 py-1 font-medium text-orange-800">Cód</th>
+                          <th className="text-left px-2 py-1 font-medium text-orange-800">Barcode</th>
+                          <th className="text-left px-2 py-1 font-medium text-orange-800">Nombre</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {puMissingProducts.map((p, i) => (
+                          <tr key={p.id || i} className={i % 2 === 0 ? 'bg-white' : 'bg-orange-50'}>
+                            <td className="px-2 py-1 text-gray-700">{p.cod || '—'}</td>
+                            <td className="px-2 py-1 text-gray-700">{p.barcode || '—'}</td>
+                            <td className="px-2 py-1 text-gray-700">{p.description}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-xs text-gray-500">Solo se actualizarán los productos encontrados por COD o BARCODE. No se crean productos nuevos.</p>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handlePriceUpdateCancel}
+                    className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handlePriceUpdateConfirm}
+                    disabled={puVsExcelSummary.matchedByCod + puVsExcelSummary.matchedByBarcode === 0}
+                    className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+                  >
+                    Confirmar actualización ({puVsExcelSummary.matchedByCod + puVsExcelSummary.matchedByBarcode} productos)
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* PROCESANDO */}
+            {puStep === 'confirming' && (
+              <div className="py-8 text-center text-gray-500">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-3" />
+                <p className="text-sm">Actualizando precios…</p>
+              </div>
+            )}
+
+            {/* RESULTADO FINAL */}
+            {puStep === 'result' && puUpdateResult && (
+              <div className="space-y-4">
+                <h3 className="text-base font-semibold text-gray-800 border-b pb-2">Resultado de la actualización</h3>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm space-y-1">
+                  <p className="text-green-800 font-semibold">✓ Proceso completado</p>
+                  <p><span className="text-gray-600">Productos actualizados:</span> <span className="font-bold text-green-700">{puUpdateResult.updatedCount}</span></p>
+                  <p><span className="text-gray-600">Sin cambios / omitidos:</span> <span className="font-medium">{puUpdateResult.skippedCount}</span></p>
+                  <p><span className="text-gray-600">No encontrados:</span> <span className="font-medium">{puUpdateResult.notFoundCount}</span></p>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => { setPuStep('form'); setPuSessionResult(null); setPuVsExcelSummary(null); setPuUpdateResult(null); setPuFilename(''); setPuMissingProducts([]); setPuShowMissing(false); }}
+                    className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200"
+                  >
+                    Nueva actualización
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {/* ─────────────────────────────────────────────────────────────────── */}
     </Modal>
   );
 };

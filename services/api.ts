@@ -122,7 +122,12 @@ import {
     SupplierInvoiceBalance,
     SupplierPayment,
     Supplier,
-    User
+    User,
+    SupplierPriceImportTempRow,
+    SupplierPriceImportSessionResult,
+    SupplierPriceImportMatchSummary,
+    SupplierPriceUpdateResult,
+    SupplierVsExcelSummary,
 } from '../types';
 // import { offlineService } from './offlineService';
 import { createClient } from '@supabase/supabase-js';
@@ -164,6 +169,11 @@ const mapUserRowToUser = (item: any): User => {
         Rol: String(rol || '') as User['Rol'],
         Activo: activo ? 'SI' : 'NO'
     } as User;
+};
+
+const isAdminRoleValue = (role: any): boolean => {
+    const normalized = String(role || '').trim().toLowerCase();
+    return normalized === 'admin' || normalized === 'administrador';
 };
 
 type ECheqSnapshot = { amount: number; days: number };
@@ -2005,50 +2015,112 @@ export const openShiftSupabase = async (userId: string, openingAmount: number): 
 
 // --- GASTOS SUPABASE ---
 
-export const getExpensesSupabase = async (): Promise<Expense[]> => {
+export const getExpensesSupabase = async (currentUser?: User | null): Promise<Expense[]> => {
     if (!supabase) throw new Error('Supabase no inicializado');
-    const { data, error } = await supabase
+
+    const isCurrentUserAdmin = isAdminRoleValue(currentUser?.Rol);
+
+    const { data: expensesData, error: expensesError } = await supabase
         .from('st_expenses')
         .select('*')
         .order('spent_at', { ascending: false });
-    
-    if (error) throw error;
-    
-    return (data || []).map(item => ({
-        id_gastos: item.id,
-        Fecha: new Date(item.spent_at),
-        FechaRaw: item.spent_at,
-        Monto: Number(item.amount),
-        Detalle: item.detail,
-        Tipo: item.category || item.tipo || item.type || 'Otros',
-        Efectivo: Number(item.payment_cash || 0),
-        Digital: Number(item.payment_digital || 0),
-        shiftId: item.shift_id
-    } as Expense));
+
+    if (expensesError) throw expensesError;
+
+    const { data: profilesData, error: profilesError } = await supabase
+        .from('st_user_profiles')
+        .select('id, nombre, rol');
+
+    if (profilesError) throw profilesError;
+
+    const profilesById = new Map(
+        (profilesData || []).map((profile: any) => [String(profile?.id || ''), profile])
+    );
+
+    const rows = (expensesData || []) as any[];
+    const filteredRows = !currentUser || isCurrentUserAdmin
+        ? rows
+        : rows.filter((item) => {
+            const loaderId = String(item?.user_profile_id || '').trim();
+            if (!loaderId) return false;
+            const loaderProfile = profilesById.get(loaderId);
+            if (!loaderProfile) return false;
+            return !isAdminRoleValue(loaderProfile?.rol);
+        });
+
+    return filteredRows.map(item => {
+        const loaderId = String(item?.user_profile_id || '').trim();
+        const loaderProfile = loaderId ? profilesById.get(loaderId) : null;
+
+        return {
+            id_gastos: item.id,
+            Fecha: new Date(item.spent_at),
+            FechaRaw: item.spent_at,
+            Monto: Number(item.amount),
+            Detalle: item.detail,
+            Tipo: item.category || item.tipo || item.type || 'Otros',
+            Efectivo: Number(item.payment_cash || 0),
+            Digital: Number(item.payment_digital || 0),
+            shiftId: item.shift_id,
+            user_profile_id: item.user_profile_id || undefined,
+            CargadoPor: loaderProfile?.nombre || loaderId || 'Sin usuario',
+        } as Expense;
+    });
 };
 
-export const addExpenseSupabase = async (expenseData: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; shiftId?: string; spentAt?: string; }): Promise<any> => {
+export const addExpenseSupabase = async (expenseData: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; shiftId?: string; spentAt?: string; userId?: string; }): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
+
+    let authorProfileId: string | null = null;
+    if (expenseData.userId) {
+        const profile = await getUserProfileById(expenseData.userId);
+        authorProfileId = profile?.id ? String(profile.id) : null;
+    }
+
+    const insertPayload: any = {
+        shift_id: expenseData.shiftId || null,
+        spent_at: expenseData.spentAt || new Date().toISOString(),
+        amount: expenseData.monto,
+        detail: expenseData.detalle,
+        category: expenseData.tipo || 'Otros',
+        payment_cash: expenseData.paymentType === 'Efectivo' ? expenseData.monto : 0,
+        payment_digital: expenseData.paymentType === 'Digital' ? expenseData.monto : 0,
+    };
+
+    if (authorProfileId) {
+        insertPayload.user_profile_id = authorProfileId;
+    }
     
     const { data, error } = await supabase
         .from('st_expenses')
-        .insert([{
-            shift_id: expenseData.shiftId || null,
-            spent_at: expenseData.spentAt || new Date().toISOString(),
-            amount: expenseData.monto,
-            detail: expenseData.detalle,
-            category: expenseData.tipo || 'Otros',
-            payment_cash: expenseData.paymentType === 'Efectivo' ? expenseData.monto : 0,
-            payment_digital: expenseData.paymentType === 'Digital' ? expenseData.monto : 0
-        }])
+        .insert([insertPayload])
         .select();
     
     if (error) throw error;
     return data[0];
 };
 
-export const updateExpenseSupabase = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros' }): Promise<any> => {
+export const updateExpenseSupabase = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; userId?: string; }): Promise<any> => {
     if (!supabase) throw new Error('Supabase no inicializado');
+
+    let authorPatch: Record<string, any> = {};
+    if (expenseData.userId) {
+        const { data: existingExpense, error: existingError } = await supabase
+            .from('st_expenses')
+            .select('id, user_profile_id')
+            .eq('id', expenseData.id_gastos)
+            .maybeSingle();
+        if (existingError) throw existingError;
+
+        const hasUserProfile = Boolean(String(existingExpense?.user_profile_id || '').trim());
+        if (!hasUserProfile) {
+            const profile = await getUserProfileById(expenseData.userId);
+            const profileId = profile?.id ? String(profile.id) : '';
+            if (profileId) {
+                if (!hasUserProfile) authorPatch.user_profile_id = profileId;
+            }
+        }
+    }
     
     const { data, error } = await supabase
         .from('st_expenses')
@@ -2058,7 +2130,8 @@ export const updateExpenseSupabase = async (expenseData: { id_gastos: string; de
             category: expenseData.tipo || 'Otros',
             payment_cash: expenseData.paymentType === 'Efectivo' ? expenseData.monto : 0,
             payment_digital: expenseData.paymentType === 'Digital' ? expenseData.monto : 0,
-            updated_at: new Date()
+            updated_at: new Date(),
+            ...authorPatch,
         })
         .eq('id', expenseData.id_gastos)
         .select();
@@ -2620,15 +2693,15 @@ export const getSales = async (options?: { startDate?: string; endDate?: string;
     });
 };
 
-export const getExpenses = async (): Promise<Expense[]> => {
-    return getExpensesSupabase();
+export const getExpenses = async (currentUser?: User | null): Promise<Expense[]> => {
+    return getExpensesSupabase(currentUser);
 };
 
-export const addExpense = async (data: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; shiftId?: string; }): Promise<void> => {
+export const addExpense = async (data: { detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; shiftId?: string; userId?: string; }): Promise<void> => {
     await addExpenseSupabase(data);
 };
 
-export const updateExpense = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros' }): Promise<void> => {
+export const updateExpense = async (expenseData: { id_gastos: string; detalle: string; monto: number; paymentType: 'Efectivo' | 'Digital'; tipo?: 'Fijos' | 'Impuestos' | 'Sueldos' | 'Proveedores' | 'Otros'; userId?: string; }): Promise<void> => {
     await updateExpenseSupabase(expenseData);
 };
 
@@ -4776,4 +4849,247 @@ export const deleteSupplierPayment = async (paymentId: string): Promise<void> =>
     if (error) throw error;
 };
 
+// ─── PROMPT 010: Flujo "Actualización" con tabla temporal ───────────────────
 
+/** Crea un session_id único para la sesión de importación temporal */
+export const createPriceImportSession = (): string => {
+    const uuid = typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+
+    // eslint-disable-next-line no-console
+    console.log('[TEMP_IMPORT_SESSION_ID]', uuid);
+    return uuid;
+};
+
+/**
+ * Sube las filas normalizadas del archivo a la tabla temporal `st_supplier_price_import_temp`.
+ * Retorna resumen con cantidad de filas subidas.
+ */
+export const uploadRowsToTempTable = async (
+    rows: Omit<SupplierPriceImportTempRow, 'id' | 'created_at'>[],
+): Promise<SupplierPriceImportSessionResult> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!rows.length) throw new Error('No hay filas para subir');
+
+    const first = rows[0];
+    const supplierId = first?.supplier_id || '';
+    const sessionId = first?.import_session_id || '';
+    const currency = first?.file_currency || '';
+    const exchangeRate = first?.exchange_rate ?? null;
+
+    // eslint-disable-next-line no-console
+    console.log('[TEMP_IMPORT_PAYLOAD]', rows.slice(0, 5));
+    // eslint-disable-next-line no-console
+    console.log('[TEMP_IMPORT_META]', {
+        supplierId,
+        sessionId,
+        currency,
+        exchangeRate,
+    });
+
+    const { error } = await supabase
+        .from('st_supplier_price_import_temp')
+        .insert(rows);
+
+    if (error) throw error;
+
+    return {
+        sessionId: first.import_session_id,
+        supplierId: first.supplier_id,
+        supplierName: first.supplier_name_snapshot,
+        sourceFilename: first.source_filename,
+        rowsUploaded: rows.length,
+        fileCurrency: first.file_currency,
+        exchangeRate: first.exchange_rate,
+    };
+};
+
+/**
+ * Obtiene estadísticas de match desde Supabase comparando filas de la sesión temporal
+ * con la tabla `st_products` del proveedor.
+ * Requiere la función RPC `get_temp_import_match_summary` en Supabase.
+ */
+export const getMatchSummaryFromTemp = async (
+    sessionId: string,
+    supplierId: string,
+): Promise<SupplierPriceImportMatchSummary> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    void supplierId;
+
+    const { data, error } = await supabase
+        .rpc('get_temp_import_match_summary', { p_import_session_id: sessionId });
+
+    if (error) throw error;
+
+    const result = Array.isArray(data) ? data[0] : data;
+    return {
+        sessionId,
+        totalRows: Number(result?.total_rows ?? 0),
+        matchedByCod: Number(result?.matched_by_cod ?? 0),
+        matchedByBarcode: Number(result?.matched_by_barcode ?? 0),
+        notMatched: Number(result?.not_matched ?? 0),
+    };
+};
+
+/**
+ * Ejecuta la actualización de precios desde la tabla temporal.
+ * Requiere la función RPC `execute_temp_import_price_update` en Supabase.
+ * Solo actualiza productos existentes — NO crea nuevos.
+ */
+export const executeUpdateFromTempTable = async (
+    sessionId: string,
+    supplierId: string,
+): Promise<SupplierPriceUpdateResult> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .rpc('execute_temp_import_price_update', { p_session_id: sessionId, p_supplier_id: supplierId });
+
+    if (error) throw error;
+
+    const result = Array.isArray(data) ? data[0] : data;
+    return {
+        sessionId,
+        updatedCount: Number(result?.updated_count ?? 0),
+        skippedCount: Number(result?.skipped_count ?? 0),
+        notFoundCount: Number(result?.not_found_count ?? 0),
+    };
+};
+
+/**
+ * Elimina todas las filas de la sesión de la tabla temporal.
+ * Llamar siempre al terminar el flujo (éxito o cancelación).
+ */
+export const cleanupTempImportSession = async (sessionId: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!sessionId) return;
+
+    const { error } = await supabase
+        .from('st_supplier_price_import_temp')
+        .delete()
+        .eq('import_session_id', sessionId);
+
+    if (error) throw error;
+};
+
+/**
+ * Devuelve los productos del proveedor que NO aparecen en el Excel subido a la sesión temporal.
+ * Compara por cod y barcode contra excel_code de la sesión.
+ */
+export const getSupplierProductsMissingInTempImport = async (
+    sessionId: string,
+    supplierId: string,
+): Promise<SupplierMissingProduct[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data: tempRows, error: tempErr } = await supabase
+        .from('st_supplier_price_import_temp')
+        .select('excel_code')
+        .eq('import_session_id', sessionId);
+    if (tempErr) throw tempErr;
+
+    const excelCodes = new Set<string>(
+        (tempRows || []).map((r: any) => String(r.excel_code || '').trim().toLowerCase()).filter(Boolean)
+    );
+
+    const { data: products, error: prodErr } = await supabase
+        .from('st_products')
+        .select('id, cod, barcode, name, final_price')
+        .eq('supplier_id', supplierId)
+        .eq('deleted', false);
+    if (prodErr) throw prodErr;
+
+    return (products || [])
+        .filter((p: any) => {
+            const cod = String(p.cod || '').trim().toLowerCase();
+            const bar = String(p.barcode || '').trim().toLowerCase();
+            return !(cod && excelCodes.has(cod)) && !(bar && excelCodes.has(bar));
+        })
+        .map((p: any) => ({
+            id: String(p.id || ''),
+            cod: String(p.cod || '').trim(),
+            barcode: String(p.barcode || '').trim(),
+            description: String(p.name || '').trim(),
+            price: Number.isFinite(Number(p.final_price)) ? Number(p.final_price) : null,
+        }));
+};
+
+/**
+ * Cuenta los productos activos del proveedor en base.
+ * Usar al seleccionar proveedor en el flujo "Actualización", antes de subir el archivo.
+ */
+export const getSupplierProductCount = async (supplierId: string): Promise<number> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { count, error } = await supabase
+        .from('st_products')
+        .select('id', { count: 'exact', head: true })
+        .eq('supplier_id', supplierId)
+        .eq('deleted', false);
+    if (error) throw error;
+    return count ?? 0;
+};
+
+/**
+ * Resumen proveedor-vs-Excel para el flujo "Actualización".
+ * Perspectiva del proveedor (no del archivo):
+ *  - totalSupplier  : total de productos activos del proveedor
+ *  - matchedByCod   : productos cuyo cod aparece en el Excel
+ *  - matchedByBarcode: productos que NO matchearon por cod pero cuyo barcode aparece en el Excel
+ *  - missingFromExcel: productos que no matchearon por ninguna vía
+ * También retorna el detalle de los productos faltantes.
+ */
+export const getSupplierVsExcelSummary = async (
+    sessionId: string,
+    supplierId: string,
+): Promise<{ summary: SupplierVsExcelSummary; missingProducts: SupplierMissingProduct[] }> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const [{ data: tempRows, error: tempErr }, { data: products, error: prodErr }] = await Promise.all([
+        supabase.from('st_supplier_price_import_temp').select('excel_code').eq('import_session_id', sessionId),
+        supabase.from('st_products').select('id, cod, barcode, name, final_price').eq('supplier_id', supplierId).eq('deleted', false),
+    ]);
+    if (tempErr) throw tempErr;
+    if (prodErr) throw prodErr;
+
+    const excelCodes = new Set<string>(
+        (tempRows || []).map((r: any) => String(r.excel_code || '').trim().toLowerCase()).filter(Boolean)
+    );
+
+    let matchedByCod = 0;
+    let matchedByBarcode = 0;
+    const missingProducts: SupplierMissingProduct[] = [];
+
+    for (const p of (products || [])) {
+        const cod = String(p.cod || '').trim().toLowerCase();
+        const bar = String(p.barcode || '').trim().toLowerCase();
+        if (cod && excelCodes.has(cod)) {
+            matchedByCod++;
+        } else if (bar && excelCodes.has(bar)) {
+            matchedByBarcode++;
+        } else {
+            missingProducts.push({
+                id: String(p.id || ''),
+                cod: String(p.cod || '').trim(),
+                barcode: String(p.barcode || '').trim(),
+                description: String(p.name || '').trim(),
+                price: Number.isFinite(Number(p.final_price)) ? Number(p.final_price) : null,
+            });
+        }
+    }
+
+    return {
+        summary: {
+            totalSupplier: (products || []).length,
+            matchedByCod,
+            matchedByBarcode,
+            missingFromExcel: missingProducts.length,
+        },
+        missingProducts,
+    };
+};

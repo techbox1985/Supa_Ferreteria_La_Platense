@@ -534,6 +534,43 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         ? supplierNameById.get(resolvedSupplierId) || productData.Proveedor || ''
         : productData.Proveedor || '';
 
+      const normalizedCode = String(dataWithIds.cod || '').trim().toUpperCase();
+      const normalizedBarcode = String((dataWithIds as any)['cod.barras'] || dataWithIds.barcode || '').trim().toUpperCase();
+      const currentProductId = String((productToEdit as any)?.id || '').trim();
+
+      if (resolvedSupplierId && api.supabase && (normalizedCode || normalizedBarcode)) {
+        let duplicateQuery = api.supabase
+          .from('st_products')
+          .select('id, cod, barcode')
+          .eq('supplier_id', resolvedSupplierId)
+          .eq('is_deleted', false);
+
+        if (currentProductId) {
+          duplicateQuery = duplicateQuery.neq('id', currentProductId);
+        }
+
+        const { data: existingProducts, error: duplicateError } = await duplicateQuery;
+        if (duplicateError) throw duplicateError;
+
+        const existingRows = (existingProducts || []) as Array<{ id: string; cod: string | null; barcode: string | null }>;
+
+        if (normalizedCode) {
+          const hasCodeDuplicate = existingRows.some((row) => String(row?.cod || '').trim().toUpperCase() === normalizedCode);
+          if (hasCodeDuplicate) {
+            addToast('Ya existe un producto con ese código para este proveedor', 'error');
+            return;
+          }
+        }
+
+        if (normalizedBarcode) {
+          const hasBarcodeDuplicate = existingRows.some((row) => String(row?.barcode || '').trim().toUpperCase() === normalizedBarcode);
+          if (hasBarcodeDuplicate) {
+            addToast('Ya existe un producto con ese código de barras para este proveedor', 'error');
+            return;
+          }
+        }
+      }
+
       if (productToEdit) {
         await api.updateProductSupabase(dataWithIds);
 

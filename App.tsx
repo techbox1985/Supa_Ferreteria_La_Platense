@@ -171,7 +171,7 @@ const AppContent: React.FC = () => {
             ] = await Promise.allSettled([
                 api.getProducts(),
                 api.getSales(),
-                api.getExpenses(),
+                api.getExpenses(currentUser),
                 api.getShifts(),
                 api.getUsers(),
                 api.getSuppliers(),
@@ -229,7 +229,7 @@ const AppContent: React.FC = () => {
         } finally {
             setIsRefreshing(false);
         }
-    }, [addToast, products.length, customers.length, categories.length]);
+    }, [addToast, products.length, customers.length, categories.length, currentUser]);
 
     const fetchSalesForHistoryDateRange = useCallback(async (startDate: string, endDate: string) => {
         setIsSalesHistoryLoading(true);
@@ -245,9 +245,9 @@ const AppContent: React.FC = () => {
     }, [addToast]);
 
     const refreshExpenses = useCallback(async () => {
-        const expensesResult = await api.getExpenses();
+        const expensesResult = await api.getExpenses(currentUser);
         setExpenses(expensesResult || []);
-    }, []);
+    }, [currentUser]);
 
     useEffect(() => {
         if (currentView !== 'sales-history') {

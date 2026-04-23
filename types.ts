@@ -162,7 +162,7 @@ export interface Expense {
   shiftId?: string;
   // Campos de autoría para filtro quirúrgico
   user_profile_id?: string;
-  id_usuario_registro?: string;
+  CargadoPor?: string;
 }
 
 export interface User {
@@ -418,4 +418,53 @@ export interface SupplierPayment {
   payment_date: string;
   payment_method: string;
   notes?: string;
+}
+
+// ─── PROMPT 010: Flujo "Actualización" con tabla temporal ───────────────────
+
+export interface SupplierPriceImportTempRow {
+  id?: string;
+  import_session_id: string;
+  supplier_id: string;
+  supplier_name_snapshot: string;
+  source_filename: string;
+  file_currency: 'ARS' | 'USD';
+  exchange_rate: number;
+  row_number: number;
+  excel_code: string;
+  excel_name: string;
+  excel_price: number | null;
+  created_at?: string;
+}
+
+export interface SupplierPriceImportSessionResult {
+  sessionId: string;
+  supplierId: string;
+  supplierName: string;
+  sourceFilename: string;
+  rowsUploaded: number;
+  fileCurrency: 'ARS' | 'USD';
+  exchangeRate: number;
+}
+
+export interface SupplierPriceImportMatchSummary {
+  sessionId: string;
+  totalRows: number;
+  matchedByCod: number;
+  matchedByBarcode: number;
+  notMatched: number;
+}
+
+export interface SupplierPriceUpdateResult {
+  sessionId: string;
+  updatedCount: number;
+  skippedCount: number;
+  notFoundCount: number;
+}
+
+export interface SupplierVsExcelSummary {
+  totalSupplier: number;
+  matchedByCod: number;
+  matchedByBarcode: number;
+  missingFromExcel: number;
 }
