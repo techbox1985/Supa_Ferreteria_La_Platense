@@ -98,6 +98,12 @@ const getRowKey = (row: SupplierCostImportPreviewRow) => {
   return normalizeProductCode((row.cod || barcode || '').toString());
 };
 
+const normalizeSupplierMatchKey = (value: unknown): string =>
+  String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+
 
 
 const translateStatusLabel = (status: 'found' | 'not found'): string => {
@@ -1126,53 +1132,119 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       };
     }
 
-    const [{ data: tempRows, error: tempErr }, { data: products, error: prodErr }] = await Promise.all([
-      api.supabase
-        .from('st_supplier_price_import_temp')
-        .select('excel_code')
-        .eq('import_session_id', sessionId),
-      api.supabase
-        .from('st_products')
-        .select('id, cod, barcode, name, final_price')
-        .eq('supplier_id', supplierId)
-        .eq('is_deleted', false),
+    const PAGE_SIZE = 1000;
+
+    const fetchAllTempRows = async (): Promise<any[]> => {
+      const rows: any[] = [];
+      let from = 0;
+
+      while (true) {
+        const { data, error } = await api.supabase!
+          .from('st_supplier_price_import_temp')
+          .select('excel_code')
+          .eq('import_session_id', sessionId)
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        const batch = Array.isArray(data) ? data : [];
+        rows.push(...batch);
+
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      return rows;
+    };
+
+    const fetchAllSupplierProducts = async (): Promise<any[]> => {
+      const rows: any[] = [];
+      let from = 0;
+
+      while (true) {
+        const { data, error } = await api.supabase!
+          .from('st_products')
+          .select('id, cod, barcode, name, final_price')
+          .eq('supplier_id', supplierId)
+          .range(from, from + PAGE_SIZE - 1);
+
+        if (error) throw error;
+
+        const batch = Array.isArray(data) ? data : [];
+        rows.push(...batch);
+
+        if (batch.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+
+      return rows;
+    };
+
+    const [tempRows, productRows] = await Promise.all([
+      fetchAllTempRows(),
+      fetchAllSupplierProducts(),
     ]);
 
-    if (tempErr) throw tempErr;
-    if (prodErr) throw prodErr;
-
     const excelCodes = new Set<string>(
-      (tempRows || []).map((row: any) => String(row?.excel_code || '').trim().toLowerCase()).filter(Boolean)
+      tempRows
+        .map((row: any) => normalizeSupplierMatchKey(row?.excel_code || ''))
+        .filter(Boolean)
     );
 
-    let matchedByCod = 0;
-    let matchedByBarcode = 0;
-    const missingProducts: SupplierMissingProduct[] = [];
+    const matchedCodIds = new Set<string>();
+    const matchedBarcodeIds = new Set<string>();
 
-    for (const product of (products || [])) {
-      const cod = String(product?.cod || '').trim().toLowerCase();
-      const barcode = String(product?.barcode || '').trim().toLowerCase();
+    // Prioridad 1: COD normalizado.
+    for (const product of productRows) {
+      const productId = String(product?.id || '');
+      const cod = normalizeSupplierMatchKey(product?.cod || '');
 
-      if (cod && excelCodes.has(cod)) {
-        matchedByCod += 1;
-      } else if (barcode && excelCodes.has(barcode)) {
-        matchedByBarcode += 1;
-      } else {
-        missingProducts.push({
-          id: String(product?.id || ''),
-          cod: String(product?.cod || '').trim(),
-          barcode: String(product?.barcode || '').trim(),
-          description: String(product?.name || '').trim(),
-          price: Number.isFinite(Number(product?.final_price)) ? Number(product.final_price) : null,
-        });
+      if (productId && cod && excelCodes.has(cod)) {
+        matchedCodIds.add(productId);
       }
     }
 
+    // Prioridad 2: BARCODE normalizado, solo si el producto no matcheó por COD.
+    for (const product of productRows) {
+      const productId = String(product?.id || '');
+      const barcode = normalizeSupplierMatchKey(product?.barcode || '');
+
+      if (productId && !matchedCodIds.has(productId) && barcode && excelCodes.has(barcode)) {
+        matchedBarcodeIds.add(productId);
+      }
+    }
+
+    const missingProducts: SupplierMissingProduct[] = productRows
+      .filter((product: any) => {
+        const productId = String(product?.id || '');
+        return !matchedCodIds.has(productId) && !matchedBarcodeIds.has(productId);
+      })
+      .map((product: any) => ({
+        id: String(product?.id || ''),
+        cod: String(product?.cod || '').trim(),
+        barcode: String(product?.barcode || '').trim(),
+        description: String(product?.name || '').trim(),
+        price: Number.isFinite(Number(product?.final_price)) ? Number(product.final_price) : null,
+      }));
+
+    // eslint-disable-next-line no-console
+    console.log('[PRICE_UPDATE_MATCH_SUMMARY_FIXED]', {
+      sessionId,
+      supplierId,
+      tempRows: tempRows.length,
+      totalSupplier: productRows.length,
+      matchedByCod: matchedCodIds.size,
+      matchedByBarcode: matchedBarcodeIds.size,
+      missingFromExcel: missingProducts.length,
+      sampleExcelCodes: Array.from(excelCodes).slice(0, 10),
+      sampleMissing: missingProducts.slice(0, 10),
+    });
+
     return {
       summary: {
-        totalSupplier: (products || []).length,
-        matchedByCod,
-        matchedByBarcode,
+        totalSupplier: productRows.length,
+        matchedByCod: matchedCodIds.size,
+        matchedByBarcode: matchedBarcodeIds.size,
         missingFromExcel: missingProducts.length,
       },
       missingProducts,
@@ -1379,8 +1451,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     const { count, error } = await api.supabase
       .from('st_products')
       .select('id', { count: 'exact', head: true })
-      .eq('supplier_id', supplierId)
-      .eq('is_deleted', false);
+      .eq('supplier_id', supplierId);
 
     if (error) throw error;
     return count ?? 0;
