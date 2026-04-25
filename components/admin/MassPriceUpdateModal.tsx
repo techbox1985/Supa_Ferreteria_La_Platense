@@ -200,19 +200,41 @@ const detectDelimiter = (lines: string[]): string => {
   return best;
 };
 
+const compactHeader = (value: string): string =>
+  normalizeHeader(value).replace(/[^a-z0-9]/g, '');
+
 const findHeaderIndex = (headers: string[], aliases: string[]): number => {
-  const aliasSet = new Set(aliases.map((alias) => normalizeHeader(alias)));
-  return headers.findIndex((header) => aliasSet.has(header));
+  const normalizedAliases = aliases.map((alias) => normalizeHeader(alias));
+  const compactAliases = aliases.map((alias) => compactHeader(alias));
+
+  const exactIndex = headers.findIndex((header) => normalizedAliases.includes(header));
+  if (exactIndex >= 0) return exactIndex;
+
+  return headers.findIndex((header) => {
+    const normalizedHeader = normalizeHeader(header);
+    const compact = compactHeader(header);
+    if (!compact) return false;
+
+    return compactAliases.some((alias) => {
+      if (!alias) return false;
+      return compact === alias || compact.startsWith(alias) || compact.includes(alias);
+    }) || normalizedAliases.some((alias) => {
+      if (!alias) return false;
+      return normalizedHeader === alias || normalizedHeader.startsWith(`${alias}_`) || normalizedHeader.includes(`_${alias}_`);
+    });
+  });
 };
 
 const isPriceHeader = (normalizedHeader: string): boolean => {
-  if (!normalizedHeader) return false;
-  return /precio|costo|cost|price|importe|tarifa|pesos/.test(normalizedHeader);
+  const compact = compactHeader(normalizedHeader);
+  if (!compact) return false;
+  return /precio|costo|cost|price|importe|tarifa|pesos|ars|usd|dolar|dolares/.test(compact);
 };
 
 const inferCurrencyFromHeader = (normalizedHeader: string): 'ARS' | 'USD' | null => {
-  if (/usd|dolar|dollar/.test(normalizedHeader)) return 'USD';
-  if (/ars|peso/.test(normalizedHeader)) return 'ARS';
+  const compact = compactHeader(normalizedHeader);
+  if (/usd|dolar|dolares|dollar/.test(compact)) return 'USD';
+  if (/ars|peso|pesos/.test(compact)) return 'ARS';
   return null;
 };
 
@@ -224,26 +246,90 @@ const findAllPriceColumnCandidates = (rawHeaders: string[], normalizedHeaders: s
     return acc;
   }, []);
 
-const CODE_HEADER_ALIASES = ['cod', 'codigo', 'código', 'articulo', 'artículo', 'code', 'sku', 'cod. articulo', 'cod articulo', 'cód. artículo', 'cód articulo', 'cod_articulo'];
-const DESC_HEADER_ALIASES = ['descripcion', 'descripción', 'description', 'detalle', 'producto', 'nombre', 'name'];
+const CODE_HEADER_ALIASES = [
+  'cod',
+  'codigo',
+  'código',
+  'cod producto',
+  'cod_producto',
+  'codigo producto',
+  'codigo_producto',
+  'cod. producto',
+  'cod. articulo',
+  'cod articulo',
+  'cód. artículo',
+  'cód articulo',
+  'cod_articulo',
+  'articulo',
+  'artículo',
+  'id',
+  'code',
+  'sku',
+  'referencia',
+  'ref',
+];
+const DESC_HEADER_ALIASES = ['descripcion', 'descripción', 'description', 'detalle', 'producto', 'nombre', 'name', 'nombre detalle', 'nombre / detalle'];
+const PRICE_HEADER_ALIASES = [
+  'cost_price',
+  'cost',
+  'costo',
+  'precio_costo',
+  'precio de costo',
+  'precio',
+  'precio_ars',
+  'precio usd',
+  'precio_usd',
+  'precio ars',
+  'precio final',
+  'precio con iva',
+  'precio + iva',
+  'pesos + iva',
+  'importe',
+  'tarifa',
+  'dolares',
+  'dólares',
+  'usd',
+];
+
+const scoreHeaderRow = (rawCells: string[], normalizedCells: string[]): number => {
+  const hasCode = findHeaderIndex(normalizedCells, CODE_HEADER_ALIASES) >= 0;
+  const hasPrice = findHeaderIndex(normalizedCells, PRICE_HEADER_ALIASES) >= 0 || normalizedCells.some(isPriceHeader);
+  const hasDescription = findHeaderIndex(normalizedCells, DESC_HEADER_ALIASES) >= 0;
+
+  if (!hasCode || !hasPrice) return 0;
+
+  let score = 10;
+  if (hasDescription) score += 4;
+  score += Math.min(rawCells.filter((cell) => String(cell || '').trim()).length, 8);
+  score += findAllPriceColumnCandidates(rawCells, normalizedCells).length;
+  return score;
+};
 
 const analyzeImportText = (raw: string): FileAnalysis => {
   const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
   if (lines.length === 0) return { headerRowIndex: 0, priceColumnCandidates: [] };
 
-  for (let i = 0; i < Math.min(lines.length, 20); i += 1) {
+  let bestMatch: { index: number; priceColumnCandidates: PriceColumnCandidate[]; score: number } | null = null;
+  const maxRowsToScan = Math.min(lines.length, 80);
+
+  for (let i = 0; i < maxRowsToScan; i += 1) {
     for (const delimiter of ['\t', ';', ',', '|']) {
-      const rawCells = splitDelimitedLine(lines[i], delimiter);
+      const rawCells = splitDelimitedLine(lines[i], delimiter).map((cell) => String(cell || '').trim());
       if (rawCells.length < 2) continue;
-      const normCells = rawCells.map(normalizeHeader);
-      const hasCode = findHeaderIndex(normCells, CODE_HEADER_ALIASES) >= 0;
-      if (!hasCode) continue;
-      const priceCandidates = findAllPriceColumnCandidates(rawCells, normCells);
-      const hasDesc = findHeaderIndex(normCells, DESC_HEADER_ALIASES) >= 0;
-      if (priceCandidates.length > 0 || hasDesc) {
-        return { headerRowIndex: i, priceColumnCandidates: priceCandidates };
+
+      const normalizedCells = rawCells.map(normalizeHeader);
+      const score = scoreHeaderRow(rawCells, normalizedCells);
+      if (score <= 0) continue;
+
+      const priceCandidates = findAllPriceColumnCandidates(rawCells, normalizedCells);
+      if (!bestMatch || score > bestMatch.score) {
+        bestMatch = { index: i, priceColumnCandidates: priceCandidates, score };
       }
     }
+  }
+
+  if (bestMatch) {
+    return { headerRowIndex: bestMatch.index, priceColumnCandidates: bestMatch.priceColumnCandidates };
   }
 
   const delimiter = detectDelimiter(lines);
@@ -252,6 +338,80 @@ const analyzeImportText = (raw: string): FileAnalysis => {
   return { headerRowIndex: 0, priceColumnCandidates: findAllPriceColumnCandidates(rawCells, normCells) };
 };
 
+const decodeHtmlEntities = (value: string): string => {
+  const text = String(value || '');
+  if (!text) return '';
+
+  const basicDecoded = text
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&#(\d+);/g, (_, code) => {
+      const parsed = Number(code);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : '';
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => {
+      const parsed = parseInt(code, 16);
+      return Number.isFinite(parsed) ? String.fromCharCode(parsed) : '';
+    });
+
+  if (typeof document === 'undefined') return basicDecoded;
+
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = basicDecoded;
+    return textarea.value || basicDecoded;
+  } catch {
+    return basicDecoded;
+  }
+};
+
+const cleanSpreadsheetCellText = (value: string): string => {
+  const decoded = decodeHtmlEntities(String(value || ''));
+  return decoded
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s*[+]+\s*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const convertHtmlTableToTsv = (raw: string): string => {
+  const originalText = String(raw || '');
+  if (!originalText) return '';
+
+  const candidates = [
+    originalText,
+    decodeHtmlEntities(originalText),
+    decodeHtmlEntities(decodeHtmlEntities(originalText)),
+  ];
+
+  for (const candidate of candidates) {
+    const text = String(candidate || '');
+    if (!/<table[\s>]/i.test(text) || typeof DOMParser === 'undefined') continue;
+
+    try {
+      const doc = new DOMParser().parseFromString(text, 'text/html');
+      const tableRows = Array.from(doc.querySelectorAll('tr'));
+      if (tableRows.length === 0) continue;
+
+      const tsv = tableRows
+        .map((tr) => Array.from(tr.querySelectorAll('th,td'))
+          .map((cell) => cleanSpreadsheetCellText(String(cell.textContent || '')))
+          .join('\t'))
+        .filter((line) => line.trim().length > 0)
+        .join('\n');
+
+      if (tsv.trim()) return tsv;
+    } catch {
+      continue;
+    }
+  }
+
+  return '';
+};
 const parseSupplierImportRows = (
   raw: string,
   opts?: { headerRowIndex?: number; selectedPriceLabel?: string }
@@ -277,16 +437,16 @@ const parseSupplierImportRows = (
   const rawHeaders = splitDelimitedLine(headerLine, delimiter);
   const headers = rawHeaders.map((header) => normalizeHeader(header));
 
-  const codIndex = findHeaderIndex(headers, ['cod', 'codigo', 'código', 'articulo', 'artículo', 'code', 'sku']);
+  const codIndex = findHeaderIndex(headers, CODE_HEADER_ALIASES);
 
   let costIndex: number;
   if (opts?.selectedPriceLabel) {
     costIndex = headers.findIndex((h) => h === normalizeHeader(opts.selectedPriceLabel!));
     if (costIndex < 0) {
-      costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd', 'pesos + iva', 'precio + iva', 'precio final', 'precio con iva']);
+      costIndex = findHeaderIndex(headers, PRICE_HEADER_ALIASES);
     }
   } else {
-    costIndex = findHeaderIndex(headers, ['cost_price', 'cost', 'costo', 'precio_costo', 'precio de costo', 'precio', 'precio_ars', 'precio_usd', 'pesos + iva', 'precio + iva', 'precio final', 'precio con iva']);
+    costIndex = findHeaderIndex(headers, PRICE_HEADER_ALIASES);
   }
 
   const barcodeIndex = findHeaderIndex(headers, ['barcode', 'ean', 'cod_barras', 'codigo de barras', 'código de barras', 'cod.barras']);
@@ -586,6 +746,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
       const formatted = String(Number(suggestion.rate.toFixed(2)));
       setExchangeRate(formatted);
       setUsdUpdateRate(formatted);
+      setPuExchangeRate(formatted);
       setExchangeRateSource(suggestion.source);
     } catch {
       setExchangeRateWarning('No se pudo obtener el dólar actual. Ingresalo manualmente.');
@@ -600,10 +761,16 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    if (mode !== 'supplier-import') return;
-    if (fileCurrency !== 'USD') return;
-    fetchExchangeRateSuggestion();
-  }, [fileCurrency, fetchExchangeRateSuggestion, isOpen, mode]);
+
+    if (mode === 'supplier-import' && fileCurrency === 'USD') {
+      fetchExchangeRateSuggestion();
+      return;
+    }
+
+    if (mode === 'price-update' && puCurrency === 'USD') {
+      fetchExchangeRateSuggestion();
+    }
+  }, [fileCurrency, fetchExchangeRateSuggestion, isOpen, mode, puCurrency]);
 
   const resetSupplierImportFlow = () => {
     setImportText('');
@@ -1082,8 +1249,8 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
     const delimiter = detectDelimiter(relevantLines);
     return splitDelimitedLine(relevantLines[0], delimiter)
-      .map((h) => String(h || '').trim())
-      .filter((h) => h.length > 0);
+      .map((h) => cleanSpreadsheetCellText(String(h || '')))
+      .filter((h) => h.length > 0 && !/^([+<>«»]|&[#a-z0-9]+;)+$/i.test(h));
   }, []);
 
   const parseWithManualMapping = useCallback((rawText: string, codeColumn: string, priceColumn: string) => {
@@ -1104,7 +1271,7 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
     }
 
     const delimiter = detectDelimiter(relevantLines);
-    const sourceHeaders = splitDelimitedLine(relevantLines[0], delimiter).map((h) => String(h || '').trim());
+    const sourceHeaders = splitDelimitedLine(relevantLines[0], delimiter).map((h) => cleanSpreadsheetCellText(String(h || '')));
     const normalizedHeaders = sourceHeaders.map((h) => normalizeHeader(h));
     const codeIdx = normalizedHeaders.findIndex((h) => h === normalizeHeader(codeColumn));
     const priceIdx = normalizedHeaders.findIndex((h) => h === normalizeHeader(priceColumn));
@@ -1313,54 +1480,100 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
         const worksheet = workbook.Sheets[sheetName];
         const aoa = XLSX.utils.sheet_to_json<unknown[]>(worksheet, { header: 1, raw: false, defval: '' }) as unknown[][];
         if (aoa.length === 0) { setPuError('El archivo Excel está vacío.'); setPuStep('form'); return; }
-        text = aoa.map((row) => (row as unknown[]).map((cell) => String(cell ?? '')).join('\t')).join('\n');
+        const xlsxTsv = aoa
+          .map((row) => (row as unknown[])
+            .map((cell) => cleanSpreadsheetCellText(String(cell ?? '')))
+            .join('\t'))
+          .join('\n');
+
+        // Algunos proveedores envían archivos .xls que en realidad son HTML/table.
+        // XLSX.read puede abrirlos, pero a veces deja una sola celda con el <table> crudo
+        // o detecta una cabecera falsa y termina descartando todas las filas.
+        // Por eso comparamos ambas lecturas y usamos la que produzca más filas válidas.
+        let htmlTsv = '';
+        try {
+          const rawHtmlCandidate = await file.text();
+          htmlTsv = convertHtmlTableToTsv(rawHtmlCandidate);
+        } catch {
+          htmlTsv = '';
+        }
+
+        const xlsxAnalysis = analyzeImportText(xlsxTsv);
+        const xlsxParsed = parseSupplierImportRows(xlsxTsv, { headerRowIndex: xlsxAnalysis.headerRowIndex });
+        const htmlAnalysis = htmlTsv ? analyzeImportText(htmlTsv) : null;
+        const htmlParsed = htmlTsv && htmlAnalysis
+          ? parseSupplierImportRows(htmlTsv, { headerRowIndex: htmlAnalysis.headerRowIndex })
+          : { rows: [] as SupplierCostImportRow[] };
+
+        text = htmlParsed.rows.length > xlsxParsed.rows.length ? htmlTsv : xlsxTsv;
+
+        // eslint-disable-next-line no-console
+        console.log('[PRICE_UPDATE_FILE_PARSE_SOURCE]', {
+          filename: file.name,
+          ext,
+          xlsxRows: xlsxParsed.rows.length,
+          htmlRows: htmlParsed.rows.length,
+          selected: htmlParsed.rows.length > xlsxParsed.rows.length ? 'html-table' : 'xlsx',
+          xlsxHeaderRow: xlsxAnalysis.headerRowIndex,
+          htmlHeaderRow: htmlAnalysis?.headerRowIndex ?? null,
+        });
+
       } else {
-        text = await file.text();
+        const rawText = await file.text();
+        text = convertHtmlTableToTsv(rawText) || rawText;
       }
       setPuRawImportText(text);
 
+      const textAnalysis = analyzeImportText(text);
       const parsed = parseSupplierImportRows(text, {
-        headerRowIndex: analyzeImportText(text).headerRowIndex,
+        headerRowIndex: textAnalysis.headerRowIndex,
       });
 
-      if (parsed.rows.length === 0) {
-        const requiresManualMapping = parsed.errors.some((msg) =>
-          normalizeHeader(msg).includes('no_se_detectaron_columnas_requeridas')
-        );
+      const detectedHeaders = extractHeadersForManualMapping(text);
 
-        if (requiresManualMapping) {
-          const detectedHeaders = extractHeadersForManualMapping(text);
-          if (detectedHeaders.length > 0) {
-            setPuHeadersDetected(detectedHeaders);
+      if (detectedHeaders.length > 0) {
+        setPuHeadersDetected(detectedHeaders);
 
-            const storageKey = `supplier_column_mapping_${puSupplierId}`;
-            let savedCode: string | null = null;
-            let savedPrice: string | null = null;
-            try {
-              const rawSaved = localStorage.getItem(storageKey);
-              if (rawSaved) {
-                const parsedSaved = JSON.parse(rawSaved) as { codeColumn?: string; priceColumn?: string };
-                savedCode = parsedSaved.codeColumn || null;
-                savedPrice = parsedSaved.priceColumn || null;
-              }
-            } catch {
-              // ignore invalid localStorage
-            }
+        const normalizedHeaders = detectedHeaders.map((header) => normalizeHeader(header));
+        const detectedCodeIndex = findHeaderIndex(normalizedHeaders, CODE_HEADER_ALIASES);
+        const detectedPriceIndex = findHeaderIndex(normalizedHeaders, PRICE_HEADER_ALIASES);
 
-            setPuColumnMapping({
-              codeColumn: savedCode && detectedHeaders.some((h) => normalizeHeader(h) === normalizeHeader(savedCode))
-                ? savedCode
-                : null,
-              priceColumn: savedPrice && detectedHeaders.some((h) => normalizeHeader(h) === normalizeHeader(savedPrice))
-                ? savedPrice
-                : null,
-            });
+        const storageKey = `supplier_column_mapping_${puSupplierId}`;
+        let savedCode: string | null = null;
+        let savedPrice: string | null = null;
 
-            setPuStep('mapping');
-            return;
+        try {
+          const rawSaved = localStorage.getItem(storageKey);
+          if (rawSaved) {
+            const parsedSaved = JSON.parse(rawSaved) as { codeColumn?: string; priceColumn?: string };
+            savedCode = parsedSaved.codeColumn || null;
+            savedPrice = parsedSaved.priceColumn || null;
           }
+        } catch {
+          // ignore invalid localStorage
         }
 
+        const savedCodeIsValid = !!savedCode && detectedHeaders.some((header) => normalizeHeader(header) === normalizeHeader(savedCode || ''));
+        const savedPriceIsValid = !!savedPrice && detectedHeaders.some((header) => normalizeHeader(header) === normalizeHeader(savedPrice || ''));
+
+        setPuColumnMapping({
+          codeColumn: savedCodeIsValid
+            ? savedCode
+            : detectedCodeIndex >= 0
+              ? detectedHeaders[detectedCodeIndex]
+              : null,
+          priceColumn: savedPriceIsValid
+            ? savedPrice
+            : detectedPriceIndex >= 0
+              ? detectedHeaders[detectedPriceIndex]
+              : null,
+        });
+
+        setPuStep('mapping');
+        return;
+      }
+
+      if (parsed.rows.length === 0) {
         setPuError(parsed.errors.join(' ') || 'No se encontraron filas válidas en el archivo.');
         setPuStep('form');
         return;
@@ -2314,6 +2527,13 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
                       className="block w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
                       placeholder="Ej: 1000"
                     />
+                    <p className="text-xs text-gray-500 mt-1">
+                      {isFetchingExchangeRate
+                        ? 'Obteniendo cotización actual…'
+                        : exchangeRateSource
+                          ? `Cotización sugerida: ${puExchangeRate || '-'} ARS/USD (${exchangeRateSource})`
+                          : 'La cotización se completa automáticamente al elegir USD. También podés editarla manualmente.'}
+                    </p>
                   </div>
                 )}
                 <div>

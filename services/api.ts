@@ -4946,9 +4946,10 @@ export const executeUpdateFromTempTable = async (
     supplierId: string,
 ): Promise<SupplierPriceUpdateResult> => {
     if (!supabase) throw new Error('Supabase no inicializado');
+    void supplierId;
 
     const { data, error } = await supabase
-        .rpc('execute_temp_import_price_update', { p_session_id: sessionId, p_supplier_id: supplierId });
+        .rpc('execute_temp_import_price_update', { p_import_session_id: sessionId });
 
     if (error) throw error;
 
