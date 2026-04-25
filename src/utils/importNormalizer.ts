@@ -1,20 +1,31 @@
 /**
  * Normaliza códigos de producto para matching robusto entre sistema y Excel.
- * - trim
- * - mayúsculas
- * - múltiples espacios → uno solo
- * - guiones raros a '-'
- * - elimina caracteres invisibles comunes
+ *
+ * Regla importante del importador:
+ * la comparación debe ignorar guiones, espacios, puntos y caracteres invisibles.
+ * Ejemplos equivalentes:
+ * - GGT-360
+ * - GGT 360
+ * - GGT360
  */
 export function normalizeProductCode(str: string): string {
   return String(str || '')
-    .normalize('NFKC')
-    .replace(/[‐‑‒–—―−﹘﹣－]/g, '-') // guiones raros a '-'
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '') // acentos/diacríticos
+    .replace(/[‐‑‒–—―−﹘﹣－]/g, '-') // guiones unicode a guion normal antes de limpiar
     .replace(/[\u200B-\u200D\uFEFF]/g, '') // caracteres invisibles
-    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ') // espacios unicode a espacio normal
-    .replace(/\s+/g, ' ') // múltiples espacios a uno
-    .trim()
-    .toUpperCase();
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ') // espacios unicode a normal
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '') // deja solo letras y números: elimina guiones, espacios, puntos, barras, etc.
+    .trim();
+}
+
+/**
+ * Normaliza códigos de barra con la misma regla robusta del código.
+ * Se exporta para que futuros flujos no creen normalizaciones paralelas.
+ */
+export function normalizeBarcode(str: string): string {
+  return normalizeProductCode(str);
 }
 
 /**

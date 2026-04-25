@@ -98,11 +98,7 @@ const getRowKey = (row: SupplierCostImportPreviewRow) => {
   return normalizeProductCode((row.cod || barcode || '').toString());
 };
 
-const normalizeSupplierMatchKey = (value: unknown): string =>
-  String(value ?? '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+const normalizeSupplierMatchKey = (value: unknown): string => normalizeProductCode(value);
 
 
 
@@ -475,10 +471,24 @@ const parseSupplierImportRows = (
   const rows: SupplierCostImportRow[] = [];
   let ignored = 0;
 
+  const seenRowKeys = new Set<string>();
+
   for (let i = 1; i < relevantLines.length; i += 1) {
-    const cols = splitDelimitedLine(relevantLines[i], delimiter).map((c) => c.trim());
-    const cod = String(cols[codIndex] || '').trim();
-    const costValue = String(cols[costIndex] || '').trim();
+    const cols = splitDelimitedLine(relevantLines[i], delimiter).map((c) => cleanSpreadsheetCellText(String(c || '')));
+
+    const primaryCode = String(cols[codIndex] || '').trim();
+    const fallbackCode = cols.find((cell) => {
+      const normalized = normalizeProductCode(cell);
+      if (!normalized || normalized.length < 2) return false;
+      if (/^\d{1,3}$/.test(normalized)) return false;
+      return /[A-Z]/i.test(String(cell)) || /[-_/]/.test(String(cell)) || normalized.length >= 5;
+    }) || '';
+    const cod = primaryCode || String(fallbackCode || '').trim();
+
+    const primaryCostValue = String(cols[costIndex] || '').trim();
+    const fallbackCostValue = [...cols].reverse().find((cell) => Number.isFinite(parseCostValue(String(cell || '')))) || '';
+    const costValue = primaryCostValue || String(fallbackCostValue || '').trim();
+
     const barcode = barcodeIndex >= 0 ? String(cols[barcodeIndex] || '').trim() : '';
     const name = nameIndex >= 0 ? String(cols[nameIndex] || '').trim() : '';
     const category = categoryIndex >= 0 ? String(cols[categoryIndex] || '').trim() : '';
@@ -496,6 +506,12 @@ const parseSupplierImportRows = (
       ignored += 1;
       continue;
     }
+
+    const rowKey = normalizeProductCode(cod);
+    if (rowKey && seenRowKeys.has(rowKey)) {
+      continue;
+    }
+    if (rowKey) seenRowKeys.add(rowKey);
 
     rows.push({
       cod,
