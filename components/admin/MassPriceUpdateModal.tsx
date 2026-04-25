@@ -75,22 +75,36 @@ const parseCostValue = (value: string): number => {
   const raw = String(value || '').trim();
   if (!raw) return Number.NaN;
 
-  const cleaned = raw.replace(/\s+/g, '').replace(/[^0-9,.-]/g, '');
+  const decoded = cleanSpreadsheetCellText(raw);
+  if (!decoded) return Number.NaN;
+
+  // Bloqueo crítico: una celda de precio nunca debe contener letras de código.
+  // Esto evita casos como GGT-360 -> -360 o GGT-HVAC3872 -> -3872.
+  if (/[a-zA-Z]/.test(decoded)) return Number.NaN;
+
+  const cleaned = decoded.replace(/\s+/g, '').replace(/[^0-9,.-]/g, '');
   if (!cleaned) return Number.NaN;
+
+  // Los costos negativos no son válidos para listas de proveedor.
+  if (cleaned.includes('-')) return Number.NaN;
 
   const hasDot = cleaned.includes('.');
   const hasComma = cleaned.includes(',');
 
+  let parsed: number;
   if (hasDot && hasComma) {
     const lastDot = cleaned.lastIndexOf('.');
     const lastComma = cleaned.lastIndexOf(',');
     if (lastComma > lastDot) {
-      return Number(cleaned.replace(/\./g, '').replace(',', '.'));
+      parsed = Number(cleaned.replace(/\./g, '').replace(',', '.'));
+    } else {
+      parsed = Number(cleaned.replace(/,/g, ''));
     }
-    return Number(cleaned.replace(/,/g, ''));
+  } else {
+    parsed = Number(cleaned.replace(',', '.'));
   }
 
-  return Number(cleaned.replace(',', '.'));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : Number.NaN;
 };
 
 const getRowKey = (row: SupplierCostImportPreviewRow) => {
@@ -98,8 +112,7 @@ const getRowKey = (row: SupplierCostImportPreviewRow) => {
   return normalizeProductCode((row.cod || barcode || '').toString());
 };
 
-const normalizeSupplierMatchKey = (value: unknown): string => normalizeProductCode(value);
-
+const normalizeSupplierMatchKey = (value: unknown): string => normalizeProductCode(String(value ?? ''));
 
 
 const translateStatusLabel = (status: 'found' | 'not found'): string => {
@@ -147,13 +160,24 @@ const normalizeHeader = (value: string): string =>
     .replace(/__+/g, '_');
 
 const splitDelimitedLine = (line: string, delimiter: string): string[] => {
+  // Los archivos Excel convertidos a TSV usan tabulador como separador.
+  // En ese formato las comillas dobles pueden formar parte del texto real
+  // (ej: 60" o 72") y NO deben activar lógica de CSV, porque rompen la fila.
+  if (delimiter === '\t') {
+    return String(line || '')
+      .split('\t')
+      .map((cell) => cell.trim());
+  }
+
   const result: string[] = [];
   let current = '';
   let inQuotes = false;
 
   for (let i = 0; i < line.length; i += 1) {
     const char = line[i];
-    if (char === '"') {
+
+    // Solo CSV/semicolon CSV deben interpretar comillas como envoltorio.
+    if ((delimiter === ',' || delimiter === ';') && char === '"') {
       if (inQuotes && line[i + 1] === '"') {
         current += '"';
         i += 1;
@@ -452,6 +476,24 @@ const parseSupplierImportRows = (
   const observationsIndex = findHeaderIndex(headers, ['observations', 'observacion', 'observaciones']);
   const costCurrencyIndex = findHeaderIndex(headers, ['currency', 'moneda', 'cost_currency']);
 
+  if (codIndex >= 0 && costIndex >= 0 && codIndex === costIndex) {
+    return {
+      rows: [],
+      ignored: Math.max(relevantLines.length - 1, 0),
+      totalRows: Math.max(relevantLines.length - 1, 0),
+      errors: ['La columna de precio no puede ser la misma que la columna de código. Revisá el mapeo manual.'],
+    };
+  }
+
+  if (barcodeIndex >= 0 && costIndex >= 0 && barcodeIndex === costIndex) {
+    return {
+      rows: [],
+      ignored: Math.max(relevantLines.length - 1, 0),
+      totalRows: Math.max(relevantLines.length - 1, 0),
+      errors: ['La columna de precio no puede ser la misma que la columna de barcode. Revisá el mapeo manual.'],
+    };
+  }
+
   if (codIndex < 0 || costIndex < 0) {
     const missing: string[] = [];
     if (codIndex < 0) missing.push('cod/codigo/articulo/code/sku');
@@ -502,7 +544,15 @@ const parseSupplierImportRows = (
     }
 
     const cost = parseCostValue(costValue);
-    if (!Number.isFinite(cost)) {
+    const normalizedCostCell = normalizeProductCode(costValue);
+    const normalizedCodCell = normalizeProductCode(cod);
+    const normalizedBarcodeCell = normalizeProductCode(barcode);
+
+    if (
+      !Number.isFinite(cost) ||
+      (normalizedCostCell && normalizedCostCell === normalizedCodCell) ||
+      (normalizedBarcodeCell && normalizedCostCell === normalizedBarcodeCell)
+    ) {
       ignored += 1;
       continue;
     }
@@ -1294,6 +1344,10 @@ export const MassPriceUpdateModal: React.FC<MassPriceUpdateModalProps> = ({
 
     if (codeIdx < 0 || priceIdx < 0) {
       return { rows: [], ignored: 0, totalRows: 0, errors: ['No se pudo aplicar el mapeo manual. Revisá las columnas elegidas.'] };
+    }
+
+    if (codeIdx === priceIdx) {
+      return { rows: [], ignored: 0, totalRows: Math.max(relevantLines.length - 1, 0), errors: ['La columna de precio no puede ser la misma que la columna de código.'] };
     }
 
     const remappedTsv = [
