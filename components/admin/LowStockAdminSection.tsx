@@ -13,7 +13,7 @@ interface LowStockAdminSectionProps {
 }
 
 export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ products, isLoading = false }) => {
-  type LocalProduct = Product & { category_id?: string; supplier_id?: string };
+  type LocalProduct = Product & { category_id?: string; supplier_id?: string | null };
   type CategoryOption = { id: string; name: string };
 
   const [localProducts, setLocalProducts] = useState<LocalProduct[]>([]);
@@ -187,7 +187,7 @@ export const LowStockAdminSection: React.FC<LowStockAdminSectionProps> = ({ prod
   const providerFilterLabel = getProviderLabel(providerFilter);
 
   const handleSaveProduct = async (
-    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string }
+    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string | null }
   ) => {
     if (!selectedProduct) return;
 

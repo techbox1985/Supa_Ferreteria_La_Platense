@@ -32,7 +32,8 @@ const buildProductSupabasePayload = (productData: any, options?: { includeUpdate
     if (productData.Producto !== undefined) mapping.name = textOrNull(productData.Producto);
     if (productData.category_id !== undefined) mapping.category_id = productData.category_id;
     if (productData['Sub Categoria'] !== undefined) mapping.sub_category = productData['Sub Categoria'] || null;
-    if (productData.supplier_id !== undefined) mapping.supplier_id = productData.supplier_id || null;
+    // Siempre incluir supplier_id, null explícito si corresponde
+    mapping.supplier_id = productData.supplier_id ?? null;
     if (productData['cod.barras'] !== undefined) mapping.barcode = textOrNull(productData['cod.barras']);
     if (productData['P.Costo'] !== undefined) mapping.cost_price = productData['P.Costo'];
     if (productData.cost_currency !== undefined) mapping.cost_currency = productData.cost_currency;

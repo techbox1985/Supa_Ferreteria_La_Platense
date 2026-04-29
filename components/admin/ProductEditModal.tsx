@@ -59,7 +59,7 @@ interface ProductEditModalProps {
   isOpen: boolean;
   onClose: () => void;
   product: Product | null; // Can be null for creating a new product
-  onSave: (productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string; product_type?: 'simple' | 'kit'; kitComponents?: Array<{ cod: string; quantity: number }> }) => Promise<void>;
+  onSave: (productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string | null; product_type?: 'simple' | 'kit'; kitComponents?: Array<{ cod: string; quantity: number }> }) => Promise<void>;
   categoriesData?: { [key: string]: string[] };
   categoryTree?: CategoryTreeNode[];
   providers: string[];
@@ -482,7 +482,11 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
           'Sub Categoria': isKitProduct ? '' : validSubCategory,
           cod: formData.cod as string,
           category_id: isKitProduct ? undefined : (selectedCategoryId || undefined),
-          supplier_id: isKitProduct ? undefined : (supplier ? getSupplierId(supplier) || undefined : undefined)
+          supplier_id: isKitProduct
+            ? undefined
+            : supplier
+              ? getSupplierId(supplier)
+              : null // Forzar null si no hay proveedor
         });
         console.log('[PRODUCT_MODAL_ONSAVE_COMPLETE]');
     } catch (error) {

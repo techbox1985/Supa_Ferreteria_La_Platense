@@ -27,7 +27,7 @@ export interface Product {
   'Ultima.Actualizacion'?: string;
   Eliminado?: boolean;
   Eliminado_At?: string;
-  supplier_id?: string;
+  supplier_id?: string | null;
   product_type?: 'simple' | 'kit';
   auto_price?: boolean;
   markup_pct?: number;

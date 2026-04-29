@@ -500,14 +500,23 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   };
 
   const handleSaveProduct = async (
-    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string; product_type?: 'simple' | 'kit'; kitComponents?: Array<{ cod: string; quantity: number }> }
+    productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string | null; product_type?: 'simple' | 'kit'; kitComponents?: Array<{ cod: string; quantity: number }> }
   ) => {
     console.log('[HANDLE_SAVE_PRODUCT_START]', { productData });
     try {
       setIsProcessingAction(true);
 
       const resolvedCategoryId = String(productData.category_id || '').trim();
-      const resolvedSupplierId = String(productData.supplier_id || '').trim();
+      // Si viene null, mantener null. Si viene string, trim. Si undefined, dejar undefined.
+      let resolvedSupplierId = productData.supplier_id;
+      if (resolvedSupplierId === null) {
+        // Mantener null explícito
+      } else if (typeof resolvedSupplierId === 'string') {
+        resolvedSupplierId = resolvedSupplierId.trim();
+        if (resolvedSupplierId === '') resolvedSupplierId = undefined;
+      } else if (resolvedSupplierId === undefined) {
+        resolvedSupplierId = undefined;
+      }
       const resolvedCategoryName = resolvedCategoryId
         ? categoryNameById.get(resolvedCategoryId) || productData.Categoria
         : productData.Categoria;
@@ -519,7 +528,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         id: productToEdit?.id, // Pass the original id for updates
         Categoria: resolvedCategoryName,
         category_id: resolvedCategoryId || undefined,
-        supplier_id: resolvedSupplierId || undefined,
+        supplier_id: productData.supplier_id === '' ? null : productData.supplier_id,
         product_type: (productData as any).product_type || 'simple',
       };
       if (
