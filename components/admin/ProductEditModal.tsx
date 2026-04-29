@@ -386,6 +386,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
+    console.log('[SUBMIT_PRODUCT_MODAL_START]', { formData });
     e.preventDefault();
 
     if (isCreating) {
@@ -405,6 +406,15 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
     }
     
     setIsSaving(true);
+    console.log('[CALLING_ONSAVE_PRODUCT]', {
+      savePayload: {
+        ...formData,
+        productType,
+        kitComponents,
+        selectedCategoryId,
+        suppliers,
+      },
+    });
     try {
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { stockk, 'Auto?': auto, ...dataToSave } = formData;
@@ -474,11 +484,17 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
           category_id: isKitProduct ? undefined : (selectedCategoryId || undefined),
           supplier_id: isKitProduct ? undefined : (supplier ? getSupplierId(supplier) || undefined : undefined)
         });
+        console.log('[PRODUCT_MODAL_ONSAVE_COMPLETE]');
     } catch (error) {
       // Error is handled by the parent component, which will show an alert.
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // Add log to save button click
+  const handleSaveButtonClick = () => {
+    console.log('[CLICK_GUARDAR_PRODUCTO]', { formData });
   };
 
   return (
@@ -1056,7 +1072,7 @@ export const ProductEditModal: React.FC<ProductEditModalProps> = ({
           <button type="button" onClick={onClose} disabled={isSaving} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 disabled:opacity-50">
             Cancelar
           </button>
-          <button type="submit" disabled={isSaving} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 flex items-center space-x-2 w-48 justify-center">
+          <button type="submit" disabled={isSaving} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:bg-gray-400 flex items-center space-x-2 w-48 justify-center" onClick={handleSaveButtonClick}>
              {isSaving ? (
                 <>
                     <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className="w-5 h-5 animate-spin"/>

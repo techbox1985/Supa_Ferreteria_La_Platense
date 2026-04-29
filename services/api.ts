@@ -62,17 +62,24 @@ const buildProductSupabasePayload = (productData: any, options?: { includeUpdate
 };
 
 export const updateProductSupabase = async (productData: any): Promise<any> => {
+    console.log('[SUPABASE_UPDATE_QUERY_START]', { productData });
     if (!supabase) throw new Error('Supabase no inicializado');
     if (!productData.cod && !productData.id) throw new Error('Falta el código o id de producto');
     const mapping = buildProductSupabasePayload(productData, { includeUpdatedAt: true });
+    console.log('[SUPABASE_UPDATE_MAPPING]', { mapping, id: productData.id, cod: productData.cod });
     let query = supabase.from('st_products').update(mapping);
     if (productData.id) {
         query = query.eq('id', productData.id);
     } else {
         query = query.eq('cod', productData.cod);
     }
+    console.log('[SUPABASE_UPDATE_BEFORE_EXECUTE]', { mapping });
     const { data, error } = await query.select();
-    if (error) throw error;
+    if (error) {
+        console.log('[SUPABASE_UPDATE_ERROR]', { error });
+        throw error;
+    }
+    console.log('[SUPABASE_UPDATE_SUCCESS]', { data });
     return data?.[0] || null;
 };
 

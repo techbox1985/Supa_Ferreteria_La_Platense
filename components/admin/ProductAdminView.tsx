@@ -502,6 +502,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
   const handleSaveProduct = async (
     productData: Partial<Product> & { cod: string; category_id?: string; supplier_id?: string; product_type?: 'simple' | 'kit'; kitComponents?: Array<{ cod: string; quantity: number }> }
   ) => {
+    console.log('[HANDLE_SAVE_PRODUCT_START]', { productData });
     try {
       setIsProcessingAction(true);
 
@@ -539,6 +540,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       const currentProductId = String((productToEdit as any)?.id || '').trim();
 
       if (resolvedSupplierId && api.supabase && (normalizedCode || normalizedBarcode)) {
+        console.log('[DUPLICATE_VALIDATION_START]', { resolvedSupplierId, normalizedCode, normalizedBarcode });
         let duplicateQuery = api.supabase
           .from('st_products')
           .select('id, cod, barcode')
@@ -550,13 +552,17 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         }
 
         const { data: existingProducts, error: duplicateError } = await duplicateQuery;
-        if (duplicateError) throw duplicateError;
+        if (duplicateError) {
+          console.log('[DUPLICATE_VALIDATION_ERROR]', { duplicateError });
+          throw duplicateError;
+        }
 
         const existingRows = (existingProducts || []) as Array<{ id: string; cod: string | null; barcode: string | null }>;
 
         if (normalizedCode) {
           const hasCodeDuplicate = existingRows.some((row) => String(row?.cod || '').trim().toUpperCase() === normalizedCode);
           if (hasCodeDuplicate) {
+            console.log('[DUPLICATE_CODE_FOUND]', { normalizedCode });
             addToast('Ya existe un producto con ese código para este proveedor', 'error');
             return;
           }
@@ -565,6 +571,7 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
         if (normalizedBarcode) {
           const hasBarcodeDuplicate = existingRows.some((row) => String(row?.barcode || '').trim().toUpperCase() === normalizedBarcode);
           if (hasBarcodeDuplicate) {
+            console.log('[DUPLICATE_BARCODE_FOUND]', { normalizedBarcode });
             addToast('Ya existe un producto con ese código de barras para este proveedor', 'error');
             return;
           }
@@ -572,7 +579,10 @@ export const ProductAdminView: React.FC<ProductAdminViewProps> = ({
       }
 
       if (productToEdit) {
+        console.log('[BEFORE_PRODUCT_UPDATE]', { dataWithIds });
         await api.updateProductSupabase(dataWithIds);
+        console.log('[AFTER_PRODUCT_UPDATE]');
+        await refreshProducts();
 
         if ((productToEdit as any).id) {
           if ((productData as any).product_type === 'kit' && kitComponents && kitComponents.length > 0) {
