@@ -1,3 +1,33 @@
+// PROMPT 031: Anular venta por legacy_sale_id
+export const annulSaleByLegacyIdSupabase = async (legacySaleId: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!legacySaleId) throw new Error('legacySaleId inválido');
+    console.log('[ANNUL_BY_LEGACY_START]', legacySaleId);
+    const { data: sale, error } = await supabase
+        .from('st_sales')
+        .select('id')
+        .eq('legacy_sale_id', legacySaleId)
+        .single();
+    if (error || !sale?.id) {
+        throw new Error(`No se encontró venta con legacy_sale_id=${legacySaleId}`);
+    }
+    console.log('[ANNUL_BY_LEGACY_RESOLVED]', { legacySaleId, saleId: sale.id });
+    await annulSaleSupabase(sale.id);
+
+    // PROMPT 032: Eliminar movimiento de cuenta corriente asociado
+    const { error: txDeleteError } = await supabase
+        .from('st_account_transactions')
+        .delete()
+        .eq('original_sale_id', legacySaleId)
+        .eq('type', 'Venta');
+    if (txDeleteError) {
+        console.warn('[ANNUL_BY_LEGACY_TRANSACTION_DELETE_ERROR]', txDeleteError);
+    } else {
+        console.log('[ANNUL_BY_LEGACY_TRANSACTION_DELETED]', { legacySaleId });
+    }
+};
+
+export const annulSaleByLegacyId = annulSaleByLegacyIdSupabase;
 import { normalizeProductCode } from '../src/utils/importNormalizer';
 // ...existing code...
 // Elimina cualquier transacción de st_account_transactions por id (pago, nota de crédito, etc)

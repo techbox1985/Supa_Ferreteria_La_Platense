@@ -317,7 +317,8 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         setIsDeleting(true);
         try {
             if (txToDelete.type === 'Venta' && txToDelete.originalSaleId) {
-                await api.annulSale(txToDelete.originalSaleId);
+                console.log('[ANNUL_BY_LEGACY_START]', txToDelete.originalSaleId);
+                await api.annulSaleByLegacyId(txToDelete.originalSaleId);
                 addToast('Venta anulada con éxito. El stock ha sido revertido.', 'success');
             } else if (txToDelete.type === 'Pago' && txToDelete.id) {
                 await api.deletePayment(txToDelete.id);
