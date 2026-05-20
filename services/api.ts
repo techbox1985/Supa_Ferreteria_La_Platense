@@ -3270,6 +3270,16 @@ export const createCreditNote = async (payload: any): Promise<void> => {
     const requestId = payload?.requestId || (typeof window !== 'undefined' && window.crypto?.randomUUID?.() || `${Date.now()}-${Math.floor(Math.random()*10000)}`);
     console.log('[NC TRACE] createCreditNote start', requestId);
 
+    if (!payload?.facturaInfo) {
+        console.error('[NCS_DB_INSERT] factura_info faltante, se aborta el insert de la NC', {
+            requestId,
+            customerId: payload?.customerId,
+            originalSaleId: payload?.originalSaleId,
+            total: payload?.total,
+        });
+        throw new Error('No se puede insertar la nota de credito sin factura_info fiscal.');
+    }
+
     // Defensa anti-duplicado: buscar NC idéntica en los últimos 10 segundos
     const now = new Date();
     const tenSecondsAgo = new Date(now.getTime() - 10000).toISOString();
@@ -3294,6 +3304,12 @@ export const createCreditNote = async (payload: any): Promise<void> => {
         credit: Number(payload.total || 0),
         description: payload.description,
         itemsCount: Array.isArray(payload.items) ? payload.items.length : 0
+    });
+    console.log('[NCS_DB_INSERT]', {
+        requestId,
+        customerId: payload.customerId,
+        originalSaleId: payload.originalSaleId || null,
+        facturaInfo: payload.facturaInfo,
     });
     const { data, error } = await supabase
         .from('st_account_transactions')
@@ -3450,19 +3466,11 @@ export const getCustomerStatement = async (customerId: string): Promise<AccountT
     if (error) throw error;
     let balance = 0;
     return (data || []).map((item: any) => {
-        const debit = Number(item.debit) || 0;
-        const credit = Number(item.credit) || 0;
-        balance += debit - credit;
-        let parsedDate: Date = new Date(item.date || item.created_at || Date.now());
+        const mapped = mapAccountTransactionRow(item);
+        balance += mapped.debit - mapped.credit;
         return {
-            id: item.id,
-            date: parsedDate,
-            type: item.type,
-            description: item.description,
-            debit,
-            credit,
+            ...mapped,
             balance,
-            originalSaleId: item.original_sale_id,
         };
     });
 };
@@ -3474,7 +3482,277 @@ export const getAccountTransactions = async (): Promise<any[]> => {
         .select('*')
         .order('date', { ascending: false });
     if (error) throw error;
-    return data || [];
+    return (data || []).map((item: any) => mapAccountTransactionRow(item));
+};
+
+const parseTransactionItems = (itemsRaw: unknown): CartItem[] | undefined => {
+    let parsedItems = itemsRaw;
+
+    if (typeof parsedItems === 'string') {
+        try {
+            parsedItems = JSON.parse(parsedItems);
+        } catch {
+            parsedItems = undefined;
+        }
+    }
+
+    return Array.isArray(parsedItems) ? (parsedItems as CartItem[]) : undefined;
+};
+
+const parseTransactionFacturaInfo = (facturaInfoRaw: unknown): AccountTransaction['facturaInfo'] | undefined => {
+    let parsedFacturaInfo = facturaInfoRaw;
+
+    if (typeof parsedFacturaInfo === 'string') {
+        try {
+            parsedFacturaInfo = JSON.parse(parsedFacturaInfo);
+        } catch {
+            parsedFacturaInfo = undefined;
+        }
+    }
+
+    if (!parsedFacturaInfo || typeof parsedFacturaInfo !== 'object') return undefined;
+
+    const facturaInfo = parsedFacturaInfo as Record<string, any>;
+    const nro = String(facturaInfo.nro || facturaInfo.invoiceNumber || '').trim();
+    const pdfUrl = String(facturaInfo.pdfUrl || facturaInfo.url || '').trim() || undefined;
+    const ticketUrl = String(facturaInfo.ticketUrl || '').trim() || undefined;
+    const cae = String(facturaInfo.cae || '').trim();
+    const fecha = String(facturaInfo.fecha || '').trim();
+    const vtoCae = String(facturaInfo.vtoCae || '').trim();
+    const qrData = String(facturaInfo.qrData || '').trim();
+
+    if (!cae && !nro && !pdfUrl && !ticketUrl) return undefined;
+
+    return {
+        cae,
+        fecha,
+        nro,
+        invoiceNumber: nro,
+        vtoCae,
+        qrData,
+        url: pdfUrl,
+        pdfUrl,
+        ticketUrl,
+    };
+};
+
+const extractQrPayloadType = (qrData: string): number | null => {
+        const rawQrData = String(qrData || '').trim();
+        if (!rawQrData) return null;
+
+        const tryParseType = (value: unknown): number | null => {
+            const numericValue = Number(value);
+            return Number.isFinite(numericValue) ? numericValue : null;
+        };
+
+        const extractFromObject = (candidate: any): number | null => {
+            if (!candidate || typeof candidate !== 'object') return null;
+            return tryParseType(candidate.tipoCmp ?? candidate.cbteTipo ?? candidate.tipoComprobante ?? candidate.comprobante_tipo);
+        };
+
+        try {
+            const parsedJson = JSON.parse(rawQrData);
+            const fromJson = extractFromObject(parsedJson);
+            if (fromJson !== null) return fromJson;
+        } catch {
+            // continue
+        }
+
+        try {
+            const url = new URL(rawQrData);
+            const pValue = url.searchParams.get('p');
+            if (pValue) {
+                const decodedBase64 = atob(decodeURIComponent(pValue));
+                try {
+                    const parsedPayload = JSON.parse(decodedBase64);
+                    const fromPayload = extractFromObject(parsedPayload);
+                    if (fromPayload !== null) return fromPayload;
+                } catch {
+                    const maybeNumeric = tryParseType(decodedBase64);
+                    if (maybeNumeric !== null) return maybeNumeric;
+                }
+            }
+        } catch {
+            // continue
+        }
+
+        const matchTipoCmp = rawQrData.match(/(?:tipoCmp|cbteTipo|tipoComprobante|comprobante_tipo)\D*(\d{1,2})/i);
+        if (matchTipoCmp) {
+            return tryParseType(matchTipoCmp[1]);
+        }
+
+        return null;
+};
+
+export const isCreditNoteFiscalDocument = (facturaInfo: AccountTransaction['facturaInfo'] | null | undefined): boolean => {
+        if (!facturaInfo) return false;
+
+    const facturaInfoAny = facturaInfo as any;
+
+        const explicitTypeCandidates = [
+        facturaInfoAny.cbteTipo,
+        facturaInfoAny.tipoComprobante,
+        facturaInfoAny.comprobante_tipo,
+        ];
+
+        for (const candidate of explicitTypeCandidates) {
+                const numericValue = Number(candidate);
+                if ([3, 8, 13].includes(numericValue)) return true;
+                if ([1, 6, 11].includes(numericValue)) return false;
+        }
+
+        const qrType = extractQrPayloadType(facturaInfo.qrData || '');
+        if (qrType !== null) {
+                if ([3, 8, 13].includes(qrType)) return true;
+                if ([1, 6, 11].includes(qrType)) return false;
+        }
+
+        const hasCae = Boolean(String(facturaInfoAny.cae || '').trim());
+        const hasNumber = Boolean(String(facturaInfoAny.nro || facturaInfoAny.invoiceNumber || '').trim());
+        const hasPdf = Boolean(String(facturaInfoAny.pdfUrl || facturaInfoAny.url || '').trim());
+
+        const comprobanteTipoText = String(facturaInfoAny.comprobante_tipo || facturaInfoAny.tipoComprobante || '').toUpperCase();
+        const requestedTipoText = String(facturaInfoAny.requestedTipoEnviado || facturaInfoAny.requested_tipo || '').toUpperCase();
+        const sentTipoText = String(facturaInfoAny.sentTipoEnviado || facturaInfoAny.sent_tipo || '').toUpperCase();
+        const hasInvoiceNumberFromNcFlow = Boolean(String(facturaInfoAny.invoiceNumber || '').trim());
+
+        const hasCreditNoteFlowHint =
+            comprobanteTipoText.includes('NOTA DE CREDITO') ||
+            requestedTipoText.includes('NOTA DE CREDITO') ||
+            sentTipoText.includes('NOTA DE CREDITO') ||
+            hasInvoiceNumberFromNcFlow;
+
+        if (hasCae && hasNumber && hasPdf && hasCreditNoteFlowHint) {
+            console.log('[NC_FISCAL_FALLBACK_ACCEPTED]', facturaInfo);
+            return true;
+        }
+
+        return false;
+};
+
+const mapAccountTransactionRow = (item: any): AccountTransaction => ({
+    id: String(item?.id || ''),
+    date: new Date(item?.date || item?.created_at || Date.now()),
+    type: item?.type,
+    description: item?.description || '',
+    debit: Number(item?.debit) || 0,
+    credit: Number(item?.credit) || 0,
+    balance: Number(item?.balance) || 0,
+    originalSaleId: item?.original_sale_id ? String(item.original_sale_id) : undefined,
+    items: parseTransactionItems(item?.items),
+    shiftId: item?.shift_id ? String(item.shift_id) : undefined,
+    facturaInfo: parseTransactionFacturaInfo(item?.factura_info),
+});
+
+export const getCreditNotesLinkedToSale = async (sale: Pick<Sale, 'id'>): Promise<AccountTransaction[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const saleId = String(sale?.id || '').trim();
+    if (!saleId) throw new Error('ID de venta inválido.');
+
+    const { data, error } = await supabase
+        .from('st_account_transactions')
+        .select('*')
+        .eq('type', 'Nota de Crédito')
+        .eq('original_sale_id', saleId)
+        .order('date', { ascending: false });
+
+    if (error) throw error;
+
+    return (data || []).map((item: any) => mapAccountTransactionRow(item));
+};
+
+export const upsertCreditNoteFiscalInfoForSale = async (payload: {
+    saleId: string;
+    customerId?: string;
+    shiftId?: string;
+    total?: number;
+    description?: string;
+    items?: CartItem[];
+    facturaInfo: any;
+}): Promise<AccountTransaction> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const saleId = String(payload?.saleId || '').trim();
+    if (!saleId) throw new Error('ID de venta inválido para NC pendiente.');
+    if (!payload?.facturaInfo) throw new Error('factura_info fiscal inválido para NC pendiente.');
+
+    const { data: existingRows, error: existingError } = await supabase
+        .from('st_account_transactions')
+        .select('*')
+        .eq('type', 'Nota de Crédito')
+        .eq('original_sale_id', saleId)
+        .order('date', { ascending: false });
+
+    if (existingError) throw existingError;
+
+    const nowIso = new Date().toISOString();
+    const normalizedFacturaInfo = payload.facturaInfo;
+
+    if ((existingRows || []).length > 0) {
+        const target = existingRows![0];
+        const updatePayload = {
+            factura_info: normalizedFacturaInfo,
+            items: payload.items ? JSON.stringify(payload.items) : target.items,
+        };
+        console.log('[PENDING_NC_DB_PAYLOAD]', {
+            saleId,
+            transactionId: String(target.id),
+            payload: updatePayload,
+        });
+
+        const { data: updated, error: updateError } = await supabase
+            .from('st_account_transactions')
+            .update(updatePayload)
+            .eq('original_sale_id', saleId)
+            .eq('type', 'Nota de Crédito')
+            .select('*')
+            .limit(1)
+            .single();
+
+        if (updateError) {
+            console.error('[PENDING_NC_DB_ERROR]', updateError);
+            throw new Error(updateError.message || JSON.stringify(updateError));
+        }
+        return mapAccountTransactionRow(updated);
+    }
+
+    const fallbackCustomerId = String(payload.customerId || '').trim();
+    if (!fallbackCustomerId) {
+        throw new Error('No existe movimiento contable de NC y no se recibió customerId para crearlo.');
+    }
+
+    const insertPayload = {
+        customer_id: fallbackCustomerId,
+        type: 'Nota de Crédito',
+        description: payload.description || 'Nota de crédito',
+        debit: 0,
+        credit: Number(payload.total || 0),
+        original_sale_id: saleId,
+        shift_id: payload.shiftId || null,
+        items: payload.items ? JSON.stringify(payload.items) : null,
+        factura_info: normalizedFacturaInfo,
+        date: nowIso,
+        created_at: nowIso,
+    };
+
+    console.log('[PENDING_NC_DB_PAYLOAD]', {
+        saleId,
+        transactionId: null,
+        payload: insertPayload,
+    });
+
+    const { data: inserted, error: insertError } = await supabase
+        .from('st_account_transactions')
+        .insert([insertPayload])
+        .select('*')
+        .single();
+
+    if (insertError) {
+        console.error('[PENDING_NC_DB_ERROR]', insertError);
+        throw new Error(insertError.message || JSON.stringify(insertError));
+    }
+    return mapAccountTransactionRow(inserted);
 };
 
 export const addBudget = async (budget: Budget): Promise<void> => {

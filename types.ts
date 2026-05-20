@@ -103,9 +103,11 @@ export interface AccountTransaction {
     cae: string;
     fecha: string;
     nro: string;
+    invoiceNumber?: string;
     vtoCae: string;
     qrData: string;
     url?: string;
+    pdfUrl?: string;
     ticketUrl?: string;
   };
 }
@@ -117,6 +119,7 @@ export interface ECheq {
 
 export interface Sale {
   id: string;
+  legacySaleId?: string;
   date: Date;
   customer: Customer | null;
   items: CartItem[];
@@ -140,9 +143,11 @@ export interface Sale {
     cae: string;
     fecha: string;
     nro: string;
+    invoiceNumber?: string;
     vtoCae: string;
     qrData: string;
     url?: string;
+    pdfUrl?: string;
     ticketUrl?: string;
   };
   paymentCondition?: string;
@@ -232,9 +237,11 @@ export interface CreditNote {
     cae: string;
     fecha: string;
     nro: string;
+    invoiceNumber?: string;
     vtoCae: string;
     qrData: string;
     url?: string;
+    pdfUrl?: string;
     ticketUrl?: string;
   };
 }

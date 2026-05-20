@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useContext, useCallback, useEffect } from 'react';
 import { Sale, Product, Customer, CartItem, CreditNote, AccountTransaction, Budget } from '../../types';
+import { isCreditNoteFiscalDocument } from '../../services/api';
 
 // Local type for sales with document_type
 type SaleWithDocumentType = Sale & { document_type: string; customer: NonNullable<Sale['customer']> };
@@ -331,6 +332,9 @@ export const SalesDashboard: React.FC<
     type: 'sale' | 'note';
     item: Sale | AccountTransaction;
   } | null>(null);
+  const [linkedCreditNotesForSelectedSale, setLinkedCreditNotesForSelectedSale] = useState<AccountTransaction[]>([]);
+  const [isLoadingLinkedCreditNotes, setIsLoadingLinkedCreditNotes] = useState(false);
+  const [isGeneratingPendingNc, setIsGeneratingPendingNc] = useState(false);
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
   const [saleToDeleteId, setSaleToDeleteId] = useState<string | null>(null);
@@ -385,6 +389,54 @@ export const SalesDashboard: React.FC<
     setSelectedItemForActions({ type, item });
   }, []);
 
+  const loadLinkedCreditNotesForSale = useCallback(
+    async (sale: SaleWithDocumentType) => {
+      setIsLoadingLinkedCreditNotes(true);
+      try {
+        const notes = await api.getCreditNotesLinkedToSale(sale);
+        setLinkedCreditNotesForSelectedSale(notes);
+      } catch (error) {
+        console.error('Failed to load linked credit notes:', error);
+        addToast(
+          `No se pudieron cargar las notas de credito vinculadas: ${
+            error instanceof Error ? error.message : 'Error desconocido'
+          }`,
+          'error'
+        );
+        setLinkedCreditNotesForSelectedSale([]);
+      } finally {
+        setIsLoadingLinkedCreditNotes(false);
+      }
+    },
+    [addToast]
+  );
+
+  useEffect(() => {
+    if (!selectedItemForActions || selectedItemForActions.type !== 'sale') {
+      setLinkedCreditNotesForSelectedSale([]);
+      setIsLoadingLinkedCreditNotes(false);
+      return;
+    }
+
+    const selectedSale = selectedItemForActions.item as SaleWithDocumentType;
+    if (selectedSale.document_type === 'budget') {
+      setLinkedCreditNotesForSelectedSale([]);
+      setIsLoadingLinkedCreditNotes(false);
+      return;
+    }
+
+    let isCancelled = false;
+
+    void (async () => {
+      await loadLinkedCreditNotesForSale(selectedSale);
+      if (isCancelled) return;
+    })();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedItemForActions, loadLinkedCreditNotesForSale]);
+
   // Clear optimistic patches when parent provides fresh salesData after a real refresh
   useEffect(() => {
     setPatchedPayments(prev => (prev.size === 0 ? prev : new Map()));
@@ -429,6 +481,48 @@ export const SalesDashboard: React.FC<
       return nextSale;
     });
   }, [salesData, patchedAdjustments, patchedPayments, patchedSaleVisualState]);
+
+  const selectedSaleAnyCreditNotes = useMemo(() => {
+    if (!selectedItemForActions || selectedItemForActions.type !== 'sale') return [];
+
+    const sourceNotes = linkedCreditNotesForSelectedSale.length > 0
+      ? linkedCreditNotesForSelectedSale
+      : ((selectedItemForActions.item as Sale).creditNotes || []);
+
+    return sourceNotes.slice().sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [selectedItemForActions, linkedCreditNotesForSelectedSale]);
+
+  const selectedSaleCreditNotes = useMemo(() => {
+    const sourceNotes = selectedSaleAnyCreditNotes;
+
+    const validNotes = sourceNotes
+      .filter(note => isCreditNoteFiscalDocument(note.facturaInfo))
+      .sort((a, b) => b.date.getTime() - a.date.getTime());
+
+    if (sourceNotes.length > 0 && validNotes.length === 0) {
+      console.warn('[NC_FISCAL_INVALID_OR_MISSING]', {
+        saleId: selectedItemForActions && selectedItemForActions.type === 'sale'
+          ? (selectedItemForActions.item as Sale).id
+          : null,
+        noteIds: sourceNotes.map(note => note.id),
+      });
+    }
+
+    return validNotes;
+  }, [selectedItemForActions, selectedSaleAnyCreditNotes]);
+
+  const selectedSaleAccountingCreditNote = useMemo(
+    () => selectedSaleAnyCreditNotes[0] || null,
+    [selectedSaleAnyCreditNotes]
+  );
+
+  const selectedSaleGeneratedCreditNote = useMemo(
+    () =>
+      selectedSaleCreditNotes.find(note => note.facturaInfo?.ticketUrl || note.facturaInfo?.pdfUrl || note.facturaInfo?.url) ||
+      selectedSaleCreditNotes.find(note => note.facturaInfo?.cae || note.facturaInfo?.invoiceNumber || note.facturaInfo?.nro) ||
+      null,
+    [selectedSaleCreditNotes]
+  );
 
   const filteredSales = useMemo(() => {
     if (!effectiveSalesData) return [];
@@ -887,6 +981,190 @@ export const SalesDashboard: React.FC<
     [addToast]
   );
 
+  const handleOpenCreditNoteFiscalDocument = useCallback(
+    (note: AccountTransaction, docType: 'ticket' | 'pdf') => {
+      const targetUrl =
+        docType === 'pdf' ? note.facturaInfo?.pdfUrl || note.facturaInfo?.url : note.facturaInfo?.ticketUrl;
+
+      if (!targetUrl) {
+        addToast(
+          docType === 'pdf'
+            ? 'La nota de credito no tiene PDF fiscal disponible.'
+            : 'La nota de credito no tiene ticket fiscal disponible.',
+          'error'
+        );
+        return;
+      }
+
+      const win = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      if (!win) {
+        addToast('La ventana fue bloqueada. Habilite las ventanas emergentes.', 'error');
+      }
+    },
+    [addToast]
+  );
+
+  const handleGeneratePendingFiscalCreditNote = useCallback(
+    async (sale: SaleWithDocumentType) => {
+      if (sale.document_type === 'budget') return;
+      if (!sale.facturaInfo?.cae) {
+        addToast('La venta no tiene una factura original fiscal valida para generar NC pendiente.', 'error');
+        return;
+      }
+
+      setIsGeneratingPendingNc(true);
+      console.log('[PENDING_NC_START]', sale);
+
+      try {
+        const accountingNote = selectedSaleAccountingCreditNote;
+        const itemsForNc = accountingNote?.items?.length ? accountingNote.items : sale.items;
+        const totalForNc = Number(accountingNote?.credit || sale.total || 0);
+        const descriptionForNc =
+          accountingNote?.description || 'Nota de credito fiscal pendiente regularizada';
+
+        if (!itemsForNc?.length || totalForNc <= 0) {
+          throw new Error('No hay datos de items o total para generar la NC fiscal pendiente.');
+        }
+
+        const originalInvoiceType = String(sale.facturacion || '').toUpperCase();
+        const requestedTipo = originalInvoiceType;
+        const sentTipo =
+          requestedTipo === 'A'
+            ? 'NOTA DE CREDITO A'
+            : requestedTipo === 'B'
+              ? 'NOTA DE CREDITO B'
+              : requestedTipo === 'C'
+                ? 'NOTA DE CREDITO C'
+                : 'NOTA DE CREDITO B';
+        const expectedCbteTipo =
+          requestedTipo === 'A' ? 3 : requestedTipo === 'B' ? 8 : requestedTipo === 'C' ? 13 : 8;
+        const payloadToArca = {
+          saleForInvoice: {
+            ...sale,
+            items: itemsForNc,
+            isCreditNote: true,
+            cbteTipo: expectedCbteTipo,
+            comprobante_tipo: sentTipo,
+            requested_tipo: requestedTipo,
+            sent_tipo: sentTipo,
+            facturaInfo: sale.facturaInfo,
+          },
+        };
+
+        console.log('[PENDING_NC_PAYLOAD_TO_ARCA]', payloadToArca);
+
+        const response = await api.generateElectronicCreditNote(sale, itemsForNc);
+        console.log('[PENDING_NC_ARCA_RESPONSE]', {
+          response,
+          data: response?.data,
+          cbteTipoEnviado: payloadToArca.saleForInvoice.cbteTipo,
+          comprobanteTipoEnviado: payloadToArca.saleForInvoice.comprobante_tipo,
+          requestedTipoEnviado: payloadToArca.saleForInvoice.requested_tipo,
+          sentTipoEnviado: payloadToArca.saleForInvoice.sent_tipo,
+          saleForInvoiceIsCreditNote: payloadToArca.saleForInvoice.isCreditNote,
+          saleForInvoiceFacturaInfo: payloadToArca.saleForInvoice.facturaInfo,
+          tipoOriginalFactura: originalInvoiceType,
+          cbteTipoDevuelto: response?.data?.cbteTipo,
+          tipoCmpDevuelto: response?.data?.tipoCmp,
+          comprobanteTipoDevuelto: response?.data?.comprobante_tipo,
+          qrDataDevuelto: response?.data?.qrData,
+        });
+
+        const invoiceData = response?.data || {};
+
+        const cae = String(invoiceData.cae || '').trim();
+        const nro = String(invoiceData.nro || invoiceData.invoiceNumber || '').trim();
+        const pdfUrl = String(
+          invoiceData.pdfUrl ||
+          invoiceData.url ||
+          invoiceData.comprobante_pdf_url ||
+          invoiceData.pdf_url ||
+          ''
+        ).trim();
+        const ticketUrl = String(
+          invoiceData.ticketUrl ||
+          invoiceData.comprobante_ticket_url ||
+          invoiceData.ticket_url ||
+          pdfUrl ||
+          ''
+        ).trim();
+        const qrData = String(
+          invoiceData.qrData ||
+          invoiceData.qr_data ||
+          invoiceData.billing_qr_data ||
+          invoiceData.qr ||
+          ''
+        ).trim();
+        const vtoCae = String(
+          invoiceData.vtoCae ||
+          invoiceData.vto_cae ||
+          invoiceData.vencimiento_cae ||
+          ''
+        ).trim();
+
+        console.log('[PENDING_NC_NORMALIZED_RESPONSE]', {
+          cae,
+          nro,
+          pdfUrl,
+          ticketUrl,
+          qrData,
+          vtoCae,
+        });
+
+        const facturaInfo: any = {
+          cae,
+          nro,
+          invoiceNumber: nro,
+          url: pdfUrl,
+          pdfUrl,
+          ticketUrl,
+          qrData,
+          vtoCae,
+          fecha: new Date().toISOString().slice(0, 10),
+          cbteTipo: 3,
+          tipoCmp: 3,
+          comprobante_tipo: 'NOTA DE CREDITO A',
+          requestedTipoEnviado: 'NOTA DE CREDITO A',
+          sentTipoEnviado: 'NOTA DE CREDITO A',
+        };
+        console.log('[NC_FACTURA_INFO_FINAL]', facturaInfo);
+
+        if (!cae || !nro || !pdfUrl || !ticketUrl || !qrData) {
+          throw new Error('La respuesta fiscal no contiene cae, nro, pdf, ticket y qrData validos.');
+        }
+
+        console.log('[PENDING_NC_FACTURA_INFO]', facturaInfo);
+
+        const result = await api.upsertCreditNoteFiscalInfoForSale({
+          saleId: sale.id,
+          customerId: sale.customer?.Id_Cliente,
+          shiftId: sale.shiftId || activeShift?.ID_Turno,
+          total: totalForNc,
+          description: descriptionForNc,
+          items: itemsForNc,
+          facturaInfo,
+        });
+
+        console.log('[PENDING_NC_UPDATED_TRANSACTION]', result);
+
+        await refreshData();
+        await loadLinkedCreditNotesForSale(sale);
+        addToast('NC fiscal pendiente generada y vinculada correctamente.', 'success');
+      } catch (error) {
+        const errMsg =
+          error instanceof Error
+            ? error.message
+            : typeof error === 'object' && error !== null
+              ? JSON.stringify(error)
+              : String(error);
+        addToast(`No se pudo generar la NC fiscal pendiente: ${errMsg}`, 'error');
+      } finally {
+        setIsGeneratingPendingNc(false);
+      }
+    },
+    [activeShift?.ID_Turno, addToast, loadLinkedCreditNotesForSale, refreshData, selectedSaleAccountingCreditNote]
+  );
+
   const handleViewBudget = useCallback((sale: SaleWithDocumentType) => {
     if (!sale.customer) {
       throw new Error('El presupuesto no tiene cliente asignado.');
@@ -1022,35 +1300,52 @@ export const SalesDashboard: React.FC<
       if (ticketWindow) ticketWindow.document.write('Procesando...');
 
       try {
-        let ncBillingInfo = undefined;
+        console.log('[NCS_FLOW_START]', {
+          saleId: saleForCreditNote.id,
+          customerId: saleForCreditNote.customer.Id_Cliente,
+          itemsCount: data.items.length,
+        });
 
-        if (saleForCreditNote.facturaInfo && saleForCreditNote.facturaInfo.cae) {
-          const userConfirmed = window.confirm(
-            `La venta original tiene una factura electrónica (Nro: ${saleForCreditNote.facturaInfo.nro}).\n¿Desea generar una NOTA DE CRÉDITO ELECTRÓNICA oficial?`
-          );
-
-          if (userConfirmed) {
-            addToast('Generando Nota de Crédito Electrónica...', 'info');
-            const apiResponse = await api.generateElectronicCreditNote(saleForCreditNote, data.items);
-            const invoiceData = apiResponse.data;
-
-            if (!invoiceData || !invoiceData.cae || invoiceData.cae === 'DEV_MODE_NO_CAE') {
-              throw new Error('El proveedor de facturación no devolvió un CAE válido para la Nota de Crédito.');
-            }
-
-            ncBillingInfo = {
-              cae: invoiceData.cae,
-              nro: invoiceData.nro,
-              vtoCae: invoiceData.vtoCae,
-              qrData: invoiceData.qrData,
-              fecha: new Date().toLocaleString('es-AR'),
-              url: invoiceData.comprobante_pdf_url || invoiceData.url,
-              ticketUrl: invoiceData.comprobante_ticket_url,
-            };
-
-            addToast(`Nota de Crédito Oficial ${invoiceData.nro} generada.`, 'success');
-          }
+        if (!saleForCreditNote.facturaInfo?.cae) {
+          throw new Error('No se puede generar una nota de credito electronica sin una factura original con CAE.');
         }
+
+        const userConfirmed = window.confirm(
+          `La venta original tiene una factura electrónica (Nro: ${saleForCreditNote.facturaInfo.nro}).\n¿Desea generar una NOTA DE CRÉDITO ELECTRÓNICA oficial?`
+        );
+
+        if (!userConfirmed) {
+          throw new Error('La generacion electronica de la nota de credito fue cancelada por el usuario.');
+        }
+
+        addToast('Generando Nota de Crédito Electrónica...', 'info');
+        const apiResponse = await api.generateElectronicCreditNote(saleForCreditNote, data.items);
+        console.log('[NCS_ARCA_RESPONSE]', apiResponse);
+
+        const invoiceData = apiResponse.data;
+        const pdfUrl = String(invoiceData?.comprobante_pdf_url || invoiceData?.pdf_url || invoiceData?.url || '').trim();
+        const ticketUrl = String(invoiceData?.comprobante_ticket_url || invoiceData?.ticket_url || '').trim();
+        const cae = String(invoiceData?.cae || '').trim();
+        const nro = String(invoiceData?.nro || invoiceData?.invoiceNumber || '').trim();
+        const qrData = String(invoiceData?.qrData || '').trim();
+
+        if (!invoiceData || !cae || !nro || !pdfUrl || !ticketUrl) {
+          throw new Error('El proveedor de facturacion no devolvio cae, nro, pdf url y ticket url validos para la Nota de Credito.');
+        }
+
+        const ncBillingInfo = {
+          cae,
+          nro,
+          invoiceNumber: nro,
+          vtoCae: String(invoiceData?.vtoCae || '').trim(),
+          qrData,
+          fecha: new Date().toLocaleString('es-AR'),
+          url: pdfUrl,
+          pdfUrl,
+          ticketUrl,
+        };
+
+        console.log('[NCS_BILLING_INFO]', ncBillingInfo);
 
         await api.createCreditNote({
           customerId: saleForCreditNote.customer.Id_Cliente,
@@ -1058,6 +1353,12 @@ export const SalesDashboard: React.FC<
           shiftId: activeShift.ID_Turno,
           ...data,
           facturaInfo: ncBillingInfo,
+        });
+
+        console.log('[NCS_SUCCESS]', {
+          saleId: saleForCreditNote.id,
+          customerId: saleForCreditNote.customer.Id_Cliente,
+          ncNumber: ncBillingInfo.nro,
         });
 
         await api.restoreStockFromCreditNoteItems(data.items);
@@ -1081,7 +1382,7 @@ export const SalesDashboard: React.FC<
 
         if (ticketWindow) {
           const creditNote: CreditNote = {
-            id: ncBillingInfo ? ncBillingInfo.nro : `NC-${crypto.randomUUID()}`,
+            id: ncBillingInfo.nro,
             date: new Date(),
             ...data,
             customer: saleForCreditNote.customer,
@@ -1645,6 +1946,103 @@ export const SalesDashboard: React.FC<
                       <span className="font-medium">Ver PDF A4 Oficial</span>
                     </button>
                   )}
+
+                  {(isLoadingLinkedCreditNotes || selectedSaleGeneratedCreditNote) && (
+                    <div className="mx-1 my-2 rounded-2xl border border-orange-200 bg-gradient-to-br from-orange-50 via-amber-50 to-white p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700">
+                            Nota de Credito Generada
+                          </p>
+                          <h4 className="mt-1 text-sm font-semibold text-gray-900">Comprobante fiscal de cancelacion</h4>
+                        </div>
+                        {!isLoadingLinkedCreditNotes && selectedSaleGeneratedCreditNote && (
+                          <span
+                            className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                              selectedSaleGeneratedCreditNote.facturaInfo?.ticketUrl &&
+                              (selectedSaleGeneratedCreditNote.facturaInfo?.pdfUrl ||
+                                selectedSaleGeneratedCreditNote.facturaInfo?.url)
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-orange-100 text-orange-700'
+                            }`}
+                          >
+                            NC Generada
+                          </span>
+                        )}
+                      </div>
+
+                      {isLoadingLinkedCreditNotes && !selectedSaleGeneratedCreditNote ? (
+                        <div className="mt-3 h-16 animate-pulse rounded-xl bg-white/70" />
+                      ) : selectedSaleGeneratedCreditNote ? (
+                        <>
+                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div className="rounded-xl border border-white bg-white/90 p-3">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500">Numero NC</p>
+                              <p className="mt-1 text-sm font-semibold text-gray-900">
+                                {selectedSaleGeneratedCreditNote.facturaInfo?.invoiceNumber ||
+                                  selectedSaleGeneratedCreditNote.facturaInfo?.nro ||
+                                  'Sin numero fiscal'}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-white bg-white/90 p-3">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-gray-500">CAE NC</p>
+                              <p className="mt-1 text-sm font-semibold text-gray-900">
+                                {selectedSaleGeneratedCreditNote.facturaInfo?.cae || 'Sin CAE'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 gap-2">
+                            {selectedSaleGeneratedCreditNote.facturaInfo?.ticketUrl && (
+                              <button
+                                onClick={() => {
+                                  handleOpenCreditNoteFiscalDocument(selectedSaleGeneratedCreditNote, 'ticket');
+                                  setSelectedItemForActions(null);
+                                }}
+                                className="flex w-full items-center space-x-3 rounded-xl border border-orange-200 bg-white p-3 text-left text-orange-700 transition-colors hover:bg-orange-50"
+                              >
+                                <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
+                                <span className="font-medium">Ver Ticket NC</span>
+                              </button>
+                            )}
+
+                            {(selectedSaleGeneratedCreditNote.facturaInfo?.pdfUrl ||
+                              selectedSaleGeneratedCreditNote.facturaInfo?.url) && (
+                              <button
+                                onClick={() => {
+                                  handleOpenCreditNoteFiscalDocument(selectedSaleGeneratedCreditNote, 'pdf');
+                                  setSelectedItemForActions(null);
+                                }}
+                                className="flex w-full items-center space-x-3 rounded-xl border border-amber-200 bg-white p-3 text-left text-amber-700 transition-colors hover:bg-amber-50"
+                              >
+                                <Icon path="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" className="w-6 h-6" />
+                                <span className="font-medium">Ver PDF NC</span>
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {(selectedItemForActions.item as Sale).status === 'annulled' &&
+                    isSaleAlreadyBilled(selectedItemForActions.item as Sale) &&
+                    !selectedSaleGeneratedCreditNote && (
+                      <button
+                        onClick={() => {
+                          void handleGeneratePendingFiscalCreditNote(
+                            selectedItemForActions.item as SaleWithDocumentType
+                          );
+                        }}
+                        disabled={isGeneratingPendingNc || isLoadingLinkedCreditNotes}
+                        className="flex items-center space-x-3 w-full p-3 text-left bg-orange-100 hover:bg-orange-200 text-orange-800 rounded-xl transition-colors disabled:opacity-50"
+                      >
+                        <Icon path="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" className="w-6 h-6" />
+                        <span className="font-medium">
+                          {isGeneratingPendingNc ? 'Generando NC Fiscal...' : 'Generar NC Fiscal Pendiente'}
+                        </span>
+                      </button>
+                    )}
 
                   {!isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
                     <button
