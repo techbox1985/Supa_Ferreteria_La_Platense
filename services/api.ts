@@ -3635,6 +3635,7 @@ const mapAccountTransactionRow = (item: any): AccountTransaction => ({
     date: new Date(item?.date || item?.created_at || Date.now()),
     type: item?.type,
     description: item?.description || '',
+    customer_id: item?.customer_id ? String(item.customer_id) : undefined,
     debit: Number(item?.debit) || 0,
     credit: Number(item?.credit) || 0,
     balance: Number(item?.balance) || 0,

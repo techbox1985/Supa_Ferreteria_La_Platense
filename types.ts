@@ -93,6 +93,7 @@ export interface AccountTransaction {
   date: Date;
   type: 'Venta' | 'Pago' | 'Nota de Crédito' | 'Ajuste';
   description: string;
+  customer_id?: string;
   debit: number;
   credit: number;
   balance: number;
