@@ -3265,19 +3265,33 @@ export const recordPayment = async (customerId: string, amount: number, descript
     if (error) throw error;
 };
 
-export const createCreditNote = async (payload: any): Promise<void> => {
+type CreateCreditNotePayload = {
+    customerId: string;
+    originalSaleId?: string;
+    shiftId?: string;
+    items?: CartItem[];
+    description?: string;
+    total?: number;
+    facturaInfo?: any;
+    requestId?: string;
+    isFiscalCreditNote?: boolean;
+};
+
+export const createCreditNote = async (payload: CreateCreditNotePayload): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     const requestId = payload?.requestId || (typeof window !== 'undefined' && window.crypto?.randomUUID?.() || `${Date.now()}-${Math.floor(Math.random()*10000)}`);
     console.log('[NC TRACE] createCreditNote start', requestId);
+    const isFiscalCreditNote = payload?.isFiscalCreditNote === true;
 
-    if (!payload?.facturaInfo) {
+    if (isFiscalCreditNote && !payload?.facturaInfo) {
         console.error('[NCS_DB_INSERT] factura_info faltante, se aborta el insert de la NC', {
             requestId,
             customerId: payload?.customerId,
             originalSaleId: payload?.originalSaleId,
             total: payload?.total,
+            isFiscalCreditNote,
         });
-        throw new Error('No se puede insertar la nota de credito sin factura_info fiscal.');
+        throw new Error('No se puede insertar una nota de crédito fiscal sin factura_info.');
     }
 
     // Defensa anti-duplicado: buscar NC idéntica en los últimos 10 segundos
@@ -3309,6 +3323,7 @@ export const createCreditNote = async (payload: any): Promise<void> => {
         requestId,
         customerId: payload.customerId,
         originalSaleId: payload.originalSaleId || null,
+        isFiscalCreditNote,
         facturaInfo: payload.facturaInfo,
     });
     const { data, error } = await supabase

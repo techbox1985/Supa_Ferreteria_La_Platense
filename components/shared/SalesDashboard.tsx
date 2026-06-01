@@ -1306,59 +1306,89 @@ export const SalesDashboard: React.FC<
           itemsCount: data.items.length,
         });
 
-        if (!saleForCreditNote.facturaInfo?.cae) {
-          throw new Error('No se puede generar una nota de credito electronica sin una factura original con CAE.');
-        }
-
-        const userConfirmed = window.confirm(
-          `La venta original tiene una factura electrónica (Nro: ${saleForCreditNote.facturaInfo.nro}).\n¿Desea generar una NOTA DE CRÉDITO ELECTRÓNICA oficial?`
+        const saleWithBillingFallback = saleForCreditNote as Sale & { billing_cae?: string; billingCae?: string };
+        const hasFiscalInvoice = Boolean(
+          saleForCreditNote.facturaInfo?.cae ||
+          saleWithBillingFallback.billing_cae ||
+          saleWithBillingFallback.billingCae
         );
 
-        if (!userConfirmed) {
-          throw new Error('La generacion electronica de la nota de credito fue cancelada por el usuario.');
+        console.log('[NC_FLOW_TYPE]', {
+          saleId: saleForCreditNote.id,
+          hasFiscalInvoice,
+          isFiscalCreditNote: hasFiscalInvoice,
+        });
+
+        let ncBillingInfo:
+          | {
+              cae: string;
+              nro: string;
+              invoiceNumber: string;
+              vtoCae: string;
+              qrData: string;
+              fecha: string;
+              url: string;
+              pdfUrl: string;
+              ticketUrl: string;
+            }
+          | undefined;
+
+        if (hasFiscalInvoice) {
+          console.log('[NC_FISCAL_FLOW_START]', { saleId: saleForCreditNote.id });
+
+          const userConfirmed = window.confirm(
+            `La venta original tiene una factura electrónica (Nro: ${saleForCreditNote.facturaInfo?.nro || 'sin número visible'}).\n¿Desea generar una NOTA DE CRÉDITO ELECTRÓNICA oficial?`
+          );
+
+          if (!userConfirmed) {
+            throw new Error('La generacion electronica de la nota de credito fue cancelada por el usuario.');
+          }
+
+          addToast('Generando Nota de Crédito Electrónica...', 'info');
+          const apiResponse = await api.generateElectronicCreditNote(saleForCreditNote, data.items);
+          console.log('[NCS_ARCA_RESPONSE]', apiResponse);
+
+          const invoiceData = apiResponse.data;
+          const pdfUrl = String(invoiceData?.comprobante_pdf_url || invoiceData?.pdf_url || invoiceData?.url || '').trim();
+          const ticketUrl = String(invoiceData?.comprobante_ticket_url || invoiceData?.ticket_url || '').trim();
+          const cae = String(invoiceData?.cae || '').trim();
+          const nro = String(invoiceData?.nro || invoiceData?.invoiceNumber || '').trim();
+          const qrData = String(invoiceData?.qrData || '').trim();
+
+          if (!invoiceData || !cae || !nro || !pdfUrl || !ticketUrl) {
+            throw new Error('El proveedor de facturacion no devolvio cae, nro, pdf url y ticket url validos para la Nota de Credito.');
+          }
+
+          ncBillingInfo = {
+            cae,
+            nro,
+            invoiceNumber: nro,
+            vtoCae: String(invoiceData?.vtoCae || '').trim(),
+            qrData,
+            fecha: new Date().toLocaleString('es-AR'),
+            url: pdfUrl,
+            pdfUrl,
+            ticketUrl,
+          };
+
+          console.log('[NCS_BILLING_INFO]', ncBillingInfo);
+        } else {
+          console.log('[NC_COMMON_FLOW_START]', { saleId: saleForCreditNote.id });
         }
-
-        addToast('Generando Nota de Crédito Electrónica...', 'info');
-        const apiResponse = await api.generateElectronicCreditNote(saleForCreditNote, data.items);
-        console.log('[NCS_ARCA_RESPONSE]', apiResponse);
-
-        const invoiceData = apiResponse.data;
-        const pdfUrl = String(invoiceData?.comprobante_pdf_url || invoiceData?.pdf_url || invoiceData?.url || '').trim();
-        const ticketUrl = String(invoiceData?.comprobante_ticket_url || invoiceData?.ticket_url || '').trim();
-        const cae = String(invoiceData?.cae || '').trim();
-        const nro = String(invoiceData?.nro || invoiceData?.invoiceNumber || '').trim();
-        const qrData = String(invoiceData?.qrData || '').trim();
-
-        if (!invoiceData || !cae || !nro || !pdfUrl || !ticketUrl) {
-          throw new Error('El proveedor de facturacion no devolvio cae, nro, pdf url y ticket url validos para la Nota de Credito.');
-        }
-
-        const ncBillingInfo = {
-          cae,
-          nro,
-          invoiceNumber: nro,
-          vtoCae: String(invoiceData?.vtoCae || '').trim(),
-          qrData,
-          fecha: new Date().toLocaleString('es-AR'),
-          url: pdfUrl,
-          pdfUrl,
-          ticketUrl,
-        };
-
-        console.log('[NCS_BILLING_INFO]', ncBillingInfo);
 
         await api.createCreditNote({
           customerId: saleForCreditNote.customer.Id_Cliente,
           originalSaleId: saleForCreditNote.id,
           shiftId: activeShift.ID_Turno,
           ...data,
+          isFiscalCreditNote: hasFiscalInvoice,
           facturaInfo: ncBillingInfo,
         });
 
         console.log('[NCS_SUCCESS]', {
           saleId: saleForCreditNote.id,
           customerId: saleForCreditNote.customer.Id_Cliente,
-          ncNumber: ncBillingInfo.nro,
+          ncNumber: ncBillingInfo?.nro,
         });
 
         await api.restoreStockFromCreditNoteItems(data.items);
@@ -1382,7 +1412,7 @@ export const SalesDashboard: React.FC<
 
         if (ticketWindow) {
           const creditNote: CreditNote = {
-            id: ncBillingInfo.nro,
+            id: ncBillingInfo?.nro || `NC-${saleForCreditNote.id}`,
             date: new Date(),
             ...data,
             customer: saleForCreditNote.customer,
