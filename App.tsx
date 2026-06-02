@@ -959,6 +959,7 @@ const AppContent: React.FC = () => {
                         refreshData={fetchData}
                         fetchSalesForDateRange={fetchSalesForHistoryDateRange}
                         onEditSale={handleEditSale}
+                        accountTransactions={accountTransactions}
                     />
                 );
 

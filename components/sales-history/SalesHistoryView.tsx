@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { Sale, Product, Customer, User, Shift } from '../../types';
+import { Sale, Product, Customer, User, Shift, AccountTransaction } from '../../types';
 import { Icon } from '../ui/Icon';
 import { SalesDashboard } from '../shared/SalesDashboard';
 
@@ -15,9 +15,10 @@ interface SalesHistoryViewProps {
     refreshData: () => void;
     fetchSalesForDateRange?: (startDate: string, endDate: string) => Promise<void>;
     onEditSale?: (sale: Sale) => void;
+    accountTransactions?: AccountTransaction[];
 }
 
-const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, fetchSalesForDateRange, onEditSale }) => {
+const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, fetchSalesForDateRange, onEditSale, accountTransactions = [] }) => {
     // Helper para obtener YYYY-MM-DD en hora local
     const getLocalDateString = (date: Date) => {
         const year = date.getFullYear();
@@ -134,6 +135,15 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
         return salesInDateRange;
     }, [salesInDateRange, docTypeFilter]);
 
+    // Pagos de cuenta corriente filtrados por el mismo rango de fechas del historial
+    const accountTransactionsInRange = useMemo(() => {
+        if (!accountTransactions || accountTransactions.length === 0) return [];
+        return accountTransactions.filter(t => {
+            if (t.type !== 'Pago' || t.credit <= 0) return false;
+            const dayKey = toLocalDayKey(t.date);
+            return dayKey >= startDate && dayKey <= endDate;
+        });
+    }, [accountTransactions, startDate, endDate]);
 
     if (isLoading) {
         return (
@@ -266,6 +276,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                 stickyStats={true}
                 stickyFilters={true}
                 onEditSale={handleEditSale}
+                accountTransactions={accountTransactionsInRange}
             />
         </div>
     );

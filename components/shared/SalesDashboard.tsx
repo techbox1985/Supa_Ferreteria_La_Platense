@@ -291,6 +291,7 @@ interface SalesDashboardProps {
   showStats?: boolean;
   searchBarAddon?: React.ReactNode;
   onEditSale?: (sale: Sale) => void;
+  accountTransactions?: AccountTransaction[];
 }
 
 export const SalesDashboard: React.FC<
@@ -307,6 +308,7 @@ export const SalesDashboard: React.FC<
   searchTerm: externalSearchTerm,
   stickyStats = false,
   stickyFilters = false,
+  accountTransactions = [],
 }) => {
   const [internalSearchTerm] = useState('');
   const searchTerm = externalSearchTerm !== undefined ? externalSearchTerm : internalSearchTerm;
@@ -552,7 +554,7 @@ export const SalesDashboard: React.FC<
   const stats = useMemo(() => {
     const completedSales = filteredSales.filter(sale => sale.status !== 'annulled');
     const completedRealSales = completedSales.filter(sale => sale.document_type !== 'budget');
-    const totalRevenue = completedRealSales.reduce((sum, sale) => sum + (sale.total - (sale.returnedTotal || 0)), 0);
+    const salesRevenue = completedRealSales.reduce((sum, sale) => sum + (sale.total - (sale.returnedTotal || 0)), 0);
 
     const totalProductsSold = completedRealSales.reduce((sum, sale) => {
       const originalCount = sale.itemCount;
@@ -563,13 +565,40 @@ export const SalesDashboard: React.FC<
       return sum + (originalCount - returnedCount);
     }, 0);
 
-    const totalCash = completedRealSales.reduce((sum, sale) => sum + sale.payment.cash, 0);
-    const totalDigital = completedRealSales.reduce((sum, sale) => sum + sale.payment.digital, 0);
+    const salesCash = completedRealSales.reduce((sum, sale) => sum + sale.payment.cash, 0);
+    const salesDigital = completedRealSales.reduce((sum, sale) => sum + sale.payment.digital, 0);
     const totalCredit = completedRealSales.reduce((sum, sale) => sum + sale.payment.credit, 0);
     const totalEcheq = completedRealSales.reduce(
       (sum, sale) => sum + (sale.payment.echeqs?.reduce((eSum, e) => eSum + e.amount, 0) || 0),
       0
     );
+
+    // Pagos de cuenta corriente (registrados desde Clientes)
+    const customerPayments = accountTransactions.filter(
+      t => t.type === 'Pago' && t.credit > 0
+    );
+    const customerPaymentsCash = customerPayments
+      .filter(t => t.payment_method === 'efectivo')
+      .reduce((sum, t) => sum + t.credit, 0);
+    const customerPaymentsDigital = customerPayments
+      .filter(t => t.payment_method === 'digital')
+      .reduce((sum, t) => sum + t.credit, 0);
+    const customerPaymentsTotal = customerPayments.reduce((sum, t) => sum + t.credit, 0);
+
+    const customerPaymentsKpi = {
+      count: customerPayments.length,
+      total: customerPaymentsTotal,
+      cash: customerPaymentsCash,
+      digital: customerPaymentsDigital,
+    };
+    console.log('[HIST_CUSTOMER_PAYMENTS_KPI]', customerPaymentsKpi);
+
+    const totalRevenue = salesRevenue + customerPaymentsTotal;
+    const totalCash = salesCash + customerPaymentsCash;
+    const totalDigital = salesDigital + customerPaymentsDigital;
+
+    const finalKpis = { totalRevenue, totalCash, totalDigital, totalCredit, totalEcheq };
+    console.log('[HIST_FINAL_KPI_WITH_CUSTOMER_PAYMENTS]', finalKpis);
 
     return {
       totalRevenue,
@@ -580,7 +609,7 @@ export const SalesDashboard: React.FC<
       totalCredit,
       totalEcheq,
     };
-  }, [filteredSales]);
+  }, [filteredSales, accountTransactions]);
 
   const differenceData = useMemo(() => {
     const completedSales = filteredSales.filter(

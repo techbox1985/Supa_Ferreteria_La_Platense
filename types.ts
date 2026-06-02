@@ -94,6 +94,7 @@ export interface AccountTransaction {
   type: 'Venta' | 'Pago' | 'Nota de Crédito' | 'Ajuste';
   description: string;
   customer_id?: string;
+  payment_method?: string;
   debit: number;
   credit: number;
   balance: number;
