@@ -10,8 +10,79 @@ import { ExpenseFormModal } from './ExpenseFormModal';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
+import { normalizeSearchText } from '../../utils/productFilters';
 
 const formatCurrency = (value: number) => `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+
+type PaymentFilterValue = 'all' | 'efectivo' | 'digital';
+
+const getExpenseField = (expense: Expense, keys: string[]): unknown => {
+    const source = expense as unknown as Record<string, unknown>;
+    for (const key of keys) {
+        const value = source[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+            return value;
+        }
+    }
+    return undefined;
+};
+
+const normalizePaymentMethodFromValue = (value: unknown): PaymentFilterValue => {
+    const normalized = normalizeSearchText(value);
+    if (!normalized) return 'all';
+
+    if (
+        normalized.includes('digital') ||
+        normalized.includes('banco') ||
+        normalized.includes('transferencia') ||
+        normalized.includes('mercado pago') ||
+        normalized.includes('mercadopago') ||
+        normalized === 'mp' ||
+        normalized.includes('tarjeta') ||
+        normalized.includes('debito') ||
+        normalized.includes('credito') ||
+        normalized.includes('qr')
+    ) {
+        return 'digital';
+    }
+
+    if (normalized.includes('efectivo') || normalized.includes('cash') || normalized.includes('contado')) {
+        return 'efectivo';
+    }
+
+    return 'all';
+};
+
+const getPaymentTags = (expense: Expense): Set<Exclude<PaymentFilterValue, 'all'>> => {
+    const tags = new Set<Exclude<PaymentFilterValue, 'all'>>();
+    const explicitMethod = getExpenseField(expense, ['payment_method', 'paymentMethod', 'method', 'tipo_pago']);
+    const normalizedMethod = normalizePaymentMethodFromValue(explicitMethod);
+
+    if (normalizedMethod !== 'all') {
+        tags.add(normalizedMethod);
+        return tags;
+    }
+
+    if ((expense.Efectivo || 0) > 0) tags.add('efectivo');
+    if ((expense.Digital || 0) > 0) tags.add('digital');
+
+    return tags;
+};
+
+const getExpenseTypeLabel = (expense: Expense): string => {
+    const rawType = getExpenseField(expense, ['Tipo', 'type', 'category', 'categoria']);
+    const text = String(rawType ?? '').trim();
+    if (!text) return 'Otros';
+
+    const normalized = normalizeSearchText(text);
+
+    if (normalized.includes('proveedor')) return 'Proveedores';
+    if (normalized.includes('fijo')) return 'Fijos';
+    if (normalized.includes('sueldo') || normalized.includes('salario') || normalized.includes('jornal')) return 'Sueldos';
+    if (normalized.includes('otro')) return 'Otros';
+
+    return text;
+};
 
 // Helpers de blindaje total para solo fecha
 const safeDateOnly = (d: Date | null | undefined, raw?: string): string => {
@@ -75,6 +146,8 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, allUsers, 
 
     const [startDate, setStartDate] = useState(toYYYYMMDD(new Date()));
     const [endDate, setEndDate] = useState(toYYYYMMDD(new Date()));
+    const [paymentMethodFilter, setPaymentMethodFilter] = useState<PaymentFilterValue>('all');
+    const [expenseTypeFilter, setExpenseTypeFilter] = useState('all');
     const { activeShift, currentUser } = useContext(AuthContext);
 
     const safeExpensesSource = useMemo(() => Array.isArray(expenses) ? expenses : [], [expenses]);
@@ -86,7 +159,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, allUsers, 
         [allUsers]
     );
 
-    const filteredExpenses = useMemo(() => {
+    const dateFilteredExpenses = useMemo(() => {
         if (!startDate || !endDate) return [];
 
         const [startY, startM, startD] = startDate.split('-').map(Number);
@@ -103,6 +176,42 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, allUsers, 
                 return ts >= startTs && ts <= endTs;
             });
     }, [visibleExpenses, startDate, endDate]);
+
+    const expenseTypeOptions = useMemo(() => {
+        const defaults = ['Proveedores', 'Fijos', 'Sueldos', 'Otros'];
+        const dynamicTypes = Array.from(
+            new Set(
+                visibleExpenses
+                    .map(getExpenseTypeLabel)
+                    .filter(Boolean)
+            )
+        );
+
+        const remaining = dynamicTypes.filter(type => !defaults.includes(type));
+        return [...defaults, ...remaining];
+    }, [visibleExpenses]);
+
+    const filteredExpenses = useMemo(() => {
+        return dateFilteredExpenses.filter((expense) => {
+            const matchesPayment = paymentMethodFilter === 'all'
+                ? true
+                : getPaymentTags(expense).has(paymentMethodFilter);
+
+            const typeLabel = getExpenseTypeLabel(expense);
+            const matchesType = expenseTypeFilter === 'all'
+                ? true
+                : normalizeSearchText(typeLabel) === normalizeSearchText(expenseTypeFilter);
+
+            return matchesPayment && matchesType;
+        });
+    }, [dateFilteredExpenses, paymentMethodFilter, expenseTypeFilter]);
+
+    console.log('[EXPENSES_FILTERS]', {
+        paymentMethodFilter,
+        expenseTypeFilter,
+        totalBefore: expenses.length,
+        totalAfter: filteredExpenses.length
+    });
 
     const stats = useMemo(() => {
         const total = filteredExpenses.reduce((sum, e) => sum + (e.Monto || 0), 0);
@@ -167,16 +276,43 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, allUsers, 
                 </button>
             </div>
 
-            <div className="bg-white p-4 rounded-lg shadow-md flex flex-col md:flex-row md:items-end gap-4">
-                <div className="flex-grow">
+            <div className="bg-white p-4 rounded-lg shadow-md">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4 items-end">
+                <div className="w-full">
                     <label className="block text-sm font-medium text-gray-700">Desde</label>
                     <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                 </div>
-                <div className="flex-grow">
+                <div className="w-full">
                     <label className="block text-sm font-medium text-gray-700">Hasta</label>
                     <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="mt-1 block w-full px-3 py-2 border rounded-md"/>
                 </div>
-                <button onClick={() => { const today = toYYYYMMDD(new Date()); setStartDate(today); setEndDate(today); }} className="bg-gray-100 px-4 py-2 rounded-lg h-[42px]">Hoy</button>
+                <div className="w-full">
+                    <label className="block text-sm font-medium text-gray-700">Forma de pago</label>
+                    <select
+                        value={paymentMethodFilter}
+                        onChange={e => setPaymentMethodFilter(e.target.value as PaymentFilterValue)}
+                        className="mt-1 block w-full px-3 py-2 border rounded-md bg-white"
+                    >
+                        <option value="all">Todos</option>
+                        <option value="efectivo">Efectivo</option>
+                        <option value="digital">Digital</option>
+                    </select>
+                </div>
+                <div className="w-full">
+                    <label className="block text-sm font-medium text-gray-700">Tipo/Categoria</label>
+                    <select
+                        value={expenseTypeFilter}
+                        onChange={e => setExpenseTypeFilter(e.target.value)}
+                        className="mt-1 block w-full px-3 py-2 border rounded-md bg-white"
+                    >
+                        <option value="all">Todos</option>
+                        {expenseTypeOptions.map((type) => (
+                            <option key={type} value={type}>{type}</option>
+                        ))}
+                    </select>
+                </div>
+                <button onClick={() => { const today = toYYYYMMDD(new Date()); setStartDate(today); setEndDate(today); }} className="bg-gray-100 px-4 py-2 rounded-lg h-[42px] w-full xl:w-auto">Hoy</button>
+                </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -211,7 +347,7 @@ export const ExpensesView: React.FC<ExpensesViewProps> = ({ expenses, allUsers, 
                                     <td className="px-6 py-4 text-sm text-gray-900">{expense.Detalle}</td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-800">
-                                            {expense.Tipo || 'Otros'}
+                                            {getExpenseTypeLabel(expense)}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
