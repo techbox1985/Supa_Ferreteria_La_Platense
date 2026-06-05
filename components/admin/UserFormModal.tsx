@@ -14,7 +14,7 @@ interface UserFormModalProps {
 export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, onSave, userToEdit }) => {
   const [name, setName] = useState('');
   const [pin, setPin] = useState('');
-  const [role, setRole] = useState<'Vendedor' | 'Admin'>('Vendedor');
+  const [role, setRole] = useState<'Vendedor' | 'Admin' | 'Cajero'>('Vendedor');
   const [isActive, setIsActive] = useState<'SI' | 'NO'>('SI');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
@@ -110,11 +110,12 @@ export const UserFormModal: React.FC<UserFormModalProps> = ({ isOpen, onClose, o
               <select 
                 id="role" 
                 value={role} 
-                onChange={e => setRole(e.target.value as 'Vendedor' | 'Admin')} 
+                onChange={e => setRole(e.target.value as 'Vendedor' | 'Admin' | 'Cajero')} 
                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
                 disabled={isSaving}
               >
                 <option value="Vendedor">Vendedor</option>
+                <option value="Cajero">Cajero</option>
                 <option value="Admin">Admin</option>
               </select>
             </div>

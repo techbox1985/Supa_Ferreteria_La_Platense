@@ -883,8 +883,12 @@ const AppContent: React.FC = () => {
     }, [openSaleInPosEditor]);
 
     const renderView = () => {
-        if (currentView.startsWith('admin-') || currentView === 'low-stock') {
-            const subView = currentView === 'low-stock' ? 'low-stock-admin' : currentView.slice(6);
+        // Cajero no tiene acceso al POS todavía — mostrar historial como vista segura
+        const effectiveView = (currentUser?.Rol === 'Cajero' && currentView === 'pos')
+            ? 'sales-history'
+            : currentView;
+        if (effectiveView.startsWith('admin-') || effectiveView === 'low-stock') {
+            const subView = effectiveView === 'low-stock' ? 'low-stock-admin' : effectiveView.slice(6);
             return (
                 <AdminPanelView
                     products={products}
@@ -902,7 +906,7 @@ const AppContent: React.FC = () => {
                 />
             );
         }
-        switch (currentView) {
+        switch (effectiveView) {
             case 'pos':
                 return (
                     <POSView

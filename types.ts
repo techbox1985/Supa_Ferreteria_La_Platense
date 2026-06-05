@@ -176,7 +176,7 @@ export interface User {
   ID_Usuario: string;
   Nombre: string;
   PIN: string;
-  Rol: 'Admin' | 'Vendedor';
+  Rol: 'Admin' | 'Vendedor' | 'Cajero';
   Activo: 'SI' | 'NO';
 }
 
