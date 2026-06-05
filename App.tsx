@@ -9,6 +9,7 @@ const CustomersView = React.lazy(() => import('./components/customers/CustomersV
 const ExpensesView = React.lazy(() => import('./components/expenses/ExpensesView'));
 const AdminPanelView = React.lazy(() => import('./components/admin/AdminPanelView'));
 const SalesHistoryView = React.lazy(() => import('./components/sales-history/SalesHistoryView'));
+const CashierPendingSalesView = React.lazy(() => import('./components/cashier/CashierPendingSalesView'));
 import { BillingCopilotWindow } from './components/shared/BillingCopilotWindow';
 import { CustomerStatementModal } from './components/customers/CustomerStatementModal';
 import { SyncQueueModal } from './components/sync/SyncQueueModal';
@@ -73,7 +74,7 @@ const AppContent: React.FC = () => {
     const initialLoadInFlightRef = useRef(false);
 
     type View =
-        | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history'
+        | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales'
         | 'low-stock'
         | 'admin-products' | 'admin-quick-edit' | 'admin-stock-entry' | 'admin-suppliers'
         | 'admin-users' | 'admin-shifts' | 'admin-monthly-billing' | 'admin-top-products'
@@ -883,9 +884,9 @@ const AppContent: React.FC = () => {
     }, [openSaleInPosEditor]);
 
     const renderView = () => {
-        // Cajero no tiene acceso al POS todavía — mostrar historial como vista segura
-        const effectiveView = (currentUser?.Rol === 'Cajero' && currentView === 'pos')
-            ? 'sales-history'
+        // Cajero no tiene acceso al POS todavia: mostrar pedidos pendientes como vista segura.
+        const effectiveView = (currentUser?.Rol === 'Cajero' && currentView !== 'cashier-pending-sales')
+            ? 'cashier-pending-sales'
             : currentView;
         if (effectiveView.startsWith('admin-') || effectiveView === 'low-stock') {
             const subView = effectiveView === 'low-stock' ? 'low-stock-admin' : effectiveView.slice(6);
@@ -966,6 +967,9 @@ const AppContent: React.FC = () => {
                         accountTransactions={accountTransactions}
                     />
                 );
+
+            case 'cashier-pending-sales':
+                return <CashierPendingSalesView />;
 
             default:
                 return null;

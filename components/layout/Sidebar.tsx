@@ -2,7 +2,7 @@ import React from 'react';
 import { Icon } from '../ui/Icon';
 
 type View =
-    | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history'
+    | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales'
     | 'low-stock'
     | 'admin-products' | 'admin-quick-edit' | 'admin-stock-entry' | 'admin-suppliers'
     | 'admin-users' | 'admin-shifts' | 'admin-monthly-billing' | 'admin-top-products'
@@ -64,6 +64,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                         iconPath="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l.383-1.437M7.5 14.25L5.106 5.165A2.25 2.25 0 002.894 3H2.25"
                         isActive={currentView === 'pos'}
                         onClick={() => onNavigate('pos')}
+                    />
+                )}
+                {(currentUser?.Rol === 'Cajero' || currentUser?.Rol === 'Admin') && (
+                    <SidebarItem
+                        label="Pedidos pendientes"
+                        iconPath="M9 12h6m-6 4.5h6m2.25 4.5H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3h7.5L19.5 8.25v10.5A2.25 2.25 0 0117.25 21z"
+                        isActive={currentView === 'cashier-pending-sales'}
+                        onClick={() => onNavigate('cashier-pending-sales')}
                     />
                 )}
                 <SidebarItem
