@@ -523,5 +523,5 @@ export interface PendingSale {
 /** Payload mínimo para crear un pedido pendiente desde el POS */
 export type CreatePendingSaleInput = Omit<
   PendingSale,
-  'id' | 'pending_number' | 'cashier_id' | 'cashier_name_snapshot' | 'claimed_at' | 'paid_at' | 'cancelled_at' | 'converted_sale_id' | 'created_at' | 'updated_at'
+  'id' | 'pending_number' | 'cashier_id' | 'cashier_name_snapshot' | 'claimed_at' | 'paid_at' | 'cancelled_at' | 'converted_sale_id' | 'created_at' | 'updated_at' | 'items'
 > & { items: Omit<PendingSaleItem, 'id' | 'pending_sale_id' | 'created_at'>[] };

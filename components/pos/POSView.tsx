@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useContext, useCallback, useRef, useEffect } from 'react';
-import { Product, CartItem, Customer, Sale } from '../../types';
+import { Product, CartItem, Customer, Sale, CreatePendingSaleInput } from '../../types';
 import { ProductCard } from './ProductCard';
 import { Cart } from './Cart';
 import { Icon } from '../ui/Icon';
@@ -108,6 +108,51 @@ const POSView: React.FC<POSViewProps> = ({
     } catch {}
     onClearCart();
   }, [onClearCart, currentUser, activeShift]);
+
+  // Handler para enviar el carrito como pedido pendiente de cobro (solo Vendedor)
+  const handleSendToCashier = useCallback(async () => {
+    if (cart.length === 0) {
+      addToast('El carrito está vacío.', 'error');
+      return;
+    }
+    const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    if (cartTotal <= 0) {
+      addToast('El total del carrito debe ser mayor a cero.', 'error');
+      return;
+    }
+    const pendingSaleInput: CreatePendingSaleInput = {
+      status: 'waiting',
+      seller_id: currentUser?.ID_Usuario || null,
+      seller_name_snapshot: currentUser?.Nombre || null,
+      customer_id: null,
+      customer_name_snapshot: 'Consumidor Final',
+      customer_document_snapshot: null,
+      shift_id: activeShift?.ID_Turno || null,
+      subtotal: cartTotal,
+      adjustment_amount: 0,
+      total: cartTotal,
+      notes: null,
+      sent_to_cashier_at: new Date(),
+      items: cart.map((item) => ({
+        product_id: item.product.id || null,
+        product_code: item.product.cod || null,
+        product_name_snapshot: item.product.Producto || 'Producto',
+        quantity: item.quantity,
+        unit_price: item.price,
+        line_total: item.quantity * item.price,
+      })),
+    };
+    try {
+      await api.addPendingSaleSupabase(pendingSaleInput);
+      const key = getCartDraftKey();
+      try { localStorage.removeItem(key); } catch {}
+      onClearCart();
+      addToast('Pedido enviado a caja correctamente.', 'success');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Error al enviar el pedido.';
+      addToast(`Error al enviar a caja: ${errorMessage}`, 'error');
+    }
+  }, [cart, currentUser, activeShift, addToast, onClearCart, getCartDraftKey]);
   // Declaración de estados principales
   const [isCheckoutOpen, setCheckoutOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -507,6 +552,7 @@ const categoryOptions = useMemo(() => {
             setIsBudgetMode(true);
             setCheckoutOpen(true);
           }}
+          onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
           onUpdateCartItemDetails={onUpdateCartItemDetails}
         />
       </div>
@@ -571,6 +617,7 @@ const categoryOptions = useMemo(() => {
                 setCheckoutOpen(true);
                 setIsMobileCartOpen(false);
               }}
+              onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
               onUpdateCartItemDetails={onUpdateCartItemDetails}
             />
           </div>

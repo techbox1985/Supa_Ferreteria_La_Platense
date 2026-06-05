@@ -11,6 +11,7 @@ interface CartProps {
   onCheckout: () => void;
   onBudget: () => void;
   onUpdateCartItemDetails: (productId: string, details: { name?: string; price?: number }) => void;
+  onSendToCashier?: () => void;
 }
 
 const CartEntry: React.FC<{ 
@@ -70,7 +71,7 @@ const CartEntry: React.FC<{
     )
 }
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onBudget, onUpdateCartItemDetails }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onBudget, onUpdateCartItemDetails, onSendToCashier }) => {
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   return (
@@ -85,6 +86,7 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
       
       {/* Checkout section */}
       {cart.length > 0 && (
+        <>
         <div className="border-b-2 border-dashed py-4 flex-shrink-0 flex gap-2 items-stretch">
             <div className="flex-grow bg-gray-50 rounded-lg flex justify-between items-center p-3">
                 <span className="text-xl font-bold text-gray-800">Total</span>
@@ -107,6 +109,17 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
               <span>Presupuestar</span>
             </button>
         </div>
+        {onSendToCashier && (
+          <button
+            onClick={onSendToCashier}
+            disabled={cart.length === 0}
+            className="mt-2 w-full bg-orange-500 text-white py-2 px-3 rounded-lg text-sm font-semibold hover:bg-orange-600 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+          >
+            <Icon path="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" className="w-5 h-5"/>
+            <span>Enviar a caja</span>
+          </button>
+        )}
+        </>
       )}
 
       {/* Items list / Empty state */}
