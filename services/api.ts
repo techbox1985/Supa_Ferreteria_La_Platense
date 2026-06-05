@@ -5428,3 +5428,175 @@ export const getSupplierVsExcelSummary = async (
         missingProducts,
     };
 };
+
+// =============================================================================
+// --- PEDIDOS PENDIENTES DE COBRO (flujo Vendedor → Cajero) ---
+// =============================================================================
+
+/**
+ * Crea un pedido pendiente de cobro a partir del carrito del vendedor.
+ * Inserta cabecera en st_pending_sales y luego los ítems en st_pending_sale_items.
+ * NO toca st_sales, st_sale_items, st_products, st_shifts ni facturación.
+ */
+export const addPendingSaleSupabase = async (
+    input: import('../types').CreatePendingSaleInput
+): Promise<import('../types').PendingSale> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const headerPayload = {
+        status: input.status,
+        seller_id: input.seller_id,
+        seller_name_snapshot: input.seller_name_snapshot,
+        customer_id: input.customer_id || null,
+        customer_name_snapshot: input.customer_name_snapshot,
+        customer_document_snapshot: input.customer_document_snapshot || null,
+        shift_id: input.shift_id || null,
+        subtotal: Number(input.subtotal ?? 0),
+        adjustment_amount: Number(input.adjustment_amount ?? 0),
+        total: Number(input.total ?? 0),
+        notes: input.notes || null,
+        sent_to_cashier_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+    };
+
+    const { data: inserted, error: headerError } = await supabase
+        .from('st_pending_sales')
+        .insert([headerPayload])
+        .select()
+        .single();
+
+    if (headerError) throw headerError;
+
+    if (input.items.length > 0) {
+        const itemsPayload = input.items.map((item) => ({
+            pending_sale_id: inserted.id,
+            product_id: item.product_id || null,
+            product_code: item.product_code || null,
+            product_name_snapshot: item.product_name_snapshot || 'Producto',
+            quantity: Number(item.quantity ?? 0),
+            unit_price: Number(item.unit_price ?? 0),
+            line_total: Number(item.quantity ?? 0) * Number(item.unit_price ?? 0),
+            created_at: new Date().toISOString(),
+        }));
+
+        const { error: itemsError } = await supabase
+            .from('st_pending_sale_items')
+            .insert(itemsPayload);
+
+        if (itemsError) {
+            // Rollback: eliminar la cabecera para no dejar un pedido sin ítems
+            await supabase.from('st_pending_sales').delete().eq('id', inserted.id);
+            throw itemsError;
+        }
+    }
+
+    return {
+        ...inserted,
+        status: inserted.status as import('../types').PendingSaleStatus,
+        items: input.items.map((item) => ({
+            ...item,
+            id: undefined,
+            pending_sale_id: inserted.id,
+        })),
+        sent_to_cashier_at: inserted.sent_to_cashier_at ? new Date(inserted.sent_to_cashier_at) : null,
+        claimed_at: null,
+        paid_at: null,
+        cancelled_at: null,
+        converted_sale_id: null,
+        created_at: new Date(inserted.created_at),
+        updated_at: new Date(inserted.updated_at),
+    } as import('../types').PendingSale;
+};
+
+/**
+ * Obtiene pedidos pendientes con sus ítems.
+ * Por defecto trae los estados 'waiting' y 'claimed'.
+ * NO toca ventas, stock, caja ni facturación.
+ */
+export const getPendingSalesSupabase = async (
+    statusFilter: import('../types').PendingSaleStatus[] = ['waiting', 'claimed']
+): Promise<import('../types').PendingSale[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('st_pending_sales')
+        .select(`
+            *,
+            st_pending_sale_items (
+                id,
+                product_id,
+                product_code,
+                product_name_snapshot,
+                quantity,
+                unit_price,
+                line_total,
+                created_at
+            )
+        `)
+        .in('status', statusFilter)
+        .order('sent_to_cashier_at', { ascending: false, nullsFirst: false });
+
+    if (error) throw error;
+
+    return (data || []).map((row: any): import('../types').PendingSale => ({
+        id: row.id,
+        pending_number: Number(row.pending_number ?? 0),
+        status: row.status as import('../types').PendingSaleStatus,
+        seller_id: row.seller_id || '',
+        seller_name_snapshot: row.seller_name_snapshot || '',
+        cashier_id: row.cashier_id || null,
+        cashier_name_snapshot: row.cashier_name_snapshot || null,
+        customer_id: row.customer_id || null,
+        customer_name_snapshot: row.customer_name_snapshot || 'Consumidor Final',
+        customer_document_snapshot: row.customer_document_snapshot || null,
+        shift_id: row.shift_id || null,
+        subtotal: Number(row.subtotal ?? 0),
+        adjustment_amount: Number(row.adjustment_amount ?? 0),
+        total: Number(row.total ?? 0),
+        notes: row.notes || null,
+        items: (row.st_pending_sale_items || []).map((item: any): import('../types').PendingSaleItem => ({
+            id: item.id,
+            pending_sale_id: row.id,
+            product_id: item.product_id || null,
+            product_code: item.product_code || null,
+            product_name_snapshot: item.product_name_snapshot || '',
+            quantity: Number(item.quantity ?? 0),
+            unit_price: Number(item.unit_price ?? 0),
+            line_total: Number(item.line_total ?? 0),
+            created_at: item.created_at ? new Date(item.created_at) : undefined,
+        })),
+        sent_to_cashier_at: row.sent_to_cashier_at ? new Date(row.sent_to_cashier_at) : null,
+        claimed_at: row.claimed_at ? new Date(row.claimed_at) : null,
+        paid_at: row.paid_at ? new Date(row.paid_at) : null,
+        cancelled_at: row.cancelled_at ? new Date(row.cancelled_at) : null,
+        converted_sale_id: row.converted_sale_id || null,
+        created_at: new Date(row.created_at),
+        updated_at: new Date(row.updated_at),
+    }));
+};
+
+/**
+ * Cancela un pedido pendiente (por el vendedor o el admin).
+ * Cambia status a 'cancelled' y registra cancelled_at.
+ * No borra registros físicamente.
+ * NO toca ventas, stock, caja ni facturación.
+ */
+export const cancelPendingSaleSupabase = async (
+    pendingSaleId: string
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!pendingSaleId) throw new Error('ID de pedido pendiente requerido');
+
+    const { error } = await supabase
+        .from('st_pending_sales')
+        .update({
+            status: 'cancelled',
+            cancelled_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', pendingSaleId)
+        .in('status', ['waiting', 'claimed']); // solo se puede cancelar si no está ya pagado/cancelado
+
+    if (error) throw error;
+};

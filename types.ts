@@ -477,3 +477,51 @@ export interface SupplierVsExcelSummary {
   matchedByBarcode: number;
   missingFromExcel: number;
 }
+
+// ─── Pedidos pendientes de cobro (flujo Vendedor → Cajero) ──────────────────
+
+export type PendingSaleStatus = 'waiting' | 'claimed' | 'paid' | 'cancelled';
+
+export interface PendingSaleItem {
+  id?: string;
+  pending_sale_id: string;
+  product_id: string | null;
+  product_code: string | null;
+  product_name_snapshot: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  created_at?: Date;
+}
+
+export interface PendingSale {
+  id: string;
+  pending_number: number;
+  status: PendingSaleStatus;
+  seller_id: string | null;
+  seller_name_snapshot: string | null;
+  cashier_id: string | null;
+  cashier_name_snapshot: string | null;
+  customer_id: string | null;
+  customer_name_snapshot: string;
+  customer_document_snapshot: string | null;
+  shift_id: string | null;
+  subtotal: number;
+  adjustment_amount: number;
+  total: number;
+  notes: string | null;
+  items: PendingSaleItem[];
+  sent_to_cashier_at: Date | null;
+  claimed_at: Date | null;
+  paid_at: Date | null;
+  cancelled_at: Date | null;
+  converted_sale_id: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+/** Payload mínimo para crear un pedido pendiente desde el POS */
+export type CreatePendingSaleInput = Omit<
+  PendingSale,
+  'id' | 'pending_number' | 'cashier_id' | 'cashier_name_snapshot' | 'claimed_at' | 'paid_at' | 'cancelled_at' | 'converted_sale_id' | 'created_at' | 'updated_at'
+> & { items: Omit<PendingSaleItem, 'id' | 'pending_sale_id' | 'created_at'>[] };
