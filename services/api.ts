@@ -5577,6 +5577,40 @@ export const getPendingSalesSupabase = async (
 };
 
 /**
+ * Toma un pedido pendiente para un cajero.
+ * Solo cambia de 'waiting' a 'claimed' si sigue disponible.
+ * NO toca ventas, stock, caja ni facturaciÃ³n.
+ */
+export const claimPendingSaleSupabase = async (
+    pendingSaleId: string,
+    cashierId: string,
+    cashierName: string
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!pendingSaleId) throw new Error('ID de pedido pendiente requerido');
+    if (!cashierId) throw new Error('ID de cajero requerido');
+
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+        .from('st_pending_sales')
+        .update({
+            status: 'claimed',
+            cashier_id: cashierId,
+            cashier_name_snapshot: cashierName || 'Cajero',
+            claimed_at: now,
+            updated_at: now,
+        })
+        .eq('id', pendingSaleId)
+        .eq('status', 'waiting')
+        .select('id');
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+        throw new Error('El pedido ya fue tomado por otro cajero o no estÃ¡ disponible.');
+    }
+};
+
+/**
  * Cancela un pedido pendiente (por el vendedor o el admin).
  * Cambia status a 'cancelled' y registra cancelled_at.
  * No borra registros físicamente.

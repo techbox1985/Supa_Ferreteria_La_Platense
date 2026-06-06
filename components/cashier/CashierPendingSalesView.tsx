@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { PendingSale } from '../../types';
 import * as api from '../../services/api';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
+import { AuthContext } from '../../contexts/AuthContext';
+import { useToast } from '../../contexts/ToastContext';
 
 const formatCurrency = (value: number) =>
     `$${Number(value || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -29,10 +31,19 @@ const getStatusClasses = (status: PendingSale['status']) =>
         ? 'bg-sky-50 text-sky-700 ring-sky-200'
         : 'bg-amber-50 text-amber-700 ring-amber-200';
 
+const getClaimLabel = (sale: PendingSale, currentUserId?: string) => {
+    if (sale.status !== 'claimed') return null;
+    if (sale.cashier_id && sale.cashier_id === currentUserId) return 'Tomado por vos';
+    return `Tomado por: ${sale.cashier_name_snapshot || 'otro cajero'}`;
+};
+
 const CashierPendingSalesView: React.FC = () => {
+    const { currentUser } = useContext(AuthContext);
+    const { addToast } = useToast();
     const [pendingSales, setPendingSales] = useState<PendingSale[]>([]);
     const [selectedSale, setSelectedSale] = useState<PendingSale | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [claimingSaleId, setClaimingSaleId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     const loadPendingSales = useCallback(async () => {
@@ -53,6 +64,39 @@ const CashierPendingSalesView: React.FC = () => {
     useEffect(() => {
         loadPendingSales();
     }, [loadPendingSales]);
+
+    const handleClaimSale = useCallback(async (sale: PendingSale) => {
+        if (sale.status !== 'waiting') {
+            addToast('El pedido ya no estÃ¡ disponible para tomar.', 'error');
+            await loadPendingSales();
+            return;
+        }
+
+        if (!currentUser?.ID_Usuario) {
+            addToast('No se pudo identificar al cajero actual.', 'error');
+            return;
+        }
+
+        setClaimingSaleId(sale.id);
+        setError(null);
+
+        try {
+            await api.claimPendingSaleSupabase(
+                sale.id,
+                currentUser.ID_Usuario,
+                currentUser.Nombre || 'Cajero'
+            );
+            addToast('Pedido tomado correctamente.', 'success');
+            await loadPendingSales();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'No se pudo tomar el pedido.';
+            setError(message);
+            addToast(message, 'error');
+            await loadPendingSales();
+        } finally {
+            setClaimingSaleId(null);
+        }
+    }, [addToast, currentUser, loadPendingSales]);
 
     const summary = useMemo(() => {
         const total = pendingSales.reduce((sum, sale) => sum + sale.total, 0);
@@ -133,6 +177,7 @@ const CashierPendingSalesView: React.FC = () => {
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Items</th>
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Total</th>
                                     <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Enviado</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Toma</th>
                                     <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Detalle</th>
                                 </tr>
                             </thead>
@@ -150,6 +195,25 @@ const CashierPendingSalesView: React.FC = () => {
                                         <td className="whitespace-nowrap px-4 py-3 text-right text-sm text-slate-600">{sale.items.length}</td>
                                         <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-semibold text-slate-900">{formatCurrency(sale.total)}</td>
                                         <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">{formatDateTime(sale.sent_to_cashier_at)}</td>
+                                        <td className="whitespace-nowrap px-4 py-3 text-sm">
+                                            {sale.status === 'waiting' ? (
+                                                <button
+                                                    onClick={() => handleClaimSale(sale)}
+                                                    disabled={claimingSaleId === sale.id}
+                                                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+                                                >
+                                                    <Icon
+                                                        path="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                        className={`h-4 w-4 ${claimingSaleId === sale.id ? 'animate-spin' : ''}`}
+                                                    />
+                                                    {claimingSaleId === sale.id ? 'Tomando...' : 'Tomar pedido'}
+                                                </button>
+                                            ) : (
+                                                <span className="text-sm font-medium text-slate-600">
+                                                    {getClaimLabel(sale, currentUser?.ID_Usuario) || 'Tomado'}
+                                                </span>
+                                            )}
+                                        </td>
                                         <td className="whitespace-nowrap px-4 py-3 text-right">
                                             <button
                                                 onClick={() => setSelectedSale(sale)}
