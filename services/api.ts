@@ -3449,10 +3449,49 @@ export const isSaleFullyReturnedByQuantity = async (saleId: string): Promise<boo
 
 export const annulSaleSupabase = async (saleId: string): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
-
     const normalizedSaleId = String(saleId || '').trim();
     if (!normalizedSaleId) throw new Error('ID de venta inválido para anulación.');
 
+    // 1. Cargar la venta completa para validar
+    const { data: sale, error: fetchError } = await supabase
+        .from('st_sales')
+        .select('*')
+        .eq('id', normalizedSaleId)
+        .maybeSingle();
+    
+    if (fetchError) throw fetchError;
+    if (!sale) throw new Error('Venta no encontrada.');
+
+    // 2. Validar que no esté ya anulada
+    if (String((sale as any).status || '').trim() === 'annulled') {
+        throw new Error('La venta ya está anulada.');
+    }
+
+    // 3. Validar que no esté facturada (bloquear anulación directa)
+    const hasBillingEvidence = Boolean(
+        (sale as any).billing_cae ||
+        (sale as any).billing_number ||
+        (sale as any).factura_info
+    );
+    if (hasBillingEvidence) {
+        throw new Error('Venta facturada: debe usar Nota de Crédito en lugar de anulación directa.');
+    }
+
+    // 4. Validar que haya customer_id real
+    const customerId = (sale as any).customer_id;
+    if (!customerId || String(customerId) === '0' || String(customerId).startsWith('CLAD')) {
+        throw new Error('No se puede anular: la venta no tiene un cliente válido asociado.');
+    }
+
+    // 5. Obtener items de la venta para devolver stock
+    const { data: saleItems, error: itemsError } = await supabase
+        .from('st_sale_items')
+        .select('product_id, quantity')
+        .eq('sale_id', normalizedSaleId);
+    
+    if (itemsError) throw itemsError;
+
+    // 6. Marcar venta como anulada
     const { data, error } = await supabase
         .from('st_sales')
         .update({ 
@@ -3462,10 +3501,39 @@ export const annulSaleSupabase = async (saleId: string): Promise<void> => {
         .eq('id', normalizedSaleId)
         .select('id, status')
         .maybeSingle();
-
+    
     if (error) throw error;
     if (!data || String((data as any).status || '').trim() !== 'annulled') {
         throw new Error('No se pudo confirmar la anulación de la venta en st_sales.');
+    }
+
+    // 7. Devolver stock si hay items
+    if (saleItems && saleItems.length > 0) {
+        const itemsToRestore = saleItems.map((item: any) => ({
+            product: { cod: String(item.product_id || '') },
+            quantity: Number(item.quantity || 0)
+        }));
+        await restoreStockFromCreditNoteItems(itemsToRestore as CartItem[]);
+    }
+
+    // 8. Crear movimiento de saldo a favor en cuenta corriente
+    const totalAmount = Number((sale as any).total || 0);
+    if (totalAmount > 0) {
+        await supabase
+            .from('st_account_transactions')
+            .insert([{
+                customer_id: customerId,
+                type: 'Anulación de Venta',
+                description: `Saldo a favor por anulación de venta #${normalizedSaleId}`,
+                debit: 0,
+                credit: totalAmount,
+                original_sale_id: normalizedSaleId,
+                shift_id: (sale as any).shift_id || null,
+                items: saleItems ? JSON.stringify(saleItems) : null,
+                factura_info: null,
+                date: new Date().toISOString(),
+                created_at: new Date().toISOString(),
+            }]);
     }
 };
 
