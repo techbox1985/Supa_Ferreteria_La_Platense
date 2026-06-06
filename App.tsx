@@ -890,7 +890,7 @@ const AppContent: React.FC = () => {
     }, [openSaleInPosEditor]);
 
     const renderView = () => {
-        const cashierAllowedViews: View[] = ['cashier-pending-sales', 'sales-history', 'customers'];
+        const cashierAllowedViews: View[] = ['cashier-pending-sales', 'sales-history', 'customers', 'expenses'];
         const effectiveView = (currentUser?.Rol === 'Cajero' && !cashierAllowedViews.includes(currentView))
             ? 'cashier-pending-sales'
             : currentView;

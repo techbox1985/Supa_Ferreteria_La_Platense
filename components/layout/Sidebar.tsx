@@ -80,14 +80,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                     isActive={currentView === 'sales-history'}
                     onClick={() => onNavigate('sales-history')}
                 />
-                {currentUser?.Rol !== 'Cajero' && (
-                    <SidebarItem
-                        label="Gastos"
-                        iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
-                        isActive={currentView === 'expenses'}
-                        onClick={() => onNavigate('expenses')}
-                    />
-                )}
+                <SidebarItem
+                    label="Gastos"
+                    iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
+                    isActive={currentView === 'expenses'}
+                    onClick={() => onNavigate('expenses')}
+                />
                 <SidebarItem
                     label="Clientes"
                     iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
