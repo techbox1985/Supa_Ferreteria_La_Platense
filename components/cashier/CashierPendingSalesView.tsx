@@ -1,10 +1,16 @@
 import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { PendingSale } from '../../types';
+import { CartItem, Customer, PendingSale, Sale } from '../../types';
 import * as api from '../../services/api';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { AuthContext } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
+import { CheckoutModal } from '../pos/CheckoutModal';
+
+interface CashierPendingSalesViewProps {
+    customers: Customer[];
+    refreshData: () => void | Promise<void>;
+}
 
 const formatCurrency = (value: number) =>
     `$${Number(value || 0).toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -37,11 +43,30 @@ const getClaimLabel = (sale: PendingSale, currentUserId?: string) => {
     return `Tomado por: ${sale.cashier_name_snapshot || 'otro cajero'}`;
 };
 
-const CashierPendingSalesView: React.FC = () => {
-    const { currentUser } = useContext(AuthContext);
+const canCurrentCashierCharge = (sale: PendingSale, currentUserId?: string) =>
+    sale.status === 'claimed' &&
+    Boolean(sale.cashier_id) &&
+    sale.cashier_id === currentUserId;
+
+const buildCheckoutCartFromPendingSale = (sale: PendingSale): CartItem[] =>
+    sale.items.map((item, index) => ({
+        product: {
+            id: item.product_id || undefined,
+            cod: item.product_code || `PENDING_${sale.id}_${index}`,
+            Producto: item.product_name_snapshot || 'Producto',
+            Precio: item.unit_price,
+            'Precio Final': item.unit_price,
+        },
+        quantity: item.quantity,
+        price: item.unit_price,
+    }));
+
+const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ customers, refreshData }) => {
+    const { currentUser, activeShift } = useContext(AuthContext);
     const { addToast } = useToast();
     const [pendingSales, setPendingSales] = useState<PendingSale[]>([]);
     const [selectedSale, setSelectedSale] = useState<PendingSale | null>(null);
+    const [saleToCharge, setSaleToCharge] = useState<PendingSale | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [claimingSaleId, setClaimingSaleId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
@@ -103,6 +128,113 @@ const CashierPendingSalesView: React.FC = () => {
         const itemCount = pendingSales.reduce((sum, sale) => sum + sale.items.length, 0);
         return { total, itemCount };
     }, [pendingSales]);
+
+    const checkoutCart = useMemo(() => (
+        saleToCharge ? buildCheckoutCartFromPendingSale(saleToCharge) : []
+    ), [saleToCharge]);
+
+    const handleFinalizePendingSale = useCallback(async (checkoutSale: Sale, generateInvoice: boolean) => {
+        if (!saleToCharge) throw new Error('No hay pedido seleccionado para cobrar.');
+        if (!currentUser?.ID_Usuario) throw new Error('No se pudo identificar al cajero actual.');
+        if (saleToCharge.status !== 'claimed') throw new Error('El pedido no esta tomado.');
+        if (saleToCharge.cashier_id !== currentUser.ID_Usuario) {
+            throw new Error('El pedido fue tomado por otro cajero.');
+        }
+        if (!saleToCharge.items || saleToCharge.items.length === 0) {
+            throw new Error('El pedido no tiene items.');
+        }
+        if (Number(saleToCharge.total || 0) <= 0) {
+            throw new Error('El total del pedido debe ser mayor a cero.');
+        }
+
+        const latestClaimedSales = await api.getPendingSalesSupabase(['claimed']);
+        const latestPendingSale = latestClaimedSales.find((item) => item.id === saleToCharge.id);
+        if (!latestPendingSale) {
+            throw new Error('El pedido ya no esta disponible para cobrar.');
+        }
+        if (latestPendingSale.status !== 'claimed' || latestPendingSale.cashier_id !== currentUser.ID_Usuario) {
+            throw new Error('El pedido ya no esta tomado por el cajero actual.');
+        }
+
+        let operationalShift = activeShift;
+        if (!operationalShift) {
+            operationalShift = await api.getAnyActiveShiftSupabase();
+        }
+
+        if (!operationalShift) {
+            throw new Error('No hay un turno activo. No se puede registrar la venta.');
+        }
+
+        const saleWithPendingData: Sale = {
+            ...checkoutSale,
+            items: checkoutCart,
+            itemCount: checkoutCart.reduce((sum, item) => sum + item.quantity, 0),
+            subtotal: Number(saleToCharge.subtotal ?? checkoutSale.subtotal ?? 0),
+            adjustmentAmount: Number(saleToCharge.adjustment_amount ?? checkoutSale.adjustmentAmount ?? 0),
+            total: Number(saleToCharge.total ?? checkoutSale.total ?? 0),
+            shiftId: operationalShift.ID_Turno,
+        };
+
+        let finalSaleObject: Sale = { ...saleWithPendingData };
+
+        if (generateInvoice) {
+            addToast('Generando factura electronica...', 'info');
+            const invoiceResponse = await api.generateElectronicInvoice(finalSaleObject);
+
+            if (invoiceResponse?.status !== 'facturado' || !invoiceResponse?.data) {
+                const providerMessage = invoiceResponse?.message || 'No se pudo obtener un comprobante fiscal valido.';
+                const reason = invoiceResponse?.reason ? ` (${invoiceResponse.reason})` : '';
+                const debugDetail = Array.isArray(invoiceResponse?.debug) && invoiceResponse.debug.length > 0
+                    ? ` Detalle: ${invoiceResponse.debug.join(' | ')}`
+                    : '';
+                throw new Error(`${providerMessage}${reason}.${debugDetail}`);
+            }
+
+            const invoiceData = invoiceResponse.data;
+            const effectiveType = invoiceData?.effectiveType || finalSaleObject.facturacion;
+            if (effectiveType !== finalSaleObject.facturacion) {
+                finalSaleObject.facturacion = effectiveType;
+            }
+            if (!invoiceData || !invoiceData.cae || invoiceData.cae === 'DEV_MODE_NO_CAE') {
+                const providerHint = invoiceData?.message || invoiceData?.error || invoiceResponse?.message || 'Sin detalle adicional del proveedor.';
+                throw new Error(`El proveedor de facturacion respondio sin un CAE. ${providerHint}`);
+            }
+
+            finalSaleObject.facturaInfo = {
+                cae: invoiceData.cae || '',
+                nro: invoiceData.nro || '',
+                vtoCae: invoiceData.vtoCae || '',
+                qrData: invoiceData.qrData || '',
+                fecha: new Date().toLocaleString('es-AR'),
+                url: invoiceData.comprobante_pdf_url || invoiceData.url,
+                ticketUrl: invoiceData.comprobante_ticket_url || invoiceData.ticketUrl,
+            };
+            (finalSaleObject as any).Factura_Ticket_URL =
+                invoiceData.comprobante_ticket_url ||
+                invoiceData.ticketUrl ||
+                '';
+            addToast(`Factura ${invoiceData.nro} generada.`, 'success');
+        }
+
+        const addSaleResult = await api.addSale(finalSaleObject, operationalShift.ID_Turno);
+        const createdSaleId = addSaleResult?.sale_id || finalSaleObject.id;
+
+        await api.markPendingSaleAsPaidSupabase(
+            saleToCharge.id,
+            createdSaleId,
+            currentUser.ID_Usuario,
+            currentUser.Nombre || 'Cajero'
+        );
+
+        addToast('Pedido cobrado correctamente.', 'success');
+        setSaleToCharge(null);
+        await refreshData();
+        await loadPendingSales();
+    }, [activeShift, addToast, checkoutCart, currentUser, loadPendingSales, refreshData, saleToCharge]);
+
+    const handleAddNewCustomerFromCashier = useCallback(() => {
+        addToast('El alta de clientes desde el cobro de Cajero se mantiene para la proxima etapa.', 'info');
+    }, [addToast]);
 
     return (
         <div className="p-4 md:p-6 space-y-5">
@@ -215,6 +347,19 @@ const CashierPendingSalesView: React.FC = () => {
                                             )}
                                         </td>
                                         <td className="whitespace-nowrap px-4 py-3 text-right">
+                                            <div className="flex justify-end gap-2">
+                                            {canCurrentCashierCharge(sale, currentUser?.ID_Usuario) && (
+                                                <button
+                                                    onClick={() => setSaleToCharge(sale)}
+                                                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                                                >
+                                                    <Icon
+                                                        path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z"
+                                                        className="h-4 w-4"
+                                                    />
+                                                    Cobrar
+                                                </button>
+                                            )}
                                             <button
                                                 onClick={() => setSelectedSale(sale)}
                                                 className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-800"
@@ -225,6 +370,7 @@ const CashierPendingSalesView: React.FC = () => {
                                                 />
                                                 Ver
                                             </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -304,6 +450,17 @@ const CashierPendingSalesView: React.FC = () => {
                     </div>
                 )}
             </Modal>
+
+            <CheckoutModal
+                isOpen={!!saleToCharge}
+                onClose={() => setSaleToCharge(null)}
+                cart={checkoutCart}
+                customers={customers}
+                onFinalizeSale={handleFinalizePendingSale}
+                onAddNewCustomer={handleAddNewCustomerFromCashier}
+                saleBeingEdited={null}
+                isBudgetMode={false}
+            />
         </div>
     );
 };

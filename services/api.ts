@@ -2695,6 +2695,7 @@ export const getSales = async (options?: { startDate?: string; endDate?: string;
 
         return {
             ID_Venta: item.id,
+            Nro_Venta: item.sale_number,
             Fecha: item.sold_at,
             ID_Cliente: item.customer_id || '0',
             Nombre_Cliente:
@@ -5607,6 +5608,42 @@ export const claimPendingSaleSupabase = async (
     if (error) throw error;
     if (!data || data.length === 0) {
         throw new Error('El pedido ya fue tomado por otro cajero o no estÃ¡ disponible.');
+    }
+};
+
+/**
+ * Marca un pedido pendiente como pagado luego de crear la venta real.
+ * NO crea venta, NO toca stock, NO toca caja ni facturaciÃ³n.
+ */
+export const markPendingSaleAsPaidSupabase = async (
+    pendingSaleId: string,
+    saleId: string,
+    cashierId: string,
+    cashierName: string
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!pendingSaleId) throw new Error('ID de pedido pendiente requerido');
+    if (!saleId) throw new Error('ID de venta requerido');
+    if (!cashierId) throw new Error('ID de cajero requerido');
+
+    const now = new Date().toISOString();
+    const { data, error } = await supabase
+        .from('st_pending_sales')
+        .update({
+            status: 'paid',
+            paid_at: now,
+            converted_sale_id: saleId,
+            cashier_id: cashierId,
+            cashier_name_snapshot: cashierName || 'Cajero',
+            updated_at: now,
+        })
+        .eq('id', pendingSaleId)
+        .eq('status', 'claimed')
+        .select('id');
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+        throw new Error('No se pudo marcar el pedido como pagado. Puede haber cambiado de estado.');
     }
 };
 

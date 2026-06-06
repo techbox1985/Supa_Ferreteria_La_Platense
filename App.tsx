@@ -476,6 +476,7 @@ const AppContent: React.FC = () => {
 
                 const sale: Sale & { document_type?: string } = {
                     id: saleId,
+                    saleNumber: parseSheetNumber(saleRow.Nro_Venta || saleRow['Nro Venta'] || saleRow.sale_number || saleRow.saleNumber),
                     date: new Date(saleRow.Fecha || saleRow['Fecha']),
                     customer: saleCustomer,
                     subtotal,
@@ -626,6 +627,7 @@ const AppContent: React.FC = () => {
 
                 const sale: Sale & { document_type?: string } = {
                     id: saleId,
+                    saleNumber: parseSheetNumber(saleRow.Nro_Venta || saleRow['Nro Venta'] || saleRow.sale_number || saleRow.saleNumber),
                     date: new Date(saleRow.Fecha || saleRow['Fecha']),
                     customer: saleCustomer,
                     subtotal,
@@ -797,6 +799,7 @@ const AppContent: React.FC = () => {
     const handleOptimisticAddSale = useCallback((sale: Sale) => {
         const rawSaleObject = {
             ID_Venta: sale.id,
+            Nro_Venta: sale.saleNumber,
             Fecha: sale.date,
             ID_Cliente: sale.customer?.Id_Cliente || '0',
             Nombre_Cliente: sale.customer?.['Nombre y Apellido'] || 'Consumidor Final',
@@ -884,8 +887,8 @@ const AppContent: React.FC = () => {
     }, [openSaleInPosEditor]);
 
     const renderView = () => {
-        // Cajero no tiene acceso al POS todavia: mostrar pedidos pendientes como vista segura.
-        const effectiveView = (currentUser?.Rol === 'Cajero' && currentView !== 'cashier-pending-sales')
+        const cashierAllowedViews: View[] = ['cashier-pending-sales', 'sales-history', 'customers'];
+        const effectiveView = (currentUser?.Rol === 'Cajero' && !cashierAllowedViews.includes(currentView))
             ? 'cashier-pending-sales'
             : currentView;
         if (effectiveView.startsWith('admin-') || effectiveView === 'low-stock') {
@@ -969,7 +972,7 @@ const AppContent: React.FC = () => {
                 );
 
             case 'cashier-pending-sales':
-                return <CashierPendingSalesView />;
+                return <CashierPendingSalesView customers={customersWithCalculatedDebt} refreshData={fetchData} />;
 
             default:
                 return null;

@@ -122,6 +122,7 @@ export interface ECheq {
 export interface Sale {
   id: string;
   legacySaleId?: string;
+  saleNumber?: number;
   date: Date;
   customer: Customer | null;
   items: CartItem[];

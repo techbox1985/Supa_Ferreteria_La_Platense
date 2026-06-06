@@ -196,7 +196,9 @@ const SaleRow: React.FC<{
           )}
         </div>
       </td>
-      <td className="px-2 py-4 whitespace-nowrap text-sm font-mono w-20 min-w-[80px]">{sale.id.slice(0, 8)}</td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm font-mono w-20 min-w-[80px]">
+        {sale.saleNumber ? `#${sale.saleNumber}` : sale.id.slice(0, 8)}
+      </td>
       <td className="px-2 py-4 whitespace-nowrap text-sm min-w-[200px]">
         <div className="flex flex-col">
           <span className="text-xs text-gray-500">{new Date(sale.date).toLocaleString('es-AR')}</span>
@@ -537,6 +539,7 @@ export const SalesDashboard: React.FC<
       const customerDoc = customer?.Documento || '';
       const customerId = customer?.Id_Cliente || '';
       const saleId = s.id || '';
+      const saleNumber = s.saleNumber ? String(s.saleNumber) : '';
       const invoiceNro = s.facturaInfo?.nro || '';
       const whatsapp = customer?.Whatsapp || '';
 
@@ -545,6 +548,7 @@ export const SalesDashboard: React.FC<
         customerDoc.toLowerCase().includes(term) ||
         customerId.toLowerCase().includes(term) ||
         saleId.toLowerCase().includes(term) ||
+        saleNumber.includes(term) ||
         invoiceNro.toLowerCase().includes(term) ||
         whatsapp.toLowerCase().includes(term)
       );
