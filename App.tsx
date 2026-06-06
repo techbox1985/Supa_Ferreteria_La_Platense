@@ -257,8 +257,11 @@ const AppContent: React.FC = () => {
         }
 
         const today = getLocalDateString(new Date());
-        void fetchSalesForHistoryDateRange(today, today);
-    }, [currentView, fetchSalesForHistoryDateRange, getLocalDateString]);
+        const startDate = currentUser?.Rol === 'Cajero'
+            ? getLocalDateString(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
+            : today;
+        void fetchSalesForHistoryDateRange(startDate, today);
+    }, [currentUser, currentView, fetchSalesForHistoryDateRange, getLocalDateString]);
 
     useEffect(() => {
         if (!currentUser) {

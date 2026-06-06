@@ -1,8 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useContext, useState, useMemo } from 'react';
 import { Sale, Product, Customer, User, Shift, AccountTransaction } from '../../types';
 import { Icon } from '../ui/Icon';
 import { SalesDashboard } from '../shared/SalesDashboard';
+import { AuthContext } from '../../contexts/AuthContext';
 
 
 interface SalesHistoryViewProps {
@@ -19,6 +20,8 @@ interface SalesHistoryViewProps {
 }
 
 const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, fetchSalesForDateRange, onEditSale, accountTransactions = [] }) => {
+    const { currentUser } = useContext(AuthContext);
+
     // Helper para obtener YYYY-MM-DD en hora local
     const getLocalDateString = (date: Date) => {
         const year = date.getFullYear();
@@ -27,11 +30,15 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
         return `${year}-${month}-${day}`;
     };
 
-    const [startDate, setStartDate] = useState(() => {
+    const getInitialStartDate = () => {
         const now = new Date();
-        // Por defecto: hoy (fecha local del usuario)
+        if (currentUser?.Rol === 'Cajero') {
+            return getLocalDateString(new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000));
+        }
         return getLocalDateString(now);
-    });
+    };
+
+    const [startDate, setStartDate] = useState(getInitialStartDate);
     
     const [endDate, setEndDate] = useState(() => {
         const now = new Date();
