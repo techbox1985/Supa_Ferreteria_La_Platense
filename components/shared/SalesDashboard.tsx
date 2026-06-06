@@ -373,8 +373,8 @@ export const SalesDashboard: React.FC<
   >(new Map());
   const { activeShift, currentUser } = useContext(AuthContext);
   const { addToast } = useToast();
-  // Permisos: permitir eliminar a Admin, Oficina, Encargado
-  const canDeleteSale = currentUser && ['Admin', 'Oficina', 'Encargado'].includes(currentUser.Rol);
+  // Permisos: permitir eliminar a Admin, Oficina, Encargado y Cajero
+  const canDeleteSale = currentUser && ['Admin', 'Oficina', 'Encargado', 'Cajero'].includes(currentUser.Rol);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -2162,8 +2162,8 @@ export const SalesDashboard: React.FC<
                   </button>
 
                   {/* Restaurado botón Eliminar Venta - PROMPT 013 */}
-                  {/* Solo mostrar Eliminar Venta si el usuario es Admin */}
-                  {currentUser?.Rol === 'Admin' && (
+                  {/* Solo mostrar Eliminar Venta si el usuario tiene permiso */}
+                  {canDeleteSale && (
                     <button
                       onClick={() => {
                         const id = (selectedItemForActions.item as Sale).id;
