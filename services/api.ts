@@ -5744,13 +5744,27 @@ export const cancelPendingSaleSupabase = async (
 // --- PEDIDOS RECIBIDOS DESDE TIENDA EXTERNA ---
 // =============================================================================
 
-const readStoreOrderItem = (rawPayload: any) => {
-    const firstItem = Array.isArray(rawPayload?.items) ? rawPayload.items[0] : null;
-    return {
-        sku: String(firstItem?.sku || '').trim(),
-        productName: String(firstItem?.name || firstItem?.product_name || firstItem?.title || '').trim(),
-        quantity: Number(firstItem?.quantity ?? firstItem?.qty ?? 0),
-    };
+type StoreOrderRawItem = {
+    sku: string;
+    productName: string;
+    quantity: number;
+    subtotal: number;
+};
+
+const readStoreOrderItems = (rawPayload: any): StoreOrderRawItem[] => {
+    const rawItems = Array.isArray(rawPayload?.items) ? rawPayload.items : [];
+    return rawItems.map((item: any): StoreOrderRawItem => {
+        const quantity = Number(item?.quantity ?? item?.qty ?? 0);
+        const unitPrice = Number(item?.price ?? item?.unit_price ?? item?.unitPrice ?? 0);
+        const subtotal = Number(item?.subtotal ?? item?.line_total ?? item?.total ?? (Number.isFinite(unitPrice) ? unitPrice * quantity : 0));
+
+        return {
+            sku: String(item?.sku || '').trim(),
+            productName: String(item?.name || item?.product_name || item?.title || '').trim(),
+            quantity: Number.isFinite(quantity) ? quantity : 0,
+            subtotal: Number.isFinite(subtotal) ? subtotal : 0,
+        };
+    });
 };
 
 const readStoreCustomer = (row: any) => {
@@ -5779,9 +5793,29 @@ const mapStoreIncomingOrderRow = (
     row: any,
     productByCode: Map<string, any>
 ): import('../types').StoreIncomingOrder => {
-    const item = readStoreOrderItem(row.raw_payload);
+    const items = readStoreOrderItems(row.raw_payload);
+    const firstItem = items[0] || { sku: '', productName: '', quantity: 0, subtotal: 0 };
     const customer = readStoreCustomer(row);
-    const matchedProduct = item.sku ? productByCode.get(item.sku) || null : null;
+    const mappedItems = items.map((item): import('../types').StoreIncomingOrderItem => {
+        const matchedProduct = item.sku ? productByCode.get(item.sku) || null : null;
+
+        return {
+            sku: item.sku,
+            product_name: item.productName,
+            quantity: item.quantity,
+            subtotal: item.subtotal,
+            matched_product: matchedProduct ? {
+                id: String(matchedProduct.id || ''),
+                cod: String(matchedProduct.cod || ''),
+                name: String(matchedProduct.name || ''),
+                current_stock: Number(matchedProduct.current_stock ?? 0),
+                is_active: Boolean(matchedProduct.is_active ?? true),
+                is_online: Boolean(matchedProduct.is_online ?? false),
+            } : null,
+        };
+    });
+    const firstMatchedProduct = mappedItems[0]?.matched_product || null;
+    const totalQuantity = mappedItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 
     return {
         id: String(row.id || ''),
@@ -5799,17 +5833,12 @@ const mapStoreIncomingOrderRow = (
         processed_at: row.processed_at ? new Date(row.processed_at) : null,
         notes: row.notes || null,
         raw_payload: row.raw_payload || {},
-        item_sku: item.sku,
-        item_product_name: item.productName,
-        item_quantity: Number.isFinite(item.quantity) ? item.quantity : 0,
-        matched_product: matchedProduct ? {
-            id: String(matchedProduct.id || ''),
-            cod: String(matchedProduct.cod || ''),
-            name: String(matchedProduct.name || ''),
-            current_stock: Number(matchedProduct.current_stock ?? 0),
-            is_active: Boolean(matchedProduct.is_active ?? true),
-            is_online: Boolean(matchedProduct.is_online ?? false),
-        } : null,
+        item_sku: firstItem.sku,
+        item_product_name: firstItem.productName,
+        item_quantity: Number.isFinite(firstItem.quantity) ? firstItem.quantity : 0,
+        matched_product: firstMatchedProduct,
+        items: mappedItems,
+        total_quantity: totalQuantity,
         created_at: row.created_at ? new Date(row.created_at) : null,
         updated_at: row.updated_at ? new Date(row.updated_at) : null,
     };
@@ -5829,7 +5858,7 @@ export const getStoreIncomingOrdersSupabase = async (): Promise<import('../types
     const rows = Array.isArray(data) ? data : [];
     const skus = Array.from(new Set(
         rows
-            .map((row: any) => readStoreOrderItem(row.raw_payload).sku)
+            .flatMap((row: any) => readStoreOrderItems(row.raw_payload).map((item) => item.sku))
             .filter(Boolean)
     ));
 
@@ -5844,8 +5873,10 @@ export const getStoreIncomingOrdersSupabase = async (): Promise<import('../types
         productByCode = new Map((products || []).map((product: any) => [String(product.cod || '').trim(), product]));
     }
 
-    return rows
-        .map((row: any) => mapStoreIncomingOrderRow(row, productByCode))
+    const mappedOrders: import('../types').StoreIncomingOrder[] = rows
+        .map((row: any) => mapStoreIncomingOrderRow(row, productByCode));
+
+    return mappedOrders
         .sort((a, b) => {
             if (a.status === 'pending' && b.status !== 'pending') return -1;
             if (a.status !== 'pending' && b.status === 'pending') return 1;
@@ -5854,22 +5885,14 @@ export const getStoreIncomingOrdersSupabase = async (): Promise<import('../types
 };
 
 export const processStoreIncomingOrderSupabase = async (
-    orderId: string,
-    productId: string,
-    quantity: number
+    orderId: string
 ): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     if (!orderId) throw new Error('ID de pedido requerido');
-    if (!productId) throw new Error('Producto interno requerido');
-
-    const safeQuantity = Number(quantity);
-    if (!Number.isFinite(safeQuantity) || safeQuantity <= 0) {
-        throw new Error('Cantidad inválida para procesar el pedido.');
-    }
 
     const { data: order, error: orderError } = await supabase
         .from('store_incoming_orders')
-        .select('id, purchase_id, status, stock_processed, notes')
+        .select('id, purchase_id, status, stock_processed, notes, raw_payload')
         .eq('id', orderId)
         .maybeSingle();
 
@@ -5879,22 +5902,45 @@ export const processStoreIncomingOrderSupabase = async (
         throw new Error('El pedido ya fue procesado o no está disponible.');
     }
 
-    const { data: product, error: productError } = await supabase
+    const items = readStoreOrderItems(order.raw_payload);
+    if (items.length === 0) {
+        throw new Error('El pedido no tiene items para procesar.');
+    }
+
+    const qtyBySku = new Map<string, number>();
+    for (const item of items) {
+        const sku = String(item.sku || '').trim();
+        const quantity = Number(item.quantity);
+        if (!sku) throw new Error('Todos los productos del pedido deben tener SKU.');
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            throw new Error('Todos los productos del pedido deben tener cantidad valida.');
+        }
+        qtyBySku.set(sku, (qtyBySku.get(sku) || 0) + quantity);
+    }
+
+    const skus = Array.from(qtyBySku.keys());
+    const { data: products, error: productError } = await supabase
         .from('st_products')
         .select('id, cod, name, current_stock')
-        .eq('id', productId)
-        .maybeSingle();
+        .in('cod', skus);
 
     if (productError) throw productError;
-    if (!product) throw new Error('Producto interno no encontrado.');
 
-    const currentStock = Number(product.current_stock ?? 0);
-    if (currentStock < safeQuantity) {
-        throw new Error('Stock insuficiente para procesar el pedido.');
+    const productBySku = new Map((products || []).map((product: any) => [String(product.cod || '').trim(), product]));
+    for (const sku of skus) {
+        const product = productBySku.get(sku);
+        if (!product) throw new Error(`Producto no encontrado por SKU: ${sku}.`);
+
+        const requiredQuantity = Number(qtyBySku.get(sku) || 0);
+        const currentStock = Number(product.current_stock ?? 0);
+        if (currentStock < requiredQuantity) {
+            throw new Error(`Stock insuficiente para SKU ${sku}.`);
+        }
     }
 
     const now = new Date().toISOString();
-    const processingNote = `Pedido tienda ${order.purchase_id || order.id} procesado. Stock descontado: ${safeQuantity}.`;
+    const totalQuantity = Array.from(qtyBySku.values()).reduce((sum, qty) => sum + qty, 0);
+    const processingNote = `Pedido tienda ${order.purchase_id || order.id} procesado. Stock descontado: ${totalQuantity} items.`;
     const notes = [order.notes, processingNote].filter(Boolean).join('\n');
 
     const { data: updatedOrder, error: updateOrderError } = await supabase
@@ -5916,18 +5962,46 @@ export const processStoreIncomingOrderSupabase = async (
         throw new Error('El pedido ya fue procesado o no está disponible.');
     }
 
-    const newStock = currentStock - safeQuantity;
-    const { data: updatedProduct, error: updateProductError } = await supabase
-        .from('st_products')
-        .update({
-            current_stock: newStock,
-            updated_at: now,
-        })
-        .eq('id', productId)
-        .eq('current_stock', currentStock)
-        .select('id');
+    const appliedStockUpdates: Array<{ id: string; current_stock: number }> = [];
 
-    if (updateProductError || !updatedProduct || updatedProduct.length === 0) {
+    try {
+        for (const sku of skus) {
+            const product = productBySku.get(sku);
+            const currentStock = Number(product.current_stock ?? 0);
+            const requiredQuantity = Number(qtyBySku.get(sku) || 0);
+            const newStock = currentStock - requiredQuantity;
+
+            const { data: updatedProduct, error: updateProductError } = await supabase
+                .from('st_products')
+                .update({
+                    current_stock: newStock,
+                    updated_at: now,
+                })
+                .eq('id', product.id)
+                .eq('current_stock', currentStock)
+                .select('id');
+
+            if (updateProductError || !updatedProduct || updatedProduct.length === 0) {
+                if (updateProductError) throw updateProductError;
+                throw new Error(`No se pudo descontar stock para SKU ${sku}. El producto pudo haber cambiado.`);
+            }
+
+            appliedStockUpdates.push({
+                id: String(product.id),
+                current_stock: currentStock,
+            });
+        }
+    } catch (stockError) {
+        for (const applied of appliedStockUpdates.reverse()) {
+            await supabase
+                .from('st_products')
+                .update({
+                    current_stock: applied.current_stock,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', applied.id);
+        }
+
         await supabase
             .from('store_incoming_orders')
             .update({
@@ -5939,7 +6013,6 @@ export const processStoreIncomingOrderSupabase = async (
             })
             .eq('id', orderId);
 
-        if (updateProductError) throw updateProductError;
-        throw new Error('No se pudo descontar stock. El producto pudo haber cambiado; volvé a refrescar.');
+        throw stockError;
     }
 };

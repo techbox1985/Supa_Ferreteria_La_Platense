@@ -539,6 +539,14 @@ export interface StoreIncomingOrderProductMatch {
   is_online: boolean;
 }
 
+export interface StoreIncomingOrderItem {
+  sku: string;
+  product_name: string;
+  quantity: number;
+  subtotal: number;
+  matched_product: StoreIncomingOrderProductMatch | null;
+}
+
 export interface StoreIncomingOrder {
   id: string;
   purchase_id: string | number | null;
@@ -559,6 +567,8 @@ export interface StoreIncomingOrder {
   item_product_name: string;
   item_quantity: number;
   matched_product: StoreIncomingOrderProductMatch | null;
+  items: StoreIncomingOrderItem[];
+  total_quantity: number;
   created_at: Date | null;
   updated_at: Date | null;
 }
