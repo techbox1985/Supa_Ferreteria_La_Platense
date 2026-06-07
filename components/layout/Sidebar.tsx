@@ -2,7 +2,7 @@ import React from 'react';
 import { Icon } from '../ui/Icon';
 
 type View =
-    | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales'
+    | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales' | 'store-orders'
     | 'low-stock'
     | 'admin-products' | 'admin-quick-edit' | 'admin-stock-entry' | 'admin-suppliers'
     | 'admin-users' | 'admin-shifts' | 'admin-monthly-billing' | 'admin-top-products'
@@ -72,6 +72,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                         iconPath="M9 12h6m-6 4.5h6m2.25 4.5H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3h7.5L19.5 8.25v10.5A2.25 2.25 0 0117.25 21z"
                         isActive={currentView === 'cashier-pending-sales'}
                         onClick={() => onNavigate('cashier-pending-sales')}
+                    />
+                )}
+                {(currentUser?.Rol === 'Cajero' || currentUser?.Rol === 'Admin') && (
+                    <SidebarItem
+                        label="Pedidos tienda"
+                        iconPath="M8.25 18.75a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h6m-9 0H3.375a1.125 1.125 0 01-1.125-1.125V14.25m17.25 4.5a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m3 0h1.125c.621 0 1.125-.504 1.125-1.125V14.25m-17.25 4.5h12.75m0 0v-4.125c0-.621-.504-1.125-1.125-1.125H11.25c-.621 0-1.125.504-1.125 1.125v4.125"
+                        isActive={currentView === 'store-orders'}
+                        onClick={() => onNavigate('store-orders')}
                     />
                 )}
                 <SidebarItem

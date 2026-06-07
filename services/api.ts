@@ -5739,3 +5739,207 @@ export const cancelPendingSaleSupabase = async (
 
     if (error) throw error;
 };
+
+// =============================================================================
+// --- PEDIDOS RECIBIDOS DESDE TIENDA EXTERNA ---
+// =============================================================================
+
+const readStoreOrderItem = (rawPayload: any) => {
+    const firstItem = Array.isArray(rawPayload?.items) ? rawPayload.items[0] : null;
+    return {
+        sku: String(firstItem?.sku || '').trim(),
+        productName: String(firstItem?.name || firstItem?.product_name || firstItem?.title || '').trim(),
+        quantity: Number(firstItem?.quantity ?? firstItem?.qty ?? 0),
+    };
+};
+
+const readStoreCustomer = (row: any) => {
+    const raw = row?.raw_payload || {};
+    const customer = raw.customer || raw.buyer || raw.billing || {};
+    const shipping = raw.shipping || raw.delivery || {};
+    const address = row.customer_address || shipping.address || customer.address || raw.address;
+
+    return {
+        name: row.customer_name || customer.name || customer.full_name || raw.customer_name || null,
+        email: row.customer_email || customer.email || raw.email || null,
+        phone: row.customer_phone || customer.phone || customer.phone_number || raw.phone || null,
+        address: typeof address === 'string'
+            ? address
+            : [
+                address?.street,
+                address?.number,
+                address?.city,
+                address?.province,
+            ].filter(Boolean).join(' ') || null,
+        shippingMethod: row.shipping_method || shipping.method || shipping.name || raw.shipping_method || null,
+    };
+};
+
+const mapStoreIncomingOrderRow = (
+    row: any,
+    productByCode: Map<string, any>
+): import('../types').StoreIncomingOrder => {
+    const item = readStoreOrderItem(row.raw_payload);
+    const customer = readStoreCustomer(row);
+    const matchedProduct = item.sku ? productByCode.get(item.sku) || null : null;
+
+    return {
+        id: String(row.id || ''),
+        purchase_id: row.purchase_id ?? null,
+        status: String(row.status || ''),
+        stock_processed: Boolean(row.stock_processed),
+        total: Number(row.total ?? row.total_amount ?? row.raw_payload?.total ?? row.raw_payload?.total_price ?? 0),
+        payment_method: row.payment_method || row.raw_payload?.payment_method || row.raw_payload?.payment?.method || null,
+        customer_name: customer.name,
+        customer_email: customer.email,
+        customer_phone: customer.phone,
+        customer_address: customer.address,
+        shipping_method: customer.shippingMethod,
+        store_created_at: row.store_created_at ? new Date(row.store_created_at) : row.created_at_store ? new Date(row.created_at_store) : null,
+        processed_at: row.processed_at ? new Date(row.processed_at) : null,
+        notes: row.notes || null,
+        raw_payload: row.raw_payload || {},
+        item_sku: item.sku,
+        item_product_name: item.productName,
+        item_quantity: Number.isFinite(item.quantity) ? item.quantity : 0,
+        matched_product: matchedProduct ? {
+            id: String(matchedProduct.id || ''),
+            cod: String(matchedProduct.cod || ''),
+            name: String(matchedProduct.name || ''),
+            current_stock: Number(matchedProduct.current_stock ?? 0),
+            is_active: Boolean(matchedProduct.is_active ?? true),
+            is_online: Boolean(matchedProduct.is_online ?? false),
+        } : null,
+        created_at: row.created_at ? new Date(row.created_at) : null,
+        updated_at: row.updated_at ? new Date(row.updated_at) : null,
+    };
+};
+
+export const getStoreIncomingOrdersSupabase = async (): Promise<import('../types').StoreIncomingOrder[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const { data, error } = await supabase
+        .from('store_incoming_orders')
+        .select('*')
+        .order('status', { ascending: false })
+        .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const rows = Array.isArray(data) ? data : [];
+    const skus = Array.from(new Set(
+        rows
+            .map((row: any) => readStoreOrderItem(row.raw_payload).sku)
+            .filter(Boolean)
+    ));
+
+    let productByCode = new Map<string, any>();
+    if (skus.length > 0) {
+        const { data: products, error: productsError } = await supabase
+            .from('st_products')
+            .select('id, cod, name, current_stock, is_active, is_online')
+            .in('cod', skus);
+
+        if (productsError) throw productsError;
+        productByCode = new Map((products || []).map((product: any) => [String(product.cod || '').trim(), product]));
+    }
+
+    return rows
+        .map((row: any) => mapStoreIncomingOrderRow(row, productByCode))
+        .sort((a, b) => {
+            if (a.status === 'pending' && b.status !== 'pending') return -1;
+            if (a.status !== 'pending' && b.status === 'pending') return 1;
+            return (b.created_at?.getTime() || 0) - (a.created_at?.getTime() || 0);
+        });
+};
+
+export const processStoreIncomingOrderSupabase = async (
+    orderId: string,
+    productId: string,
+    quantity: number
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!orderId) throw new Error('ID de pedido requerido');
+    if (!productId) throw new Error('Producto interno requerido');
+
+    const safeQuantity = Number(quantity);
+    if (!Number.isFinite(safeQuantity) || safeQuantity <= 0) {
+        throw new Error('Cantidad inválida para procesar el pedido.');
+    }
+
+    const { data: order, error: orderError } = await supabase
+        .from('store_incoming_orders')
+        .select('id, purchase_id, status, stock_processed, notes')
+        .eq('id', orderId)
+        .maybeSingle();
+
+    if (orderError) throw orderError;
+    if (!order) throw new Error('No se encontró el pedido de tienda.');
+    if (order.status !== 'pending' || order.stock_processed === true) {
+        throw new Error('El pedido ya fue procesado o no está disponible.');
+    }
+
+    const { data: product, error: productError } = await supabase
+        .from('st_products')
+        .select('id, cod, name, current_stock')
+        .eq('id', productId)
+        .maybeSingle();
+
+    if (productError) throw productError;
+    if (!product) throw new Error('Producto interno no encontrado.');
+
+    const currentStock = Number(product.current_stock ?? 0);
+    if (currentStock < safeQuantity) {
+        throw new Error('Stock insuficiente para procesar el pedido.');
+    }
+
+    const now = new Date().toISOString();
+    const processingNote = `Pedido tienda ${order.purchase_id || order.id} procesado. Stock descontado: ${safeQuantity}.`;
+    const notes = [order.notes, processingNote].filter(Boolean).join('\n');
+
+    const { data: updatedOrder, error: updateOrderError } = await supabase
+        .from('store_incoming_orders')
+        .update({
+            status: 'processed',
+            stock_processed: true,
+            processed_at: now,
+            updated_at: now,
+            notes,
+        })
+        .eq('id', orderId)
+        .eq('status', 'pending')
+        .eq('stock_processed', false)
+        .select('id');
+
+    if (updateOrderError) throw updateOrderError;
+    if (!updatedOrder || updatedOrder.length === 0) {
+        throw new Error('El pedido ya fue procesado o no está disponible.');
+    }
+
+    const newStock = currentStock - safeQuantity;
+    const { data: updatedProduct, error: updateProductError } = await supabase
+        .from('st_products')
+        .update({
+            current_stock: newStock,
+            updated_at: now,
+        })
+        .eq('id', productId)
+        .eq('current_stock', currentStock)
+        .select('id');
+
+    if (updateProductError || !updatedProduct || updatedProduct.length === 0) {
+        await supabase
+            .from('store_incoming_orders')
+            .update({
+                status: 'pending',
+                stock_processed: false,
+                processed_at: null,
+                updated_at: new Date().toISOString(),
+                notes: order.notes || null,
+            })
+            .eq('id', orderId);
+
+        if (updateProductError) throw updateProductError;
+        throw new Error('No se pudo descontar stock. El producto pudo haber cambiado; volvé a refrescar.');
+    }
+};

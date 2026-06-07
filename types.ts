@@ -526,3 +526,39 @@ export type CreatePendingSaleInput = Omit<
   PendingSale,
   'id' | 'pending_number' | 'cashier_id' | 'cashier_name_snapshot' | 'claimed_at' | 'paid_at' | 'cancelled_at' | 'converted_sale_id' | 'created_at' | 'updated_at' | 'items'
 > & { items: Omit<PendingSaleItem, 'id' | 'pending_sale_id' | 'created_at'>[] };
+
+// Pedidos recibidos desde tienda externa
+export type StoreIncomingOrderStatus = 'pending' | 'processed' | 'cancelled' | string;
+
+export interface StoreIncomingOrderProductMatch {
+  id: string;
+  cod: string;
+  name: string;
+  current_stock: number;
+  is_active: boolean;
+  is_online: boolean;
+}
+
+export interface StoreIncomingOrder {
+  id: string;
+  purchase_id: string | number | null;
+  status: StoreIncomingOrderStatus;
+  stock_processed: boolean;
+  total: number;
+  payment_method: string | null;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  customer_address: string | null;
+  shipping_method: string | null;
+  store_created_at: Date | null;
+  processed_at: Date | null;
+  notes: string | null;
+  raw_payload: any;
+  item_sku: string;
+  item_product_name: string;
+  item_quantity: number;
+  matched_product: StoreIncomingOrderProductMatch | null;
+  created_at: Date | null;
+  updated_at: Date | null;
+}

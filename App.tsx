@@ -10,6 +10,7 @@ const ExpensesView = React.lazy(() => import('./components/expenses/ExpensesView
 const AdminPanelView = React.lazy(() => import('./components/admin/AdminPanelView'));
 const SalesHistoryView = React.lazy(() => import('./components/sales-history/SalesHistoryView'));
 const CashierPendingSalesView = React.lazy(() => import('./components/cashier/CashierPendingSalesView'));
+const StoreOrdersView = React.lazy(() => import('./components/store-orders/StoreOrdersView'));
 import { BillingCopilotWindow } from './components/shared/BillingCopilotWindow';
 import { CustomerStatementModal } from './components/customers/CustomerStatementModal';
 import { SyncQueueModal } from './components/sync/SyncQueueModal';
@@ -74,7 +75,7 @@ const AppContent: React.FC = () => {
     const initialLoadInFlightRef = useRef(false);
 
     type View =
-        | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales'
+        | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales' | 'store-orders'
         | 'low-stock'
         | 'admin-products' | 'admin-quick-edit' | 'admin-stock-entry' | 'admin-suppliers'
         | 'admin-users' | 'admin-shifts' | 'admin-monthly-billing' | 'admin-top-products'
@@ -890,7 +891,7 @@ const AppContent: React.FC = () => {
     }, [openSaleInPosEditor]);
 
     const renderView = () => {
-        const cashierAllowedViews: View[] = ['cashier-pending-sales', 'sales-history', 'customers', 'expenses'];
+        const cashierAllowedViews: View[] = ['cashier-pending-sales', 'sales-history', 'customers', 'expenses', 'store-orders'];
         const effectiveView = (currentUser?.Rol === 'Cajero' && !cashierAllowedViews.includes(currentView))
             ? 'cashier-pending-sales'
             : currentView;
@@ -976,6 +977,9 @@ const AppContent: React.FC = () => {
 
             case 'cashier-pending-sales':
                 return <CashierPendingSalesView customers={customersWithCalculatedDebt} refreshData={fetchData} />;
+
+            case 'store-orders':
+                return <StoreOrdersView />;
 
             default:
                 return null;
