@@ -5943,25 +5943,6 @@ export const processStoreIncomingOrderSupabase = async (
     const processingNote = `Pedido tienda ${order.purchase_id || order.id} procesado. Stock descontado: ${totalQuantity} items.`;
     const notes = [order.notes, processingNote].filter(Boolean).join('\n');
 
-    const { data: updatedOrder, error: updateOrderError } = await supabase
-        .from('store_incoming_orders')
-        .update({
-            status: 'processed',
-            stock_processed: true,
-            processed_at: now,
-            updated_at: now,
-            notes,
-        })
-        .eq('id', orderId)
-        .eq('status', 'pending')
-        .eq('stock_processed', false)
-        .select('id');
-
-    if (updateOrderError) throw updateOrderError;
-    if (!updatedOrder || updatedOrder.length === 0) {
-        throw new Error('El pedido ya fue procesado o no está disponible.');
-    }
-
     const appliedStockUpdates: Array<{ id: string; current_stock: number }> = [];
 
     try {
@@ -5971,17 +5952,16 @@ export const processStoreIncomingOrderSupabase = async (
             const requiredQuantity = Number(qtyBySku.get(sku) || 0);
             const newStock = currentStock - requiredQuantity;
 
-            const { data: updatedProduct, error: updateProductError } = await supabase
+            const { error: updateProductError, count: updatedProductCount } = await supabase
                 .from('st_products')
                 .update({
                     current_stock: newStock,
                     updated_at: now,
-                })
+                }, { count: 'exact' })
                 .eq('id', product.id)
-                .eq('current_stock', currentStock)
-                .select('id');
+                .eq('current_stock', currentStock);
 
-            if (updateProductError || !updatedProduct || updatedProduct.length === 0) {
+            if (updateProductError || updatedProductCount !== 1) {
                 if (updateProductError) throw updateProductError;
                 throw new Error(`No se pudo descontar stock para SKU ${sku}. El producto pudo haber cambiado.`);
             }
@@ -5990,6 +5970,24 @@ export const processStoreIncomingOrderSupabase = async (
                 id: String(product.id),
                 current_stock: currentStock,
             });
+        }
+
+        const { error: updateOrderError, count: updatedOrderCount } = await supabase
+            .from('store_incoming_orders')
+            .update({
+                status: 'processed',
+                stock_processed: true,
+                processed_at: now,
+                updated_at: now,
+                notes,
+            }, { count: 'exact' })
+            .eq('id', orderId)
+            .eq('status', 'pending')
+            .eq('stock_processed', false);
+
+        if (updateOrderError || updatedOrderCount !== 1) {
+            if (updateOrderError) throw updateOrderError;
+            throw new Error('El pedido ya fue procesado o no está disponible.');
         }
     } catch (stockError) {
         for (const applied of appliedStockUpdates.reverse()) {
@@ -6014,5 +6012,58 @@ export const processStoreIncomingOrderSupabase = async (
             .eq('id', orderId);
 
         throw stockError;
+    }
+};
+
+export const updateStoreIncomingOrderStatusSupabase = async (
+    orderId: string,
+    nextStatus: import('../types').StoreIncomingOrderStatus,
+    note?: string
+): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!orderId) throw new Error('ID de pedido requerido');
+
+    const normalizedNextStatus = String(nextStatus || '').trim();
+    const allowedCurrentStatusesByNextStatus: Record<string, string[]> = {
+        prepared: ['processed'],
+        delivered: ['prepared'],
+        cancelled: ['pending', 'processed', 'prepared'],
+    };
+
+    const allowedCurrentStatuses = allowedCurrentStatusesByNextStatus[normalizedNextStatus];
+    if (!allowedCurrentStatuses) {
+        throw new Error('Transición de estado no permitida.');
+    }
+
+    const { data: order, error: orderError } = await supabase
+        .from('store_incoming_orders')
+        .select('id, purchase_id, status, notes')
+        .eq('id', orderId)
+        .maybeSingle();
+
+    if (orderError) throw orderError;
+    if (!order) throw new Error('No se encontró el pedido de tienda.');
+    if (!allowedCurrentStatuses.includes(String(order.status || ''))) {
+        throw new Error('El pedido cambió de estado o no permite esta acción.');
+    }
+
+    const now = new Date().toISOString();
+    const defaultNote = `Pedido tienda ${order.purchase_id || order.id}: estado cambiado de ${order.status} a ${normalizedNextStatus}.`;
+    const notes = [order.notes, note || defaultNote].filter(Boolean).join('\n');
+
+    const { data: updatedOrder, error: updateError } = await supabase
+        .from('store_incoming_orders')
+        .update({
+            status: normalizedNextStatus,
+            updated_at: now,
+            notes,
+        })
+        .eq('id', orderId)
+        .in('status', allowedCurrentStatuses)
+        .select('id');
+
+    if (updateError) throw updateError;
+    if (!updatedOrder || updatedOrder.length === 0) {
+        throw new Error('El pedido cambió de estado o no permite esta acción.');
     }
 };

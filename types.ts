@@ -528,7 +528,7 @@ export type CreatePendingSaleInput = Omit<
 > & { items: Omit<PendingSaleItem, 'id' | 'pending_sale_id' | 'created_at'>[] };
 
 // Pedidos recibidos desde tienda externa
-export type StoreIncomingOrderStatus = 'pending' | 'processed' | 'cancelled' | string;
+export type StoreIncomingOrderStatus = 'pending' | 'processed' | 'prepared' | 'delivered' | 'cancelled' | 'error' | string;
 
 export interface StoreIncomingOrderProductMatch {
   id: string;

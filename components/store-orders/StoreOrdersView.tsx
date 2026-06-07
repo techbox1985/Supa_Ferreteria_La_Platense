@@ -19,19 +19,34 @@ const formatDateTime = (value: Date | null) => {
 };
 
 const getStatusClasses = (order: StoreIncomingOrder) => {
-    if (order.status === 'processed' || order.stock_processed) {
+    if (order.status === 'delivered') {
         return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
+    }
+    if (order.status === 'prepared') {
+        return 'bg-sky-50 text-sky-700 ring-sky-200';
+    }
+    if (order.status === 'processed') {
+        return 'bg-indigo-50 text-indigo-700 ring-indigo-200';
     }
     if (order.status === 'pending') {
         return 'bg-amber-50 text-amber-700 ring-amber-200';
+    }
+    if (order.status === 'cancelled') {
+        return 'bg-slate-100 text-slate-700 ring-slate-200';
+    }
+    if (order.status === 'error') {
+        return 'bg-red-50 text-red-700 ring-red-200';
     }
     return 'bg-slate-50 text-slate-700 ring-slate-200';
 };
 
 const getStatusLabel = (order: StoreIncomingOrder) => {
-    if (order.status === 'processed' || order.stock_processed) return 'Procesado';
+    if (order.status === 'processed') return 'Stock descontado';
+    if (order.status === 'prepared') return 'Preparado';
+    if (order.status === 'delivered') return 'Entregado';
     if (order.status === 'pending') return 'Pendiente';
     if (order.status === 'cancelled') return 'Cancelado';
+    if (order.status === 'error') return 'Error';
     return order.status || '-';
 };
 
@@ -73,12 +88,20 @@ const canProcessOrder = (order: StoreIncomingOrder) =>
     );
 
 const getProcessBlockReason = (order: StoreIncomingOrder) => {
+    if (order.status === 'processed') return 'Stock descontado';
+    if (order.status === 'prepared') return 'Preparado';
+    if (order.status === 'delivered') return 'Entregado';
+    if (order.status === 'cancelled') return 'Cancelado';
+    if (order.status === 'error') return 'Error';
     if (order.status !== 'pending' || order.stock_processed) return 'Ya procesado';
     const items = getOrderItems(order);
     if (items.some((item) => !item.sku || !item.matched_product)) return 'Producto no encontrado';
     if (items.some((item) => Number(item.matched_product?.current_stock || 0) < Number(item.quantity || 0))) return 'Sin stock';
     return null;
 };
+
+const canCancelOrder = (order: StoreIncomingOrder) =>
+    ['pending', 'processed', 'prepared'].includes(String(order.status || ''));
 
 const StoreOrdersView: React.FC = () => {
     const { addToast } = useToast();
@@ -116,7 +139,7 @@ const StoreOrdersView: React.FC = () => {
     }, [orders]);
 
     const handleProcessOrder = useCallback(async (order: StoreIncomingOrder) => {
-        if (!canProcessOrder(order) || !order.matched_product) {
+        if (!canProcessOrder(order)) {
             addToast(getProcessBlockReason(order) || 'El pedido no se puede procesar.', 'error');
             return;
         }
@@ -130,6 +153,37 @@ const StoreOrdersView: React.FC = () => {
             await loadOrders();
         } catch (err) {
             const message = err instanceof Error ? err.message : 'No se pudo procesar el pedido.';
+            setError(message);
+            addToast(message, 'error');
+            await loadOrders();
+        } finally {
+            setProcessingOrderId(null);
+        }
+    }, [addToast, loadOrders]);
+
+    const handleUpdateOrderStatus = useCallback(async (
+        order: StoreIncomingOrder,
+        nextStatus: 'prepared' | 'delivered' | 'cancelled'
+    ) => {
+        const labelByStatus: Record<typeof nextStatus, string> = {
+            prepared: 'Pedido marcado como preparado.',
+            delivered: 'Pedido marcado como entregado.',
+            cancelled: 'Pedido cancelado.',
+        };
+
+        setProcessingOrderId(order.id);
+        setError(null);
+
+        try {
+            await api.updateStoreIncomingOrderStatusSupabase(
+                order.id,
+                nextStatus,
+                labelByStatus[nextStatus]
+            );
+            addToast(labelByStatus[nextStatus], 'success');
+            await loadOrders();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'No se pudo actualizar el estado del pedido.';
             setError(message);
             addToast(message, 'error');
             await loadOrders();
@@ -251,21 +305,54 @@ const StoreOrdersView: React.FC = () => {
                                                     <div className="text-xs text-slate-400">{order.shipping_method || '-'}</div>
                                                 </td>
                                                 <td className="whitespace-nowrap px-4 py-3 text-left">
-                                                    {canProcessOrder(order) ? (
-                                                        <button
-                                                            onClick={() => handleProcessOrder(order)}
-                                                            disabled={processingOrderId === order.id}
-                                                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
-                                                        >
-                                                            <Icon
-                                                                path="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                                                                className={`h-4 w-4 ${processingOrderId === order.id ? 'animate-spin' : ''}`}
-                                                            />
-                                                            {processingOrderId === order.id ? 'Procesando...' : 'Procesar pedido'}
-                                                        </button>
-                                                    ) : (
-                                                        <span className="text-sm font-medium text-slate-500">{reason || '-'}</span>
-                                                    )}
+                                                    <div className="flex flex-col items-start gap-2">
+                                                        {order.status === 'pending' && canProcessOrder(order) && (
+                                                            <button
+                                                                onClick={() => handleProcessOrder(order)}
+                                                                disabled={processingOrderId === order.id}
+                                                                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+                                                            >
+                                                                <Icon
+                                                                    path="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                                                                    className={`h-4 w-4 ${processingOrderId === order.id ? 'animate-spin' : ''}`}
+                                                                />
+                                                                {processingOrderId === order.id ? 'Procesando...' : 'Procesar pedido'}
+                                                            </button>
+                                                        )}
+                                                        {order.status === 'pending' && !canProcessOrder(order) && (
+                                                            <span className="text-sm font-medium text-slate-500">{reason || '-'}</span>
+                                                        )}
+                                                        {order.status === 'processed' && (
+                                                            <button
+                                                                onClick={() => handleUpdateOrderStatus(order, 'prepared')}
+                                                                disabled={processingOrderId === order.id}
+                                                                className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-600 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-70"
+                                                            >
+                                                                Marcar preparado
+                                                            </button>
+                                                        )}
+                                                        {order.status === 'prepared' && (
+                                                            <button
+                                                                onClick={() => handleUpdateOrderStatus(order, 'delivered')}
+                                                                disabled={processingOrderId === order.id}
+                                                                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-900 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-800 disabled:cursor-not-allowed disabled:opacity-70"
+                                                            >
+                                                                Marcar entregado
+                                                            </button>
+                                                        )}
+                                                        {canCancelOrder(order) && (
+                                                            <button
+                                                                onClick={() => handleUpdateOrderStatus(order, 'cancelled')}
+                                                                disabled={processingOrderId === order.id}
+                                                                className="inline-flex items-center justify-center rounded-lg border border-red-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-70"
+                                                            >
+                                                                Cancelar
+                                                            </button>
+                                                        )}
+                                                        {!canCancelOrder(order) && order.status !== 'pending' && order.status !== 'processed' && order.status !== 'prepared' && (
+                                                            <span className="text-sm font-medium text-slate-500">{getStatusLabel(order)}</span>
+                                                        )}
+                                                    </div>
                                                 </td>
                                                 <td className="whitespace-nowrap px-4 py-3 text-sm">
                                                     <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${getStatusClasses(order)}`}>
