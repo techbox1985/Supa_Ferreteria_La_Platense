@@ -13,6 +13,7 @@ interface SearchableSelectProps {
   onChange: (value: string) => void;
   placeholder?: string;
   disabled?: boolean;
+  emptyMessage?: string;
 }
 
 export const SearchableSelect: React.FC<SearchableSelectProps> = ({
@@ -21,6 +22,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   onChange,
   placeholder = "Seleccione una opción...",
   disabled = false,
+  emptyMessage = "No se encontraron resultados",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -109,7 +111,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               </li>
             ))
           ) : (
-            <li className="px-3 py-2 text-sm text-gray-500">No se encontraron resultados</li>
+            <li className="px-3 py-2 text-sm text-gray-500">{emptyMessage}</li>
           )}
         </ul>
       )}

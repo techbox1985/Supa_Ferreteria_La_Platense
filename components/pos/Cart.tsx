@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { CartItem, Customer } from '../../types';
 import { Icon } from '../ui/Icon';
 import { sanitizeProductDisplayText } from '../../utils/productFilters';
+import { SearchableSelect } from '../ui/SearchableSelect';
 
 interface CartProps {
   cart: CartItem[];
@@ -80,6 +81,24 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
   const customerDiscountAmount = cartSubtotal * customerDiscountPct / 100;
   const total = cartSubtotal - customerDiscountAmount;
 
+  const CLEAR_VALUE = '__clear__';
+
+  const customerOptions = useMemo(() => {
+    const clearOption = { value: CLEAR_VALUE, label: '— Sin cliente / Consumidor Final —', searchText: '' };
+    const opts = (customers || []).map(c => ({
+      value: c.Id_Cliente,
+      label: (c.discount_percentage || 0) > 0
+        ? `${c['Nombre y Apellido']} — ${c.discount_percentage}% OFF`
+        : c['Nombre y Apellido'],
+      searchText: [
+        c['Nombre y Apellido'],
+        c.Whatsapp || '',
+        c.Documento || '',
+      ].join(' '),
+    }));
+    return [clearOption, ...opts];
+  }, [customers]);
+
   return (
     <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-full">
       {/* Header */}
@@ -96,24 +115,23 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
         {/* Customer selector */}
         {customers && onSelectCustomer && (
           <div className="py-2 border-b border-gray-100">
-            <select
-              value={selectedCustomer?.Id_Cliente || ''}
-              onChange={(e) => {
-                const found = (customers || []).find(c => c.Id_Cliente === e.target.value);
-                onSelectCustomer(found || null);
+            <SearchableSelect
+              options={customerOptions}
+              value={selectedCustomer?.Id_Cliente || CLEAR_VALUE}
+              onChange={(val) => {
+                if (val === CLEAR_VALUE || val === '') {
+                  onSelectCustomer(null);
+                } else {
+                  const found = (customers || []).find(c => c.Id_Cliente === val);
+                  onSelectCustomer(found || null);
+                }
               }}
-              className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">— Sin cliente / Consumidor Final —</option>
-              {customers.map(c => (
-                <option key={c.Id_Cliente} value={c.Id_Cliente}>
-                  {c['Nombre y Apellido']}{(c.discount_percentage || 0) > 0 ? ` — ${c.discount_percentage}% OFF` : ''}
-                </option>
-              ))}
-            </select>
+              placeholder="Buscar cliente por nombre, WhatsApp o documento…"
+              emptyMessage="No se encontraron clientes"
+            />
             {customerDiscountPct > 0 && (
               <div className="mt-1.5 flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-md px-2 py-1">
-                <span className="text-green-700 font-semibold text-xs">🏷 Cliente con {customerDiscountPct}% de descuento automático</span>
+                <span className="text-green-700 font-semibold text-xs">Cliente con {customerDiscountPct}% de descuento automático</span>
               </div>
             )}
           </div>
