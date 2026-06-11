@@ -105,6 +105,10 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         });
     }, [transactions]);
 
+    // Deuda efectiva: usa el saldo calculado desde el ledger cuando ya cargó,
+    // y cae a la propiedad del prop si aún está cargando.
+    const effectiveDebt = isLoading ? safeCustomer.Deuda : summary.finalBalance;
+
     const handlePrint = () => {
         if (!Array.isArray(transactions) || transactions.length === 0) {
             alert("No hay transacciones para generar el resumen.");
@@ -469,7 +473,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
             <PaymentModal
                 isOpen={isPaymentModalOpen}
                 onClose={() => setIsPaymentModalOpen(false)}
-                customer={safeCustomer}
+                customer={{ ...safeCustomer, Deuda: effectiveDebt }}
                 onSave={async (paymentData) => {
                     try {
                                                 await api.recordPayment(

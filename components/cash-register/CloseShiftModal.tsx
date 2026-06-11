@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { Shift, Sale, Expense } from '../../types';
+import * as api from '../../services/api';
 
 interface CloseShiftModalProps {
   isOpen: boolean;
@@ -25,12 +26,41 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ isOpen, onClos
   const [step, setStep] = useState<'input' | 'confirm'>('input');
   const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
 
+  // Cobros de deuda del turno
+  const [shiftPaymentsCash, setShiftPaymentsCash] = useState(0);
+  const [shiftPaymentsDigital, setShiftPaymentsDigital] = useState(0);
+  const [shiftPaymentsTotal, setShiftPaymentsTotal] = useState(0);
+
+  // Cargar cobros de deuda cuando se abre el modal
+  useEffect(() => {
+    if (!isOpen || !activeShift) return;
+    let cancelled = false;
+    const fetchPayments = async () => {
+      try {
+        const payments = await api.getPaymentsForShift(activeShift.ID_Turno);
+        if (cancelled) return;
+        const cash = payments.filter(p => p.payment_method === 'efectivo').reduce((s, p) => s + p.credit, 0);
+        const digital = payments.filter(p => p.payment_method === 'digital').reduce((s, p) => s + p.credit, 0);
+        setShiftPaymentsCash(cash);
+        setShiftPaymentsDigital(digital);
+        setShiftPaymentsTotal(cash + digital);
+      } catch {
+        // No crítico — el resumen sigue funcionando sin este dato
+      }
+    };
+    fetchPayments();
+    return () => { cancelled = true; };
+  }, [isOpen, activeShift]);
+
   if (isOpen !== prevIsOpen) {
     setPrevIsOpen(isOpen);
     if (isOpen) {
       setClosingAmount('');
       setIsProcessing(false);
       setStep('input');
+      setShiftPaymentsCash(0);
+      setShiftPaymentsDigital(0);
+      setShiftPaymentsTotal(0);
     }
   }
 
@@ -70,6 +100,26 @@ export const CloseShiftModal: React.FC<CloseShiftModalProps> = ({ isOpen, onClos
                   <span className="font-medium">Monto de Apertura:</span>
                   <span className="font-bold">{formatCurrency(activeShift.Monto_Apertura)}</span>
               </div>
+              {shiftPaymentsTotal > 0 && (
+                <div className="border-t pt-2 space-y-1">
+                  <div className="flex justify-between text-base text-teal-700">
+                    <span className="font-medium">Cobros de deuda (este turno):</span>
+                    <span className="font-bold">{formatCurrency(shiftPaymentsTotal)}</span>
+                  </div>
+                  {shiftPaymentsCash > 0 && (
+                    <div className="flex justify-between text-sm text-gray-600 pl-2">
+                      <span>Efectivo:</span>
+                      <span>{formatCurrency(shiftPaymentsCash)}</span>
+                    </div>
+                  )}
+                  {shiftPaymentsDigital > 0 && (
+                    <div className="flex justify-between text-sm text-gray-600 pl-2">
+                      <span>Digital:</span>
+                      <span>{formatCurrency(shiftPaymentsDigital)}</span>
+                    </div>
+                  )}
+                </div>
+              )}
               <p className="text-xs text-gray-500 text-center pt-2">
                   El total de ventas, gastos y el balance final se calcularán al confirmar el cierre.
               </p>

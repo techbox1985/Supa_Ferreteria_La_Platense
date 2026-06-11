@@ -150,6 +150,54 @@ const CreditNoteRow: React.FC<{
 });
 CreditNoteRow.displayName = 'CreditNoteRow';
 
+const PaymentRow: React.FC<{
+  payment: AccountTransaction;
+  customersMap: Map<string, Customer>;
+}> = React.memo(({ payment, customersMap }) => {
+  const customer = payment.customer_id ? customersMap.get(payment.customer_id) : undefined;
+  const customerName = customer?.['Nombre y Apellido'] || '(sin cliente)';
+  const isCash = payment.payment_method === 'efectivo';
+  const isDigital = payment.payment_method === 'digital';
+  const dateStr = (payment.date instanceof Date ? payment.date : new Date(payment.date)).toLocaleString('es-AR');
+  return (
+    <tr className="bg-teal-50 hover:bg-teal-100 transition-colors border-b">
+      <td className="px-2 py-4 text-center min-w-[140px] whitespace-nowrap">
+        <span className="inline-block px-2 py-1 text-xs font-semibold rounded bg-teal-100 text-teal-800">
+          Cobro de deuda
+        </span>
+      </td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm font-mono text-gray-500 w-20 min-w-[80px]">
+        {payment.id.slice(0, 8)}
+      </td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm min-w-[200px]">
+        <div className="flex flex-col">
+          <span className="text-xs text-gray-500">{dateStr}</span>
+          <span className="font-medium text-teal-700 truncate" title={customerName}>{customerName}</span>
+          {payment.description && (
+            <span className="text-xs text-gray-500 truncate" title={payment.description}>{payment.description}</span>
+          )}
+        </div>
+      </td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-center w-16 min-w-[60px]">-</td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">-</td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-16 min-w-[70px]">-</td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right font-bold text-teal-700 w-20 min-w-[90px]">
+        ${payment.credit.toLocaleString('es-AR')}
+      </td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
+        {isCash ? `$${payment.credit.toLocaleString('es-AR')}` : '-'}
+      </td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">
+        {isDigital ? `$${payment.credit.toLocaleString('es-AR')}` : '-'}
+      </td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">-</td>
+      <td className="px-2 py-4 whitespace-nowrap text-sm text-right w-20 min-w-[80px]">-</td>
+      <td className="px-2 py-4 whitespace-nowrap text-right text-sm font-medium w-32 min-w-[120px]"></td>
+    </tr>
+  );
+});
+PaymentRow.displayName = 'PaymentRow';
+
 const SaleRow: React.FC<{
   sale: Sale & { document_type?: string };
   onOpenActions: (sale: Sale) => void;
@@ -597,11 +645,11 @@ export const SalesDashboard: React.FC<
     };
     console.log('[HIST_CUSTOMER_PAYMENTS_KPI]', customerPaymentsKpi);
 
-    const totalRevenue = salesRevenue + customerPaymentsTotal;
+    const totalRevenue = salesRevenue;
     const totalCash = salesCash + customerPaymentsCash;
     const totalDigital = salesDigital + customerPaymentsDigital;
 
-    const finalKpis = { totalRevenue, totalCash, totalDigital, totalCredit, totalEcheq };
+    const finalKpis = { totalRevenue, totalCash, totalDigital, totalCredit, totalEcheq, customerPaymentsTotal };
     console.log('[HIST_FINAL_KPI_WITH_CUSTOMER_PAYMENTS]', finalKpis);
 
     return {
@@ -612,6 +660,7 @@ export const SalesDashboard: React.FC<
       totalDigital,
       totalCredit,
       totalEcheq,
+      customerPaymentsTotal,
     };
   }, [filteredSales, accountTransactions]);
 
@@ -654,6 +703,36 @@ export const SalesDashboard: React.FC<
         .sort((a, b) => a['Nombre y Apellido'].localeCompare(b['Nombre y Apellido'])),
     [customers]
   );
+
+  const customersMap = useMemo(
+    () => new Map(customers.map(c => [c.Id_Cliente, c])),
+    [customers]
+  );
+
+  const paymentTransactions = useMemo(
+    () => (accountTransactions || []).filter(t => t.type === 'Pago' && t.credit > 0),
+    [accountTransactions]
+  );
+
+  type DisplayItem =
+    | { type: 'sale'; date: Date; id: string; sale: Sale & { document_type?: string } }
+    | { type: 'payment'; date: Date; id: string; payment: AccountTransaction };
+
+  const mergedDisplayItems = useMemo((): DisplayItem[] => {
+    const salesItems: DisplayItem[] = filteredSales.map(s => ({
+      type: 'sale' as const,
+      date: s.date instanceof Date ? s.date : new Date(s.date as any),
+      id: s.id,
+      sale: s as Sale & { document_type?: string },
+    }));
+    const paymentItems: DisplayItem[] = paymentTransactions.map(t => ({
+      type: 'payment' as const,
+      date: t.date instanceof Date ? t.date : new Date(t.date as any),
+      id: t.id,
+      payment: t,
+    }));
+    return [...salesItems, ...paymentItems].sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [filteredSales, paymentTransactions]);
 
   const handleShowRevenueDetails = useCallback(() => {
     const completedSales = salesData.filter(s => s.status !== 'annulled' && s.document_type !== 'budget');
@@ -767,6 +846,22 @@ export const SalesDashboard: React.FC<
       summary: <p>Total E-Cheq: {formatCurrency(stats.totalEcheq)}</p>,
     });
   }, [salesData, statTitlePrefix, stats.totalEcheq]);
+
+  const handleShowPaymentsDetails = useCallback(() => {
+    setModalConfig({
+      isOpen: true,
+      title: `Detalle de Cobros de Deuda ${statTitlePrefix}`,
+      columns: [
+        { header: 'Fecha', accessor: (t: AccountTransaction) => new Date(t.date).toLocaleString('es-AR') },
+        { header: 'Cliente', accessor: (t: AccountTransaction) => customersMap.get(t.customer_id || '')?.['Nombre y Apellido'] || '(sin cliente)' },
+        { header: 'Método', accessor: (t: AccountTransaction) => t.payment_method || '-' },
+        { header: 'Descripción', accessor: (t: AccountTransaction) => t.description || '-' },
+        { header: 'Monto', accessor: (t: AccountTransaction) => formatCurrency(t.credit), className: 'text-right font-medium' },
+      ],
+      data: paymentTransactions,
+      summary: <p>Total Cobros CC: {formatCurrency(stats.customerPaymentsTotal)}</p>,
+    });
+  }, [paymentTransactions, statTitlePrefix, stats.customerPaymentsTotal, customersMap]);
 
   const handleShowProductsSoldDetails = useCallback(() => {
     const soldItems = new Map<string, { product: Product; quantity: number }>();
@@ -1556,6 +1651,13 @@ export const SalesDashboard: React.FC<
               onClick={handleShowDigitalDetails}
             />
             <StatCard
+              title={`Cobros CC ${statTitlePrefix}`}
+              value={formatCurrency(stats.customerPaymentsTotal)}
+              iconPath="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.826-2.997.11-2.003 1.189z"
+              iconBgColor="bg-teal-500"
+              onClick={handleShowPaymentsDetails}
+            />
+            <StatCard
               title={`Cta. Cte. ${statTitlePrefix}`}
               value={formatCurrency(stats.totalCredit)}
               iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
@@ -1620,16 +1722,20 @@ export const SalesDashboard: React.FC<
               <div className="max-h-[calc(100vh-220px)] overflow-y-auto">
                 <table className="min-w-full divide-y divide-gray-200" style={{ tableLayout: 'fixed' }}>
                   <tbody className="bg-white divide-y-0">
-                    {filteredSales.length > 0 ? (
-                      filteredSales.map(sale => (
-                        <React.Fragment key={sale.id}>
-                          <SaleRow sale={sale} onOpenActions={s => handleOpenActions(s, 'sale')} />
-                          {sale.creditNotes &&
-                            sale.creditNotes.map(note => (
-                              <CreditNoteRow key={note.id} note={note} onOpenActions={n => handleOpenActions(n, 'note')} />
-                            ))}
-                        </React.Fragment>
-                      ))
+                    {mergedDisplayItems.length > 0 ? (
+                      mergedDisplayItems.map(item =>
+                        item.type === 'sale' ? (
+                          <React.Fragment key={item.id}>
+                            <SaleRow sale={item.sale} onOpenActions={s => handleOpenActions(s, 'sale')} />
+                            {item.sale.creditNotes &&
+                              item.sale.creditNotes.map(note => (
+                                <CreditNoteRow key={note.id} note={note} onOpenActions={n => handleOpenActions(n, 'note')} />
+                              ))}
+                          </React.Fragment>
+                        ) : (
+                          <PaymentRow key={item.id} payment={item.payment} customersMap={customersMap} />
+                        )
+                      )
                     ) : (
                       <tr>
                         <td colSpan={12} className="text-center py-10 text-gray-500">

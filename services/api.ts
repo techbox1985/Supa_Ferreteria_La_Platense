@@ -3582,6 +3582,19 @@ export const getAccountTransactions = async (): Promise<any[]> => {
     return (data || []).map((item: any) => mapAccountTransactionRow(item));
 };
 
+export const getPaymentsForShift = async (shiftId: string): Promise<AccountTransaction[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+    if (!shiftId) return [];
+    const { data, error } = await supabase
+        .from('st_account_transactions')
+        .select('*')
+        .eq('shift_id', shiftId)
+        .eq('type', 'Pago')
+        .order('date', { ascending: false });
+    if (error) throw error;
+    return (data || []).map((item: any) => mapAccountTransactionRow(item));
+};
+
 const parseTransactionItems = (itemsRaw: unknown): CartItem[] | undefined => {
     let parsedItems = itemsRaw;
 
