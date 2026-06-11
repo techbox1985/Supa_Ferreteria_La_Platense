@@ -512,6 +512,11 @@ const AppContent: React.FC = () => {
                     facturaInfo,
                     isPendingSync: !!saleRow.isPendingSync,
                     document_type: 'sale',
+                    customer_discount_percentage: parseSheetNumber(saleRow.Customer_Discount_Percentage) || 0,
+                    customer_discount_amount: parseSheetNumber(saleRow.Customer_Discount_Amount) || 0,
+                    subtotal_before_customer_discount: saleRow.Subtotal_Before_Customer_Discount != null
+                        ? parseSheetNumber(saleRow.Subtotal_Before_Customer_Discount)
+                        : undefined,
                 };
 
                 acc.push(sale);
@@ -663,6 +668,11 @@ const AppContent: React.FC = () => {
                     facturaInfo,
                     isPendingSync: !!saleRow.isPendingSync,
                     document_type: 'sale',
+                    customer_discount_percentage: parseSheetNumber(saleRow.Customer_Discount_Percentage) || 0,
+                    customer_discount_amount: parseSheetNumber(saleRow.Customer_Discount_Amount) || 0,
+                    subtotal_before_customer_discount: saleRow.Subtotal_Before_Customer_Discount != null
+                        ? parseSheetNumber(saleRow.Subtotal_Before_Customer_Discount)
+                        : undefined,
                 };
 
                 acc.push(sale);

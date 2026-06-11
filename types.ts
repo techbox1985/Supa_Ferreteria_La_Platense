@@ -80,6 +80,7 @@ export interface Customer {
   Deuda: number;
   Pagos: number;
   'Fecha Creacion'?: string;
+  discount_percentage?: number;
 }
 
 export interface CartItem {
@@ -156,6 +157,9 @@ export interface Sale {
   paymentCondition?: string;
   isPendingSync?: boolean;
   document_type?: 'sale' | 'budget';
+  subtotal_before_customer_discount?: number;
+  customer_discount_percentage?: number;
+  customer_discount_amount?: number;
 }
 
 export interface Expense {

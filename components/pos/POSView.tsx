@@ -159,6 +159,7 @@ const POSView: React.FC<POSViewProps> = ({
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const cartSectionRef = useRef<HTMLDivElement>(null);
+  const [posCustomer, setPosCustomer] = useState<import('../../types').Customer | null>(null);
   // Lógica para guardar presupuesto
   const handleFinalizeBudget = useCallback(async (sale: Sale, _generateInvoice: boolean) => {
     let operationalShift = activeShift;
@@ -554,6 +555,9 @@ const categoryOptions = useMemo(() => {
           }}
           onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
           onUpdateCartItemDetails={onUpdateCartItemDetails}
+          selectedCustomer={posCustomer}
+          customers={customers.filter(c => c.Id_Cliente !== '0')}
+          onSelectCustomer={setPosCustomer}
         />
       </div>
       {/* Shortcuts hint */}
@@ -619,6 +623,9 @@ const categoryOptions = useMemo(() => {
               }}
               onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
               onUpdateCartItemDetails={onUpdateCartItemDetails}
+              selectedCustomer={posCustomer}
+              customers={customers.filter(c => c.Id_Cliente !== '0')}
+              onSelectCustomer={setPosCustomer}
             />
           </div>
         </div>
@@ -633,6 +640,7 @@ const categoryOptions = useMemo(() => {
         onAddNewCustomer={() => { setCheckoutOpen(false); setCustomerFormOpen(true); }}
         saleBeingEdited={saleBeingEdited}
         isBudgetMode={isBudgetMode}
+        preSelectedCustomer={posCustomer}
       />
 
       <CustomerFormModal

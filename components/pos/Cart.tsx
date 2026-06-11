@@ -1,5 +1,5 @@
 import React from 'react';
-import { CartItem } from '../../types';
+import { CartItem, Customer } from '../../types';
 import { Icon } from '../ui/Icon';
 import { sanitizeProductDisplayText } from '../../utils/productFilters';
 
@@ -12,6 +12,9 @@ interface CartProps {
   onBudget: () => void;
   onUpdateCartItemDetails: (productId: string, details: { name?: string; price?: number }) => void;
   onSendToCashier?: () => void;
+  selectedCustomer?: Customer | null;
+  customers?: Customer[];
+  onSelectCustomer?: (customer: Customer | null) => void;
 }
 
 const CartEntry: React.FC<{ 
@@ -71,8 +74,11 @@ const CartEntry: React.FC<{
     )
 }
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onBudget, onUpdateCartItemDetails, onSendToCashier }) => {
-  const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onBudget, onUpdateCartItemDetails, onSendToCashier, selectedCustomer, customers, onSelectCustomer }) => {
+  const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const customerDiscountPct = selectedCustomer?.discount_percentage || 0;
+  const customerDiscountAmount = cartSubtotal * customerDiscountPct / 100;
+  const total = cartSubtotal - customerDiscountAmount;
 
   return (
     <div className="bg-white rounded-xl shadow-lg p-4 flex flex-col h-full">
@@ -87,10 +93,54 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
       {/* Checkout section */}
       {cart.length > 0 && (
         <>
+        {/* Customer selector */}
+        {customers && onSelectCustomer && (
+          <div className="py-2 border-b border-gray-100">
+            <select
+              value={selectedCustomer?.Id_Cliente || ''}
+              onChange={(e) => {
+                const found = (customers || []).find(c => c.Id_Cliente === e.target.value);
+                onSelectCustomer(found || null);
+              }}
+              className="w-full text-sm px-2 py-1.5 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">— Sin cliente / Consumidor Final —</option>
+              {customers.map(c => (
+                <option key={c.Id_Cliente} value={c.Id_Cliente}>
+                  {c['Nombre y Apellido']}{(c.discount_percentage || 0) > 0 ? ` — ${c.discount_percentage}% OFF` : ''}
+                </option>
+              ))}
+            </select>
+            {customerDiscountPct > 0 && (
+              <div className="mt-1.5 flex items-center gap-1.5 bg-green-50 border border-green-200 rounded-md px-2 py-1">
+                <span className="text-green-700 font-semibold text-xs">🏷 Cliente con {customerDiscountPct}% de descuento automático</span>
+              </div>
+            )}
+          </div>
+        )}
         <div className="border-b-2 border-dashed py-4 flex-shrink-0 flex gap-2 items-stretch">
-            <div className="flex-grow bg-gray-50 rounded-lg flex justify-between items-center p-3">
-                <span className="text-xl font-bold text-gray-800">Total</span>
-                <span className="text-2xl font-bold text-gray-800">${total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+            <div className="flex-grow bg-gray-50 rounded-lg flex flex-col justify-center p-3 gap-0.5">
+                {customerDiscountPct > 0 ? (
+                  <>
+                    <div className="flex justify-between items-center text-sm text-gray-500">
+                      <span>Subtotal</span>
+                      <span>${cartSubtotal.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm text-green-600">
+                      <span>Desc. cliente {customerDiscountPct}%</span>
+                      <span>-${customerDiscountAmount.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                    </div>
+                    <div className="flex justify-between items-center border-t border-gray-200 pt-0.5 mt-0.5">
+                      <span className="text-xl font-bold text-gray-800">Total</span>
+                      <span className="text-2xl font-bold text-green-700">${total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between items-center">
+                    <span className="text-xl font-bold text-gray-800">Total</span>
+                    <span className="text-2xl font-bold text-gray-800">${total.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                  </div>
+                )}
             </div>
             <button
               onClick={onCheckout}

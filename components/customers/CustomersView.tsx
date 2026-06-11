@@ -32,7 +32,14 @@ const CustomerRow: React.FC<{
           </>
         )}
       </td>
-      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 min-w-[160px] max-w-[260px]">{customer['Nombre y Apellido']}</td>
+      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 min-w-[160px] max-w-[260px]">
+        {customer['Nombre y Apellido']}
+        {(customer.discount_percentage || 0) > 0 && (
+          <span className="ml-2 inline-block bg-green-100 text-green-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+            {customer.discount_percentage}% OFF
+          </span>
+        )}
+      </td>
       <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[110px] max-w-[150px]">{customer.Whatsapp || '-'}</td>
       <td className="px-3 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[90px] max-w-[120px]">{customer.Condicion_IVA || 'N/A'}</td>
       <td className="px-2 py-3 whitespace-nowrap text-sm text-gray-500 min-w-[70px] max-w-[90px]">{customer['Tipo.Documento'] || '-'}</td>

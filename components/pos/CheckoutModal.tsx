@@ -17,6 +17,7 @@ interface CheckoutModalProps {
   onAddNewCustomer: () => void;
   saleBeingEdited: Sale | null;
   isBudgetMode?: boolean;
+  preSelectedCustomer?: Customer | null;
 }
 
 const parseLocaleNumber = (value: string): number => {
@@ -39,6 +40,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   onAddNewCustomer,
   saleBeingEdited,
   isBudgetMode = false,
+  preSelectedCustomer,
 }) => {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [cash, setCash] = useState('');
@@ -61,7 +63,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.quantity, 0), [cart]);
 
-  const { total, adjustmentAmount, adjustmentDescription } = useMemo(() => {
+  const { total, adjustmentAmount, adjustmentDescription, subtotalBeforeCustomerDiscount, customerDiscountAmount, customerDiscountPct } = useMemo(() => {
     let currentTotal = subtotal;
     let adjustment = 0;
     const descriptions: string[] = [];
@@ -92,13 +94,22 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     }
 
     currentTotal += adjustment;
+    const subtotalBeforeCustomerDiscount = currentTotal > 0 ? currentTotal : 0;
+
+    // Customer automatic discount (applied after manual adjustments)
+    const customerDiscountPct = Number(selectedCustomer?.discount_percentage) || 0;
+    const customerDiscountAmount = subtotalBeforeCustomerDiscount * customerDiscountPct / 100;
+    const finalTotal = subtotalBeforeCustomerDiscount - customerDiscountAmount;
 
     return {
-      total: currentTotal > 0 ? currentTotal : 0,
+      total: finalTotal > 0 ? finalTotal : 0,
       adjustmentAmount: adjustment,
       adjustmentDescription: descriptions.join(' / '),
+      subtotalBeforeCustomerDiscount,
+      customerDiscountAmount,
+      customerDiscountPct,
     };
-  }, [subtotal, discountPercent, discountAmount, recargoPercent, recargoAmount]);
+  }, [subtotal, discountPercent, discountAmount, recargoPercent, recargoAmount, selectedCustomer]);
 
   const totalEcheqs = useMemo(() => echeqs.reduce((sum, echeq) => sum + echeq.amount, 0), [echeqs]);
 
@@ -173,7 +184,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         setBillingDoc(saleBeingEdited.customer?.Documento || '');
         setBillingDocType(saleBeingEdited.customer?.['Tipo.Documento'] || 'DNI');
       } else {
-        const defaultCustomer = finalConsumer || (customers.length > 0 ? customers[0] : null);
+        const defaultCustomer = preSelectedCustomer ||
+          finalConsumer ||
+          (customers.length > 0 ? customers[0] : null);
 
         setSelectedCustomer(defaultCustomer);
         setCondicionIVA(defaultCustomer?.Condicion_IVA || 'Consumidor Final');
@@ -316,6 +329,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
       adjustmentAmount,
       adjustmentDescription,
       total,
+      subtotal_before_customer_discount: customerDiscountPct > 0 ? subtotalBeforeCustomerDiscount : undefined,
+      customer_discount_percentage: customerDiscountPct,
+      customer_discount_amount: customerDiscountAmount,
       payment: {
         cash: parseLocaleNumber(cash),
         digital: parseLocaleNumber(digital),
@@ -513,6 +529,18 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
               <span className="font-semibold text-gray-700">Total Pagado</span>
               <span className="font-bold">{formatCurrency(totalPaid)}</span>
             </div>
+            {customerDiscountPct > 0 && (
+              <div className="flex justify-between items-center text-sm bg-green-50 rounded px-2 py-1 border border-green-200">
+                <span className="text-green-700 font-medium">Subtotal (antes desc. cliente)</span>
+                <span className="text-green-700 font-semibold">{formatCurrency(subtotalBeforeCustomerDiscount)}</span>
+              </div>
+            )}
+            {customerDiscountPct > 0 && (
+              <div className="flex justify-between items-center text-sm bg-green-50 rounded px-2 py-1 border border-green-200">
+                <span className="text-green-700 font-medium">Descuento cliente {customerDiscountPct}%</span>
+                <span className="text-green-700 font-semibold">-{formatCurrency(customerDiscountAmount)}</span>
+              </div>
+            )}
             <div className="flex justify-between items-center text-lg">
               <span className={`font-semibold ${change < 0 ? 'text-red-600' : 'text-green-600'}`}>{change < 0 ? 'Faltan' : 'Vuelto'}</span>
               <span className={`font-bold ${change < 0 ? 'text-red-600' : 'text-green-600'}`}>{formatCurrency(displayedChangeAmount)}</span>
@@ -548,6 +576,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
             {selectedCustomer && (
               <div className="mt-2 p-2 bg-gray-50 text-xs text-gray-600 rounded">
                 {selectedCustomer.Condicion_IVA} - {selectedCustomer.Documento || 'Sin documento'}
+                {(selectedCustomer.discount_percentage || 0) > 0 && (
+                  <span className="ml-2 inline-block bg-green-100 text-green-700 font-semibold px-2 py-0.5 rounded-full">
+                    {selectedCustomer.discount_percentage}% OFF
+                  </span>
+                )}
               </div>
             )}
           </div>

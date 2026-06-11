@@ -1559,6 +1559,7 @@ export const getCustomersSupabase = async (): Promise<Customer[]> => {
             Condicion_IVA: item.iva_condition || 'Consumidor Final',
             Deuda: Number(item.current_debt) || 0,
             Pagos: Number(item.total_payments) || 0,
+            discount_percentage: Number(item.discount_percentage) || 0,
         } as Customer));
 };
 
@@ -1571,7 +1572,8 @@ export const addCustomerSupabase = async (customerData: any): Promise<any> => {
             whatsapp: customerData.Whatsapp,
             document_type: customerData['Tipo.Documento'],
             document_number: customerData.Documento,
-            iva_condition: customerData.Condicion_IVA
+            iva_condition: customerData.Condicion_IVA,
+            discount_percentage: Number(customerData.discount_percentage) || 0
         }])
         .select();
     if (error) throw error;
@@ -1588,7 +1590,8 @@ export const updateCustomerSupabase = async (customerData: any): Promise<any> =>
             whatsapp: customerData.Whatsapp,
             document_type: customerData['Tipo.Documento'],
             document_number: customerData.Documento,
-            iva_condition: customerData.Condicion_IVA
+            iva_condition: customerData.Condicion_IVA,
+            discount_percentage: Number(customerData.discount_percentage) || 0
         })
         .eq('id', Id_Cliente)
         .select();
@@ -2727,7 +2730,10 @@ export const getSales = async (options?: { startDate?: string; endDate?: string;
             billing_ticket_url: item.billing_ticket_url || null,
             billing_pdf_url: item.billing_pdf_url || null,
             billing_qr_data: item.billing_qr_data || null,
-            billing_vto_cae: item.billing_vto_cae || null
+            billing_vto_cae: item.billing_vto_cae || null,
+            Customer_Discount_Percentage: Number(item.customer_discount_percentage) || 0,
+            Customer_Discount_Amount: Number(item.customer_discount_amount) || 0,
+            Subtotal_Before_Customer_Discount: item.subtotal_before_customer_discount != null ? Number(item.subtotal_before_customer_discount) : null,
         };
     });
 };
@@ -2986,7 +2992,10 @@ export const addSale = async (sale: Sale, shiftId: string): Promise<any> => {
         status: 'active',
         customer_name_snapshot: sale.customer?.['Nombre y Apellido'] || 'Consumidor Final',
         customer_document_snapshot: sale.customer?.Documento || null,
-        notes: buildSaleNotesWithEcheqs(sale.adjustmentDescription, sale.payment?.echeqs)
+        notes: buildSaleNotesWithEcheqs(sale.adjustmentDescription, sale.payment?.echeqs),
+        subtotal_before_customer_discount: Number(sale.subtotal_before_customer_discount ?? 0) || null,
+        customer_discount_percentage: Number(sale.customer_discount_percentage ?? 0),
+        customer_discount_amount: Number(sale.customer_discount_amount ?? 0),
     };
 
     const { data: insertedSale, error: saleError } = await supabase
@@ -3145,6 +3154,9 @@ export const updateSale = async (originalSale: Sale, updatedSale: Sale): Promise
         customer_name_snapshot: updatedSale.customer?.['Nombre y Apellido'] || 'Consumidor Final',
         customer_document_snapshot: updatedSale.customer?.Documento || null,
         notes: buildSaleNotesWithEcheqs(updatedSale.adjustmentDescription, updatedSale.payment?.echeqs),
+        subtotal_before_customer_discount: Number(updatedSale.subtotal_before_customer_discount ?? 0) || null,
+        customer_discount_percentage: Number(updatedSale.customer_discount_percentage ?? 0),
+        customer_discount_amount: Number(updatedSale.customer_discount_amount ?? 0),
         updated_at: new Date().toISOString(),
     };
 

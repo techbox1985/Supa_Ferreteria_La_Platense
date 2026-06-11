@@ -81,6 +81,15 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
         </tr>
     ` : '';
 
+    const customerDiscountPct = Number(sale.customer_discount_percentage) || 0;
+    const customerDiscountAmount = Number(sale.customer_discount_amount) || 0;
+    const customerDiscountHtml = customerDiscountPct > 0 ? `
+      <tr>
+        <td class="label">Desc. cliente ${customerDiscountPct}%:</td>
+        <td class="value">-${formatCurrency(customerDiscountAmount)}</td>
+      </tr>
+    ` : '';
+
     const totalEcheqs = sale.payment.echeqs?.reduce((sum, echeq) => sum + echeq.amount, 0) || 0;
     const totalPaid = sale.payment.cash + sale.payment.digital + sale.payment.credit + totalEcheqs;
     const balance = totalPaid - sale.total;
@@ -197,6 +206,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
                     </tr>
                     ${subtotalHtml}
                     ${adjustmentHtml}
+                    ${customerDiscountHtml}
                     <tr class="total-row">
                         <td class="label">TOTAL:</td>
                         <td class="value">${formatCurrency(sale.total)}</td>

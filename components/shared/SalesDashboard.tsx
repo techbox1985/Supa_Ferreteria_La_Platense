@@ -1878,6 +1878,23 @@ export const SalesDashboard: React.FC<
                     : 'Nota de Crédito'}
                 </p>
                 <p className="text-xs text-gray-500">{new Date(selectedItemForActions.item.date).toLocaleString('es-AR')}</p>
+                {selectedItemForActions.type === 'sale' && (() => {
+                  const s = selectedItemForActions.item as Sale;
+                  const discPct = Number(s.customer_discount_percentage) || 0;
+                  const discAmt = Number(s.customer_discount_amount) || 0;
+                  const subtotalBeforeDisc = s.subtotal_before_customer_discount ?? null;
+                  if (discPct > 0) {
+                    return (
+                      <div className="mt-1 space-y-0.5">
+                        {subtotalBeforeDisc != null && (
+                          <p className="text-xs text-gray-500">Subtotal original: {formatCurrency(subtotalBeforeDisc)}</p>
+                        )}
+                        <p className="text-xs text-green-700 font-semibold">Descuento cliente: {discPct}% (-{formatCurrency(discAmt)})</p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
               <div className="text-right">
                 <p className="font-bold text-lg text-gray-900">

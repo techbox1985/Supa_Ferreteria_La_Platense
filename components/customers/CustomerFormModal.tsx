@@ -24,6 +24,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
   const [docType, setDocType] = useState('DNI');
   const [docNumber, setDocNumber] = useState('');
   const [ivaCondition, setIvaCondition] = useState<Customer['Condicion_IVA']>('Consumidor Final');
+  const [discountPct, setDiscountPct] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
   
   const isEditing = !!customerToEdit;
@@ -36,6 +37,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
           setDocType(customerToEdit['Tipo.Documento'] || 'DNI');
           setDocNumber(customerToEdit.Documento || '');
           setIvaCondition(customerToEdit.Condicion_IVA || 'Consumidor Final');
+          setDiscountPct(customerToEdit.discount_percentage ?? 0);
         } else {
           // Reset for new customer
           setName('');
@@ -43,6 +45,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
           setDocType('DNI');
           setDocNumber('');
           setIvaCondition('Consumidor Final');
+          setDiscountPct(0);
         }
         setIsSaving(false); // Reset saving state when modal opens
     }
@@ -81,6 +84,7 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
       Condicion_IVA: ivaCondition,
       Deuda: isEditing ? customerToEdit.Deuda : 0,
       Pagos: isEditing ? customerToEdit.Pagos : 0,
+      discount_percentage: Math.min(100, Math.max(0, Number(discountPct) || 0)),
       ...(isEditing && { Id_Cliente: customerToEdit.Id_Cliente })
     };
 
@@ -164,6 +168,21 @@ export const CustomerFormModal: React.FC<CustomerFormModalProps> = ({
                 disabled={isSaving}
               />
             </div>
+        </div>
+        <div>
+          <label htmlFor="discountPct" className="block text-sm font-medium text-gray-700">Descuento automático (%)</label>
+          <input
+            type="number"
+            id="discountPct"
+            min={0}
+            max={100}
+            step={0.01}
+            value={discountPct}
+            onChange={(e) => setDiscountPct(Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
+            disabled={isSaving}
+          />
+          <p className="mt-1 text-xs text-gray-500">Se aplicará automáticamente en el punto de venta para este cliente.</p>
         </div>
         <div className="flex justify-end space-x-3 pt-4">
           <button type="button" onClick={onClose} className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition-colors disabled:opacity-50" disabled={isSaving}>
