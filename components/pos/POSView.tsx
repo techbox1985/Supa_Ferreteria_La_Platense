@@ -110,7 +110,12 @@ const POSView: React.FC<POSViewProps> = ({
   }, [onClearCart, currentUser, activeShift]);
 
   // Handler para enviar el carrito como pedido pendiente de cobro (solo Vendedor)
+  const [isSendingToCashier, setIsSendingToCashier] = useState(false);
+  const sendToCashierInFlightRef = useRef(false);
+
   const handleSendToCashier = useCallback(async () => {
+    // Doble protección: ref (mismo frame) + state (renders posteriores)
+    if (sendToCashierInFlightRef.current) return;
     if (cart.length === 0) {
       addToast('El carrito está vacío.', 'error');
       return;
@@ -120,37 +125,55 @@ const POSView: React.FC<POSViewProps> = ({
       addToast('El total del carrito debe ser mayor a cero.', 'error');
       return;
     }
-    const pendingSaleInput: CreatePendingSaleInput = {
-      status: 'waiting',
-      seller_id: currentUser?.ID_Usuario || null,
-      seller_name_snapshot: currentUser?.Nombre || null,
-      customer_id: null,
-      customer_name_snapshot: 'Consumidor Final',
-      customer_document_snapshot: null,
-      shift_id: activeShift?.ID_Turno || null,
-      subtotal: cartTotal,
-      adjustment_amount: 0,
-      total: cartTotal,
-      notes: null,
-      sent_to_cashier_at: new Date(),
-      items: cart.map((item) => ({
-        product_id: item.product.id || null,
-        product_code: item.product.cod || null,
-        product_name_snapshot: item.product.Producto || 'Producto',
-        quantity: item.quantity,
-        unit_price: item.price,
-        line_total: item.quantity * item.price,
-      })),
-    };
+
+    sendToCashierInFlightRef.current = true;
+    setIsSendingToCashier(true);
+
     try {
+      // Deduplicación defensiva: verificar si ya existe un pedido pendiente
+      // del mismo vendedor con el mismo total en los últimos 90 segundos.
+      const sellerId = currentUser?.ID_Usuario || null;
+      if (sellerId) {
+        const existing = await api.findRecentDuplicatePendingSale(sellerId, cartTotal, 90);
+        if (existing) {
+          addToast('Este pedido ya fue enviado a caja.', 'info');
+          return;
+        }
+      }
+
+      const pendingSaleInput: CreatePendingSaleInput = {
+        status: 'waiting',
+        seller_id: currentUser?.ID_Usuario || null,
+        seller_name_snapshot: currentUser?.Nombre || null,
+        customer_id: null,
+        customer_name_snapshot: 'Consumidor Final',
+        customer_document_snapshot: null,
+        shift_id: activeShift?.ID_Turno || null,
+        subtotal: cartTotal,
+        adjustment_amount: 0,
+        total: cartTotal,
+        notes: null,
+        sent_to_cashier_at: new Date(),
+        items: cart.map((item) => ({
+          product_id: item.product.id || null,
+          product_code: item.product.cod || null,
+          product_name_snapshot: item.product.Producto || 'Producto',
+          quantity: item.quantity,
+          unit_price: item.price,
+          line_total: item.quantity * item.price,
+        })),
+      };
       await api.addPendingSaleSupabase(pendingSaleInput);
       const key = getCartDraftKey();
       try { localStorage.removeItem(key); } catch {}
       onClearCart();
-      addToast('Pedido enviado a caja correctamente.', 'success');
+      addToast('Pedido enviado a caja.', 'success');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Error al enviar el pedido.';
       addToast(`Error al enviar a caja: ${errorMessage}`, 'error');
+    } finally {
+      sendToCashierInFlightRef.current = false;
+      setIsSendingToCashier(false);
     }
   }, [cart, currentUser, activeShift, addToast, onClearCart, getCartDraftKey]);
   // Declaración de estados principales
@@ -554,6 +577,7 @@ const categoryOptions = useMemo(() => {
             setCheckoutOpen(true);
           }}
           onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
+          isSendingToCashier={isSendingToCashier}
           onUpdateCartItemDetails={onUpdateCartItemDetails}
           selectedCustomer={posCustomer}
           customers={customers.filter(c => c.Id_Cliente !== '0')}
@@ -622,6 +646,7 @@ const categoryOptions = useMemo(() => {
                 setIsMobileCartOpen(false);
               }}
               onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
+              isSendingToCashier={isSendingToCashier}
               onUpdateCartItemDetails={onUpdateCartItemDetails}
               selectedCustomer={posCustomer}
               customers={customers.filter(c => c.Id_Cliente !== '0')}

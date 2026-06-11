@@ -5528,6 +5528,36 @@ export const getSupplierVsExcelSummary = async (
 // =============================================================================
 
 /**
+ * Busca un pedido pendiente reciente del mismo vendedor con el mismo total.
+ * Usado para deduplicación defensiva en el flujo Vendedor → Cajero.
+ * NO toca ventas, stock, caja ni facturación.
+ */
+export const findRecentDuplicatePendingSale = async (
+    seller_id: string,
+    total: number,
+    withinSeconds = 90
+): Promise<import('../types').PendingSale | null> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const sinceIso = new Date(Date.now() - withinSeconds * 1000).toISOString();
+
+    const { data, error } = await supabase
+        .from('st_pending_sales')
+        .select('id, pending_number, status, seller_id, total, sent_to_cashier_at, customer_name_snapshot')
+        .eq('seller_id', seller_id)
+        .eq('total', total)
+        .eq('status', 'waiting')
+        .gte('sent_to_cashier_at', sinceIso)
+        .order('sent_to_cashier_at', { ascending: false })
+        .limit(1);
+
+    if (error) return null; // si falla la verificación, permitir el envío
+    if (!data || data.length === 0) return null;
+
+    return data[0] as unknown as import('../types').PendingSale;
+};
+
+/**
  * Crea un pedido pendiente de cobro a partir del carrito del vendedor.
  * Inserta cabecera en st_pending_sales y luego los ítems en st_pending_sale_items.
  * NO toca st_sales, st_sale_items, st_products, st_shifts ni facturación.
