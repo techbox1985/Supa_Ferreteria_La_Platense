@@ -73,16 +73,31 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
         <td class="value">${formatCurrency(effectiveAdjustment)}</td>
       </tr>
     ` : '';
-    
-    const subtotalHtml = effectiveAdjustment !== 0 ? `
-        <tr>
-          <td class="label">Subtotal:</td>
-          <td class="value">${formatCurrency(sale.subtotal)}</td>
-        </tr>
-    ` : '';
 
     const customerDiscountPct = Number(sale.customer_discount_percentage) || 0;
     const customerDiscountAmount = Number(sale.customer_discount_amount) || 0;
+
+    const subtotalHtml = (effectiveAdjustment !== 0 || customerDiscountAmount > 0) ? `
+        <tr>
+          <td class="label">Subtotal:</td>
+          <td class="value">${formatCurrency(
+              customerDiscountAmount > 0 && effectiveAdjustment === 0
+                  ? (Number(sale.subtotal_before_customer_discount) || sale.subtotal)
+                  : sale.subtotal
+          )}</td>
+        </tr>
+    ` : '';
+
+    // Compute the true final total defensively.
+    // If sale.total was stored as the pre-discount subtotal (data inconsistency),
+    // recompute it from subtotal_before_customer_discount - customerDiscountAmount.
+    // When sale.total is already correct (post-discount), both formulas give the same result.
+    const effectiveFinalTotal = (
+        sale.subtotal_before_customer_discount != null && customerDiscountAmount > 0
+            ? Number(sale.subtotal_before_customer_discount) - customerDiscountAmount
+            : sale.total
+    );
+
     const customerDiscountHtml = customerDiscountPct > 0 ? `
       <tr>
         <td class="label">Desc. cliente ${customerDiscountPct}%:</td>
@@ -92,7 +107,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
 
     const totalEcheqs = sale.payment.echeqs?.reduce((sum, echeq) => sum + echeq.amount, 0) || 0;
     const totalPaid = sale.payment.cash + sale.payment.digital + sale.payment.credit + totalEcheqs;
-    const balance = totalPaid - sale.total;
+    const balance = totalPaid - effectiveFinalTotal;
 
 
     return `
@@ -209,7 +224,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
                     ${customerDiscountHtml}
                     <tr class="total-row">
                         <td class="label">TOTAL:</td>
-                        <td class="value">${formatCurrency(sale.total)}</td>
+                        <td class="value">${formatCurrency(effectiveFinalTotal)}</td>
                     </tr>
                 </tbody>
             </table>
