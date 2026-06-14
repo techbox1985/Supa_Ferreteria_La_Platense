@@ -3,7 +3,7 @@ import { Icon } from '../ui/Icon';
 
 type View =
     | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales' | 'store-orders'
-    | 'low-stock'
+    | 'low-stock' | 'seller-tracking'
     | 'admin-products' | 'admin-quick-edit' | 'admin-stock-entry' | 'admin-suppliers'
     | 'admin-users' | 'admin-shifts' | 'admin-monthly-billing' | 'admin-top-products'
     | 'admin-top-customers' | 'admin-printing';
@@ -72,6 +72,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                         iconPath="M9 12h6m-6 4.5h6m2.25 4.5H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3h7.5L19.5 8.25v10.5A2.25 2.25 0 0117.25 21z"
                         isActive={currentView === 'cashier-pending-sales'}
                         onClick={() => onNavigate('cashier-pending-sales')}
+                    />
+                )}
+                {(currentUser?.Rol === 'Vendedor' || currentUser?.Rol === 'Admin') && (
+                    <SidebarItem
+                        label="Seguimiento caja"
+                        iconPath="M9 12.75L11.25 15 15 9.75m-2.25 2.25A9 9 0 1112 3a9 9 0 010 18z"
+                        isActive={currentView === 'seller-tracking'}
+                        onClick={() => onNavigate('seller-tracking')}
                     />
                 )}
                 {(currentUser?.Rol === 'Cajero' || currentUser?.Rol === 'Admin') && (

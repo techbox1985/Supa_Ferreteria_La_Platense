@@ -5701,9 +5701,84 @@ export const getPendingSalesSupabase = async (
 };
 
 /**
+ * Obtiene los pedidos pendientes enviados a caja por un vendedor específico durante el día actual.
+ * Incluye todos los estados: waiting, claimed, paid, cancelled.
+ * NO toca ventas, stock, caja ni facturación.
+ */
+export const getMyTodayPendingSalesSupabase = async (
+    sellerId: string
+): Promise<import('../types').PendingSale[]> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    // Rango de hoy en hora local → ISO para Supabase
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+    const { data, error } = await supabase
+        .from('st_pending_sales')
+        .select(`
+            *,
+            st_pending_sale_items (
+                id,
+                product_id,
+                product_code,
+                product_name_snapshot,
+                quantity,
+                unit_price,
+                line_total,
+                created_at
+            )
+        `)
+        .eq('seller_id', sellerId)
+        .gte('sent_to_cashier_at', startOfDay.toISOString())
+        .lte('sent_to_cashier_at', endOfDay.toISOString())
+        .in('status', ['waiting', 'claimed', 'paid', 'cancelled'])
+        .order('sent_to_cashier_at', { ascending: false, nullsFirst: false });
+
+    if (error) throw error;
+
+    return (data || []).map((row: any): import('../types').PendingSale => ({
+        id: row.id,
+        pending_number: Number(row.pending_number ?? 0),
+        status: row.status as import('../types').PendingSaleStatus,
+        seller_id: row.seller_id || '',
+        seller_name_snapshot: row.seller_name_snapshot || '',
+        cashier_id: row.cashier_id || null,
+        cashier_name_snapshot: row.cashier_name_snapshot || null,
+        customer_id: row.customer_id || null,
+        customer_name_snapshot: row.customer_name_snapshot || 'Consumidor Final',
+        customer_document_snapshot: row.customer_document_snapshot || null,
+        shift_id: row.shift_id || null,
+        subtotal: Number(row.subtotal ?? 0),
+        adjustment_amount: Number(row.adjustment_amount ?? 0),
+        total: Number(row.total ?? 0),
+        notes: row.notes || null,
+        items: (row.st_pending_sale_items || []).map((item: any): import('../types').PendingSaleItem => ({
+            id: item.id,
+            pending_sale_id: row.id,
+            product_id: item.product_id || null,
+            product_code: item.product_code || null,
+            product_name_snapshot: item.product_name_snapshot || '',
+            quantity: Number(item.quantity ?? 0),
+            unit_price: Number(item.unit_price ?? 0),
+            line_total: Number(item.line_total ?? 0),
+            created_at: item.created_at ? new Date(item.created_at) : undefined,
+        })),
+        sent_to_cashier_at: row.sent_to_cashier_at ? new Date(row.sent_to_cashier_at) : null,
+        claimed_at: row.claimed_at ? new Date(row.claimed_at) : null,
+        paid_at: row.paid_at ? new Date(row.paid_at) : null,
+        cancelled_at: row.cancelled_at ? new Date(row.cancelled_at) : null,
+        converted_sale_id: row.converted_sale_id || null,
+        created_at: new Date(row.created_at),
+        updated_at: new Date(row.updated_at),
+    }));
+};
+
+/**
  * Toma un pedido pendiente para un cajero.
  * Solo cambia de 'waiting' a 'claimed' si sigue disponible.
- * NO toca ventas, stock, caja ni facturaciÃ³n.
+ * NO toca ventas, stock, caja ni facturación.
  */
 export const claimPendingSaleSupabase = async (
     pendingSaleId: string,

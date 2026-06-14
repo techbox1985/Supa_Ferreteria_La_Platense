@@ -11,6 +11,7 @@ const AdminPanelView = React.lazy(() => import('./components/admin/AdminPanelVie
 const SalesHistoryView = React.lazy(() => import('./components/sales-history/SalesHistoryView'));
 const CashierPendingSalesView = React.lazy(() => import('./components/cashier/CashierPendingSalesView'));
 const StoreOrdersView = React.lazy(() => import('./components/store-orders/StoreOrdersView'));
+const SellerPendingSalesTrackingView = React.lazy(() => import('./components/seller/SellerPendingSalesTrackingView'));
 import { BillingCopilotWindow } from './components/shared/BillingCopilotWindow';
 import { CustomerStatementModal } from './components/customers/CustomerStatementModal';
 import { SyncQueueModal } from './components/sync/SyncQueueModal';
@@ -76,7 +77,7 @@ const AppContent: React.FC = () => {
 
     type View =
         | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales' | 'store-orders'
-        | 'low-stock'
+        | 'low-stock' | 'seller-tracking'
         | 'admin-products' | 'admin-quick-edit' | 'admin-stock-entry' | 'admin-suppliers'
         | 'admin-users' | 'admin-shifts' | 'admin-monthly-billing' | 'admin-top-products'
         | 'admin-top-customers' | 'admin-printing';
@@ -990,6 +991,9 @@ const AppContent: React.FC = () => {
 
             case 'store-orders':
                 return <StoreOrdersView />;
+
+            case 'seller-tracking':
+                return <SellerPendingSalesTrackingView />;
 
             default:
                 return null;
