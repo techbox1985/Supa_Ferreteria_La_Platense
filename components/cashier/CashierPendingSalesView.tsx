@@ -133,6 +133,13 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
         saleToCharge ? buildCheckoutCartFromPendingSale(saleToCharge) : []
     ), [saleToCharge]);
 
+    // Pre-seleccionar el cliente del pedido pendiente en CheckoutModal para
+    // que el descuento automático del cliente se aplique automáticamente.
+    const preSelectedCustomerForCheckout = useMemo(() => {
+        if (!saleToCharge?.customer_id) return null;
+        return customers.find(c => c.Id_Cliente === saleToCharge.customer_id) || null;
+    }, [saleToCharge, customers]);
+
     const handleFinalizePendingSale = useCallback(async (checkoutSale: Sale, generateInvoice: boolean) => {
         if (!saleToCharge) throw new Error('No hay pedido seleccionado para cobrar.');
         if (!currentUser?.ID_Usuario) throw new Error('No se pudo identificar al cajero actual.');
@@ -169,9 +176,13 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
             ...checkoutSale,
             items: checkoutCart,
             itemCount: checkoutCart.reduce((sum, item) => sum + item.quantity, 0),
+            // subtotal base viene del pedido pendiente (total de lista sin descuento)
             subtotal: Number(saleToCharge.subtotal ?? checkoutSale.subtotal ?? 0),
             adjustmentAmount: Number(saleToCharge.adjustment_amount ?? checkoutSale.adjustmentAmount ?? 0),
-            total: Number(saleToCharge.total ?? checkoutSale.total ?? 0),
+            // total viene de CheckoutModal (ya aplica descuento automático del cliente)
+            // NO usar saleToCharge.total porque ese valor no tiene el descuento
+            total: Number(checkoutSale.total ?? saleToCharge.total ?? 0),
+            // campos de descuento vienen de ...checkoutSale (spread arriba)
             shiftId: operationalShift.ID_Turno,
         };
 
@@ -460,6 +471,7 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
                 onAddNewCustomer={handleAddNewCustomerFromCashier}
                 saleBeingEdited={null}
                 isBudgetMode={false}
+                preSelectedCustomer={preSelectedCustomerForCheckout}
             />
         </div>
     );

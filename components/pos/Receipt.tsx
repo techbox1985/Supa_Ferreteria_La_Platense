@@ -88,26 +88,18 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
         </tr>
     ` : '';
 
-    // Compute the true final total defensively.
-    // If sale.total was stored as the pre-discount subtotal (data inconsistency),
-    // recompute it from subtotal_before_customer_discount - customerDiscountAmount.
-    // When sale.total is already correct (post-discount), both formulas give the same result.
-    const effectiveFinalTotal = (
-        sale.subtotal_before_customer_discount != null && customerDiscountAmount > 0
-            ? Number(sale.subtotal_before_customer_discount) - customerDiscountAmount
-            : sale.total
-    );
-
-    const customerDiscountHtml = customerDiscountPct > 0 ? `
+    const customerDiscountHtml = customerDiscountAmount > 0 ? `
       <tr>
-        <td class="label">Desc. cliente ${customerDiscountPct}%:</td>
+        <td class="label">Desc. cliente${customerDiscountPct > 0 ? ` ${customerDiscountPct}%` : ''}:</td>
         <td class="value">-${formatCurrency(customerDiscountAmount)}</td>
       </tr>
     ` : '';
 
+    // sale.total es el total final real (post-descuento) guardado en la venta.
+    // El saldo pendiente se calcula siempre contra sale.total.
     const totalEcheqs = sale.payment.echeqs?.reduce((sum, echeq) => sum + echeq.amount, 0) || 0;
     const totalPaid = sale.payment.cash + sale.payment.digital + sale.payment.credit + totalEcheqs;
-    const balance = totalPaid - effectiveFinalTotal;
+    const balance = totalPaid - sale.total;
 
 
     return `
@@ -224,7 +216,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
                     ${customerDiscountHtml}
                     <tr class="total-row">
                         <td class="label">TOTAL:</td>
-                        <td class="value">${formatCurrency(effectiveFinalTotal)}</td>
+                        <td class="value">${formatCurrency(sale.total)}</td>
                     </tr>
                 </tbody>
             </table>

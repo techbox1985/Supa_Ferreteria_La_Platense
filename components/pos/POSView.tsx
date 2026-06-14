@@ -141,13 +141,20 @@ const POSView: React.FC<POSViewProps> = ({
         }
       }
 
+      // Incluir cliente seleccionado en el carrito (si hay uno)
+      const pendingCustomerId =
+        posCustomer?.Id_Cliente && posCustomer.Id_Cliente !== '0'
+          ? posCustomer.Id_Cliente
+          : null;
+      const pendingCustomerName = posCustomer?.['Nombre y Apellido'] || 'Consumidor Final';
+
       const pendingSaleInput: CreatePendingSaleInput = {
         status: 'waiting',
         seller_id: currentUser?.ID_Usuario || null,
         seller_name_snapshot: currentUser?.Nombre || null,
-        customer_id: null,
-        customer_name_snapshot: 'Consumidor Final',
-        customer_document_snapshot: null,
+        customer_id: pendingCustomerId,
+        customer_name_snapshot: pendingCustomerName,
+        customer_document_snapshot: posCustomer?.Documento || null,
         shift_id: activeShift?.ID_Turno || null,
         subtotal: cartTotal,
         adjustment_amount: 0,
