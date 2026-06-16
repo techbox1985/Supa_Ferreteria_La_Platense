@@ -108,7 +108,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
         );
     }
 
-    if (currentUser && !activeShift) {
+    // Solo el cajero es forzado a abrir caja antes de operar
+    if (currentUser && !activeShift && currentUser.Rol === 'Cajero') {
         return (
             <OpenShiftModal
                 isOpen={true}
@@ -117,6 +118,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
                 userName={currentUser.Nombre}
             />
         );
+    }
+
+    // Vendedor y Admin sin turno activo pueden operar sin abrir caja
+    if (currentUser && !activeShift) {
+        return <>{children}</>;
     }
 
     return (

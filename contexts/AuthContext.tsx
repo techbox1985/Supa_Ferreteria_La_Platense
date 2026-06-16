@@ -38,7 +38,8 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
                 throw new Error("PIN incorrecto");
             }
             
-            if (user.Rol === 'Vendedor') {
+            if (user.Rol === 'Cajero') {
+                // Solo el cajero gestiona turnos propios
                 const fetchedShift = await api.getActiveShiftSupabase(user.ID_Usuario);
 
                 if (fetchedShift) {
@@ -48,7 +49,7 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
                     openOpenShiftModal();
                 }
             } else {
-                // Admin can operate using any currently open shift (no forced personal shift).
+                // Admin y Vendedor: usan cualquier turno activo, sin forzar apertura de caja
                 const anyOpenShift = await api.getAnyActiveShiftSupabase();
                 setActiveShift(anyOpenShift);
                 setShiftModalState({ type: 'closed' });
@@ -75,12 +76,15 @@ export const AuthProvider: React.FC<{children: ReactNode}> = ({ children }) => {
 
     const handleOpenShift = async (openingAmount: number) => {
         if (!currentUser) throw new Error("No hay usuario para abrir el turno.");
+        if (currentUser.Rol !== 'Cajero') throw new Error("Solo el cajero puede abrir caja.");
         const newShift = await api.openShiftSupabase(currentUser.ID_Usuario, openingAmount);
         setActiveShift(newShift);
         closeShiftModal();
     };
 
     const handleCloseShiftAndLogout = async (closingAmount: number) => {
+        if (!currentUser) throw new Error("No hay usuario para cerrar el turno.");
+        if (currentUser.Rol !== 'Cajero') throw new Error("Solo el cajero puede cerrar caja.");
         if (!activeShift) throw new Error("No hay turno activo para cerrar.");
         await api.closeShiftSupabase(activeShift.ID_Turno, closingAmount);
         logout();
