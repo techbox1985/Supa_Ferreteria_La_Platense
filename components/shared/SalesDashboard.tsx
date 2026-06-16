@@ -244,8 +244,15 @@ const SaleRow: React.FC<{
           )}
         </div>
       </td>
-      <td className="px-2 py-4 whitespace-nowrap text-sm font-mono w-20 min-w-[80px]">
-        {sale.saleNumber ? `#${sale.saleNumber}` : sale.id.slice(0, 8)}
+      <td className="px-2 py-4 text-sm font-mono w-20 min-w-[80px]">
+        <div className="flex flex-col items-start gap-0.5">
+          <span>{sale.saleNumber ? `#${sale.saleNumber}` : sale.id.slice(0, 8)}</span>
+          {sale.cashierPendingNumber && (
+            <span className="text-xs text-blue-600 font-sans font-medium whitespace-nowrap">
+              Pedido caja #{sale.cashierPendingNumber}
+            </span>
+          )}
+        </div>
       </td>
       <td className="px-2 py-4 whitespace-nowrap text-sm min-w-[200px]">
         <div className="flex flex-col">

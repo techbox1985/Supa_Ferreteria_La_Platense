@@ -2673,6 +2673,25 @@ export const getSales = async (options?: { startDate?: string; endDate?: string;
     const salesRows = [...salesRowsMap.values(), ...salesRowsNoId];
     console.log('[getSales] Total ventas traidas desde st_sales:', salesRows.length, { startIso, endIso });
 
+    // PROMPT 098: Obtener pending_number de st_pending_sales para ventas originadas desde caja
+    const pendingNumberMap = new Map<string, number>();
+    if (salesRows.length > 0) {
+        const saleIds = salesRows.map((r: any) => r.id).filter(Boolean);
+        if (saleIds.length > 0) {
+            const { data: pendingRows } = await supabase
+                .from('st_pending_sales')
+                .select('converted_sale_id, pending_number')
+                .in('converted_sale_id', saleIds);
+            if (Array.isArray(pendingRows)) {
+                for (const pr of pendingRows) {
+                    if (pr.converted_sale_id && pr.pending_number != null) {
+                        pendingNumberMap.set(pr.converted_sale_id, Number(pr.pending_number));
+                    }
+                }
+            }
+        }
+    }
+
     return salesRows.map((item: any) => {
         const linkedInvoice = null;
         const invoiceData = buildInvoiceData(item, linkedInvoice);
@@ -2734,6 +2753,7 @@ export const getSales = async (options?: { startDate?: string; endDate?: string;
             Customer_Discount_Percentage: Number(item.customer_discount_percentage) || 0,
             Customer_Discount_Amount: Number(item.customer_discount_amount) || 0,
             Subtotal_Before_Customer_Discount: item.subtotal_before_customer_discount != null ? Number(item.subtotal_before_customer_discount) : null,
+            Cashier_Pending_Number: pendingNumberMap.get(item.id) ?? null,
         };
     });
 };

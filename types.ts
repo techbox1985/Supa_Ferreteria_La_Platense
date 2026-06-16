@@ -160,6 +160,8 @@ export interface Sale {
   subtotal_before_customer_discount?: number;
   customer_discount_percentage?: number;
   customer_discount_amount?: number;
+  // PROMPT 098: número de pedido enviado a caja que originó esta venta
+  cashierPendingNumber?: number;
 }
 
 export interface Expense {

@@ -518,6 +518,7 @@ const AppContent: React.FC = () => {
                     subtotal_before_customer_discount: saleRow.Subtotal_Before_Customer_Discount != null
                         ? parseSheetNumber(saleRow.Subtotal_Before_Customer_Discount)
                         : undefined,
+                    cashierPendingNumber: saleRow.Cashier_Pending_Number ? Number(saleRow.Cashier_Pending_Number) : undefined,
                 };
 
                 acc.push(sale);
@@ -674,6 +675,7 @@ const AppContent: React.FC = () => {
                     subtotal_before_customer_discount: saleRow.Subtotal_Before_Customer_Discount != null
                         ? parseSheetNumber(saleRow.Subtotal_Before_Customer_Discount)
                         : undefined,
+                    cashierPendingNumber: saleRow.Cashier_Pending_Number ? Number(saleRow.Cashier_Pending_Number) : undefined,
                 };
 
                 acc.push(sale);
