@@ -1,6 +1,7 @@
-import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { CartItem, Customer, PendingSale, Sale } from '../../types';
 import * as api from '../../services/api';
+import { supabase } from '../../services/api';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { AuthContext } from '../../contexts/AuthContext';
@@ -70,6 +71,8 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
     const [isLoading, setIsLoading] = useState(true);
     const [claimingSaleId, setClaimingSaleId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+    const isMountedRef = useRef(true);
 
     const loadPendingSales = useCallback(async () => {
         setIsLoading(true);
@@ -77,18 +80,86 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
 
         try {
             const sales = await api.getPendingSalesSupabase();
-            setPendingSales(sales);
+            if (isMountedRef.current) {
+                setPendingSales(sales);
+                setLastUpdated(new Date());
+            }
         } catch (err) {
-            const message = err instanceof Error ? err.message : 'No se pudieron cargar los pedidos pendientes.';
-            setError(message);
+            if (isMountedRef.current) {
+                const message = err instanceof Error ? err.message : 'No se pudieron cargar los pedidos pendientes.';
+                setError(message);
+            }
         } finally {
-            setIsLoading(false);
+            if (isMountedRef.current) {
+                setIsLoading(false);
+            }
         }
     }, []);
 
+    // Carga inicial
     useEffect(() => {
         loadPendingSales();
     }, [loadPendingSales]);
+
+    // PROMPT 099: Auto-actualización — Supabase Realtime + polling fallback
+    useEffect(() => {
+        isMountedRef.current = true;
+
+        let realtimeActive = false;
+        let channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null;
+
+        // Polling liviano cada 10 segundos (fallback y refuerzo)
+        const POLL_INTERVAL_MS = 10_000;
+        let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+        const silentRefresh = async () => {
+            if (!isMountedRef.current) return;
+            try {
+                const sales = await api.getPendingSalesSupabase();
+                if (isMountedRef.current) {
+                    setPendingSales(sales);
+                    setLastUpdated(new Date());
+                }
+            } catch {
+                // silencioso — no mostrar error en auto-refresh
+            }
+        };
+
+        // Intentar Supabase Realtime
+        if (supabase) {
+            try {
+                channel = supabase
+                    .channel('cashier-pending-sales-watch')
+                    .on(
+                        'postgres_changes',
+                        { event: '*', schema: 'public', table: 'st_pending_sales' },
+                        () => {
+                            silentRefresh();
+                        }
+                    )
+                    .subscribe((status) => {
+                        realtimeActive = status === 'SUBSCRIBED';
+                    });
+            } catch {
+                // Si Realtime no está disponible, el polling cubre
+            }
+        }
+
+        // Polling siempre activo como fallback/refuerzo
+        pollTimer = setInterval(() => {
+            if (!realtimeActive) {
+                silentRefresh();
+            }
+        }, POLL_INTERVAL_MS);
+
+        return () => {
+            isMountedRef.current = false;
+            if (pollTimer !== null) clearInterval(pollTimer);
+            if (channel && supabase) {
+                try { supabase.removeChannel(channel); } catch { /* noop */ }
+            }
+        };
+    }, []);
 
     const handleClaimSale = useCallback(async (sale: PendingSale) => {
         if (sale.status !== 'waiting') {
@@ -253,6 +324,17 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Pedidos pendientes</h1>
                     <p className="text-sm text-slate-500 mt-1">Pedidos enviados desde POS para revisar en caja.</p>
+                    <div className="mt-1.5 flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            En vivo
+                        </span>
+                        {lastUpdated && (
+                            <span className="text-xs text-slate-400">
+                                Última actualización: {lastUpdated.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </span>
+                        )}
+                    </div>
                 </div>
                 <button
                     onClick={loadPendingSales}
