@@ -11,7 +11,53 @@ export const sendTicketViaWhatsApp = (
     return;
   }
 
-  // --- Building the message parts ---
+  // PROMPT 107: Si la venta tiene factura electrónica, enviar comprobante fiscal
+  const hasFiscalInvoice = Boolean(sale.facturaInfo?.cae);
+  const fiscalReceiptUrl =
+    sale.facturaInfo?.ticketUrl ||
+    sale.facturaInfo?.url ||
+    (sale.facturaInfo as any)?.pdfUrl;
+
+  if (hasFiscalInvoice) {
+    if (!fiscalReceiptUrl) {
+      addToast(
+        'La venta tiene factura electrónica, pero no se encontró el comprobante fiscal para enviar.',
+        'error'
+      );
+      return;
+    }
+
+    const tipoFactura = sale.facturacion && sale.facturacion !== 'N'
+      ? `Tipo ${sale.facturacion} `
+      : '';
+    const nroFactura = sale.facturaInfo?.nro
+      ? `N° ${sale.facturaInfo.nro}`
+      : '';
+    const facturaLine = tipoFactura || nroFactura
+      ? `Factura: ${tipoFactura}${nroFactura}`
+      : 'Comprobante fiscal emitido';
+
+    const netTotal = sale.total - (sale.returnedTotal || 0);
+
+    const fiscalMessageParts = [
+      `Hola *${customer['Nombre y Apellido']}*,`,
+      `Te enviamos el comprobante fiscal de tu compra en *Refrigeración Tolosa*.`,
+      '',
+      facturaLine,
+      `CAE: ${sale.facturaInfo!.cae}`,
+      `Total: *$${netTotal.toLocaleString('es-AR')}*`,
+      '',
+      'Comprobante fiscal:',
+      fiscalReceiptUrl,
+      '',
+      'Gracias por tu compra.',
+      '_Refrigeración Tolosa_',
+    ];
+
+    const fiscalMessage = fiscalMessageParts.join('\n');
+    window.open(`https://wa.me/${customer.Whatsapp}?text=${encodeURIComponent(fiscalMessage)}`, '_blank');
+    return;
+  }
 
   // 1. Items List
   const itemsText = sale.items.map(item => 
