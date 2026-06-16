@@ -2,6 +2,8 @@ import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } 
 import { CartItem, Customer, PendingSale, Sale } from '../../types';
 import * as api from '../../services/api';
 import { supabase } from '../../services/api';
+import { generateReceiptHtml } from '../pos/Receipt';
+import { getPrintStyles } from '../../utils/printStyles';
 import { Icon } from '../ui/Icon';
 import { Modal } from '../ui/Modal';
 import { AuthContext } from '../../contexts/AuthContext';
@@ -310,6 +312,25 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
 
         addToast('Pedido cobrado correctamente.', 'success');
         setSaleToCharge(null);
+
+        // PROMPT 102: Preguntar si quiere imprimir el ticket
+        const shouldPrint = window.confirm('Venta cobrada correctamente. ¿Querés imprimir el ticket?');
+        if (shouldPrint) {
+            try {
+                const printStyles = getPrintStyles();
+                const receiptHtml = generateReceiptHtml(finalSaleObject, printStyles);
+                const win = window.open('', '_blank', 'width=800,height=700,scrollbars=yes,resizable=yes');
+                if (win) {
+                    win.document.open();
+                    win.document.write(receiptHtml);
+                    win.document.close();
+                    win.addEventListener('load', () => win.print());
+                }
+            } catch {
+                // Si falla la impresión, no interrumpir el flujo
+            }
+        }
+
         await refreshData();
         await loadPendingSales();
     }, [activeShift, addToast, checkoutCart, currentUser, loadPendingSales, refreshData, saleToCharge]);
