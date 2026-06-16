@@ -16,6 +16,13 @@ const formatDate = (date: Date | undefined | null) => {
     });
 }
 
+const getLocalDateInputValue = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 const statusStyles = {
     Abierto: 'bg-green-100 text-green-800',
     Cerrado: 'bg-gray-100 text-gray-800',
@@ -30,6 +37,10 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
     const [shifts, setShifts] = useState<Shift[]>([]);
     const [users, setUsers] = useState<User[]>([]);
     const [isLoadingView, setIsLoadingView] = useState(true);
+
+    const today = getLocalDateInputValue();
+    const [dateFrom, setDateFrom] = useState(today);
+    const [dateTo, setDateTo] = useState(today);
 
     const fetchShiftsAndUsers = async () => {
         setIsLoadingView(true);
@@ -54,43 +65,119 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
 
     const shiftsWithUsers = useMemo(() => {
         const usersMap = new Map(users.map(u => [u.ID_Usuario, u]));
+
+        // Calcular límites de fecha locales para el filtro
+        const [fromY, fromM, fromD] = dateFrom.split('-').map(Number);
+        const [toY, toM, toD] = dateTo.split('-').map(Number);
+        const startOfDay = new Date(fromY, fromM - 1, fromD, 0, 0, 0, 0);
+        const endOfDay = new Date(toY, toM - 1, toD, 23, 59, 59, 999);
+
         return shifts
             .map(shift => ({
                 ...shift,
                 user: usersMap.get(shift.ID_Usuario)
             }))
             .filter(shift => {
-                // Always show open shifts
-                if (shift.Estado === 'Abierto') {
-                    return true;
-                }
+                const openDate = shift.Fecha_Apertura ? new Date(shift.Fecha_Apertura) : null;
+                if (!openDate || isNaN(openDate.getTime())) return false;
+                return openDate >= startOfDay && openDate <= endOfDay;
+            })
+            .sort((a, b) => new Date(b.Fecha_Apertura).getTime() - new Date(a.Fecha_Apertura).getTime());
+    }, [shifts, users, dateFrom, dateTo]);
 
-                // For now, show all shifts from Supabase
-                return true;
-            });
-    }, [shifts, users]);
+    const summary = useMemo(() => {
+        const abiertos = shiftsWithUsers.filter(s => s.Estado === 'Abierto').length;
+        const cerrados = shiftsWithUsers.filter(s => s.Estado === 'Cerrado').length;
+        const totalApertura = shiftsWithUsers.reduce((sum, s) => sum + (s.Monto_Apertura || 0), 0);
+        const totalDeclarado = shiftsWithUsers.reduce((sum, s) => sum + (s.Monto_Cierre_Declarado || 0), 0);
+        const diferencia = totalDeclarado - totalApertura;
+        return { abiertos, cerrados, totalApertura, totalDeclarado, diferencia };
+    }, [shiftsWithUsers]);
 
     const handleRefresh = () => {
-        refreshData(); // Refresh all app data
-        fetchShiftsAndUsers(); // Also re-fetch local data for this view
-    }
+        refreshData();
+        fetchShiftsAndUsers();
+    };
 
     const totalLoading = isAppLoading || isLoadingView;
 
     return (
         <div className="p-6 space-y-6">
-            <div className="flex justify-between items-center">
-                <h1 className="text-3xl font-bold text-gray-800">Historial de Turnos de Caja (Supabase)</h1>
-                <button onClick={handleRefresh} disabled={totalLoading} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center space-x-2 disabled:bg-gray-400">
-                    <Icon path="M16.023 9.348h4.992v-.001a7.5 7.5 0 00-4.992-4.992v4.993zM9.348 16.023h-4.992v.001a7.5 7.5 0 004.992 4.992v-4.993zM16.023 16.023h4.992A7.5 7.5 0 0021 9.348h-4.993v6.675zM9.348 9.348H4.356a7.5 7.5 0 004.992-4.992v4.992z" className={`w-5 h-5 ${totalLoading ? 'animate-spin' : ''}`}/>
-                    <span>Actualizar</span>
+            {/* Título y botón */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Historial de Turnos de Caja</h1>
+                    <p className="text-sm text-slate-500 mt-1">Turnos de apertura y cierre de caja por rango de fechas.</p>
+                </div>
+                <button
+                    onClick={handleRefresh}
+                    disabled={totalLoading}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                    <Icon path="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" className={`h-5 w-5 ${totalLoading ? 'animate-spin' : ''}`} />
+                    Actualizar
                 </button>
             </div>
 
+            {/* Filtros de fecha */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4 bg-white rounded-lg border border-slate-200 p-4">
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Desde</label>
+                    <input
+                        type="date"
+                        value={dateFrom}
+                        max={dateTo}
+                        onChange={e => setDateFrom(e.target.value)}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                </div>
+                <div className="flex flex-col gap-1">
+                    <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">Hasta</label>
+                    <input
+                        type="date"
+                        value={dateTo}
+                        min={dateFrom}
+                        onChange={e => setDateTo(e.target.value)}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                </div>
+            </div>
+
+            {/* Tarjetas resumen */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Abiertos</p>
+                    <p className="mt-1 text-2xl font-bold text-emerald-600">{summary.abiertos}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Cerrados</p>
+                    <p className="mt-1 text-2xl font-bold text-slate-900">{summary.cerrados}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total apertura</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(summary.totalApertura)}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total declarado</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">{formatCurrency(summary.totalDeclarado)}</p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Diferencia declarada</p>
+                    <p className={`mt-1 text-xl font-bold ${summary.diferencia >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {formatCurrency(summary.diferencia)}
+                    </p>
+                </div>
+            </div>
+
+            {/* Tabla */}
             <div className="bg-white shadow-md rounded-lg overflow-hidden">
-                <div className="overflow-x-auto max-h-[75vh]">
+                <div className="overflow-x-auto max-h-[60vh]">
                     {totalLoading ? (
-                         <div className="p-10 text-center text-gray-500">Cargando historial...</div>
+                        <div className="p-10 text-center text-gray-500">Cargando historial...</div>
+                    ) : shiftsWithUsers.length === 0 ? (
+                        <div className="p-10 text-center text-slate-500">
+                            No hay turnos de caja para el rango seleccionado.
+                        </div>
                     ) : (
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50 sticky top-0">
@@ -122,9 +209,6 @@ export const ShiftsView: React.FC<ShiftsViewProps> = ({ isLoading: isAppLoading,
                                 ))}
                             </tbody>
                         </table>
-                    ) }
-                     { !totalLoading && shiftsWithUsers.length === 0 && (
-                        <p className="p-10 text-center text-gray-500">No se encontraron turnos con actividad en el historial.</p>
                     )}
                 </div>
             </div>
