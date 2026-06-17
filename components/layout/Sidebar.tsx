@@ -46,14 +46,6 @@ const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => 
 );
 
 export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdmin, canSeeLowStock, currentUser }) => {
-    // LOG TEMPORAL para diagnóstico de visibilidad de impresión
-    const printMenuVisible = currentUser?.Rol === 'Admin' || currentUser?.Rol === 'Vendedor';
-    // eslint-disable-next-line no-console
-    console.log('[PRINT_MENU_ROLE]', {
-        currentUser,
-        rol: currentUser?.Rol,
-        printMenuVisible
-    });
     return (
         <aside className="w-52 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 overflow-y-auto">
             <nav className="p-3 space-y-0.5">

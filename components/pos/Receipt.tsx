@@ -193,7 +193,7 @@ export const generateReceiptHtml = (sale: Sale, customStyles?: PrintStyles): str
 
             <div class="mb-2">
                 <p>Fecha: ${sale.date.toLocaleDateString('es-AR')} ${sale.date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</p>
-                <p>Cliente: ${sale.customer ? sale.customer['Nombre y Apellido'] : 'Consumidor Final'}</p>
+                <p>Cliente: ${sale.customer?.['Nombre y Apellido'] || 'Cliente no identificado'}</p>
                 <p>Venta ID: ${sale.id.slice(0, 8)}</p>
             </div>
             

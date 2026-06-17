@@ -16,7 +16,7 @@ interface CustomerStatementModalProps {
   customer: Customer;
   allSales: Sale[];
   isAdmin: boolean;
-  refreshData: () => void;
+    refreshData: () => void | Promise<void>;
 }
 
 const formatCurrency = (amount: number) => {
@@ -61,25 +61,31 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
     const [txToDelete, setTxToDelete] = useState<AccountTransaction | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
 
+    const fetchStatement = async () => {
+        if (!safeCustomer?.Id_Cliente) {
+            setTransactions([]);
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const statement = await api.getCustomerStatement(safeCustomer.Id_Cliente);
+            if (!Array.isArray(statement)) {
+                setTransactions([]);
+            } else {
+                setTransactions(statement.filter(tx => tx && typeof tx === 'object'));
+            }
+        } catch (error) {
+            console.error('Failed to fetch customer statement:', error);
+            setTransactions([]);
+            alert('No se pudo cargar el estado de cuenta.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     useEffect(() => {
         if (isOpen && safeCustomer && safeCustomer.Id_Cliente) {
-            const fetchStatement = async () => {
-                setIsLoading(true);
-                try {
-                    const statement = await api.getCustomerStatement(safeCustomer.Id_Cliente);
-                    if (!Array.isArray(statement)) {
-                        setTransactions([]);
-                    } else {
-                        setTransactions(statement.filter(tx => tx && typeof tx === 'object'));
-                    }
-                } catch (error) {
-                    console.error('Failed to fetch customer statement:', error);
-                    setTransactions([]);
-                    alert('No se pudo cargar el estado de cuenta.');
-                } finally {
-                    setIsLoading(false);
-                }
-            };
             fetchStatement();
         } else {
             setTransactions([]);
@@ -125,33 +131,85 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         }
     };
 
+    const buildTicketCustomer = (saleObj: any, tx?: AccountTransaction): Customer => {
+        const saleCustomer = saleObj?.customer;
+        const resolvedName =
+            saleCustomer?.['Nombre y Apellido'] ||
+            saleObj?.st_customers?.full_name ||
+            saleObj?.customer_name_snapshot ||
+            safeCustomer['Nombre y Apellido'] ||
+            tx?.description ||
+            'Cliente no identificado';
+
+        return {
+            Id_Cliente:
+                saleCustomer?.Id_Cliente ||
+                saleObj?.customer_id ||
+                tx?.customer_id ||
+                safeCustomer.Id_Cliente ||
+                '0',
+            'Nombre y Apellido': resolvedName,
+            Whatsapp: saleCustomer?.Whatsapp || saleObj?.st_customers?.whatsapp || safeCustomer.Whatsapp || '',
+            'Tipo.Documento': saleCustomer?.['Tipo.Documento'] || saleObj?.st_customers?.document_type || safeCustomer['Tipo.Documento'] || 'N/A',
+            Documento: saleCustomer?.Documento || saleObj?.st_customers?.document_number || safeCustomer.Documento || '',
+            Condicion_IVA: saleCustomer?.Condicion_IVA || saleObj?.st_customers?.iva_condition || safeCustomer.Condicion_IVA || 'Consumidor Final',
+            Deuda: 0,
+            Pagos: 0,
+            'Fecha Creacion': saleCustomer?.['Fecha Creacion'] || safeCustomer['Fecha Creacion'],
+            discount_percentage: saleCustomer?.discount_percentage ?? safeCustomer.discount_percentage,
+        };
+    };
+
+    const buildOrphanSaleFromTransaction = (tx: AccountTransaction): Sale => {
+        const txItems = Array.isArray(tx.items) ? tx.items : [];
+        const total = Number(tx.debit || tx.credit || 0);
+
+        return {
+            id: String(tx.originalSaleId || tx.id || ''),
+            legacySaleId: tx.originalSaleId,
+            date: tx.date instanceof Date ? tx.date : new Date(tx.date),
+            customer: buildTicketCustomer(null, tx),
+            items: txItems,
+            itemCount: txItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+            subtotal: total,
+            adjustmentAmount: 0,
+            adjustmentDescription: '',
+            total,
+            payment: { cash: 0, digital: 0, credit: 0, echeqs: [] },
+            shiftId: tx.shiftId,
+            facturacion: 'N',
+            status: 'active',
+            returnedTotal: 0,
+            creditNotes: [],
+            facturaInfo: tx.facturaInfo,
+        };
+    };
+
     // Reutiliza el flujo de Historial de Ventas para ver ticket
-    // Debug y resolución robusta de venta original
-    const handleViewTicket = (originalSaleId: string) => {
-        // Buscar la transacción actual
-        const tx = transactions.find(t => String(t.originalSaleId) === String(originalSaleId) || String(t.id) === String(originalSaleId));
-        console.log('[STATEMENT DEBUG] tx:', tx);
-        console.log('[STATEMENT DEBUG] originalSaleId:', originalSaleId);
-        console.log('[STATEMENT DEBUG] allSales count:', allSales.length);
-        console.log('[STATEMENT DEBUG] sample sale ids:', allSales.slice(0, 10).map(s => s.id));
-
-        // Resolución robusta
-        let sale = allSales.find(s => s.id === originalSaleId);
-        if (!sale) sale = allSales.find(s => String(s.id).trim() === String(originalSaleId).trim());
-        if (!sale) sale = allSales.find(s => String(s.id).slice(0, 8) === String(originalSaleId).slice(0, 8));
-        if (!sale && allSales.length > 0) {
-            // Buscar por coincidencia parcial si hay UUIDs
-            sale = allSales.find(s => String(s.id).includes(String(originalSaleId)) || String(originalSaleId).includes(String(s.id)));
+    const handleViewTicket = async (tx: AccountTransaction) => {
+        const originalSaleId = String(tx.originalSaleId || '').trim();
+        let sale: any = allSales.find(s => s.id === originalSaleId);
+        if (!sale) sale = allSales.find(s => String(s.id).trim() === originalSaleId);
+        if (!sale && originalSaleId) {
+            sale = await api.resolveSaleForAccountTransaction(originalSaleId);
         }
-        console.log('[STATEMENT DEBUG] sale encontrado:', sale);
 
-        // Fallback: intentar buscar por API si no está en allSales
-        const openSale = async (saleObj: any) => {
+        const openSale = async (saleObj: any, sourceTx?: AccountTransaction) => {
             if (saleObj) {
                 // Normalización de items y shape mínimo para ventas obtenidas directo de st_sales
                 let items = [];
                 if (Array.isArray(saleObj.items) && saleObj.items.length > 0) {
                     items = saleObj.items;
+                } else if (Array.isArray(saleObj.st_sale_items) && saleObj.st_sale_items.length > 0) {
+                    items = saleObj.st_sale_items.map((row: any) => ({
+                        quantity: Number(row.quantity || 0),
+                        price: Number(row.unit_price || 0),
+                        product: {
+                            id: row.product_id || row.st_products?.id || undefined,
+                            cod: row.st_products?.cod || row.product_code || '',
+                            Producto: row.st_products?.name || row.product_name_snapshot || 'Producto',
+                        },
+                    }));
                 } else if (typeof saleObj.items === 'string') {
                     try {
                         const parsed = JSON.parse(saleObj.items);
@@ -163,27 +221,19 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                 // Si sigue vacío, buscar en st_sale_items
                 if ((!items || items.length === 0) && saleObj.id) {
                     try {
-                        console.log('[TICKET DIAG] Consultando st_sale_items para venta:', saleObj.id);
                         if (!api.supabase) throw new Error('Supabase no inicializado');
-                        const { data: saleItems, error } = await api.supabase
+                        const { data: saleItems } = await api.supabase
                             .from('st_sale_items')
                             .select('quantity, unit_price, product_name_snapshot')
                             .eq('sale_id', saleObj.id);
-                        if (error) {
-                            console.error('[TICKET DIAG] Error en query st_sale_items:', error);
-                        }
                         if (Array.isArray(saleItems)) {
-                            console.log('[TICKET DIAG] st_sale_items encontrados:', saleItems.length);
                             items = saleItems.map((row: any) => ({
                                 quantity: row.quantity,
                                 price: row.unit_price,
                                 product: { Producto: row.product_name_snapshot }
                             }));
-                        } else {
-                            console.log('[TICKET DIAG] st_sale_items vacíos o malformados');
                         }
-                    } catch (err) {
-                        console.error('[TICKET DIAG] Error consultando st_sale_items:', err);
+                    } catch {
                     }
                 }
                 // Normalización de payment
@@ -207,15 +257,32 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                 echeqs: Array.isArray(parsed.echeqs) ? parsed.echeqs : [],
                             };
                         } catch {}
+                    } else {
+                        payment = {
+                            cash: Number(saleObj.payment_cash ?? 0),
+                            digital: Number(saleObj.payment_digital ?? 0),
+                            credit: Number(saleObj.payment_credit ?? 0),
+                            echeqs: [],
+                        };
                     }
                 }
-                // Normalización de customer
-                let customer = saleObj.customer ?? null;
-                if (!customer && saleObj.customer_id) {
-                    customer = { Id_Cliente: saleObj.customer_id };
-                }
+                const customer = buildTicketCustomer(saleObj, sourceTx);
                 // Normalización de facturaInfo
-                const facturaInfo = saleObj.facturaInfo ?? saleObj.factura_info ?? null;
+                const facturaInfo = saleObj.facturaInfo ?? saleObj.factura_info ?? (
+                    saleObj.billing_cae || saleObj.billing_number || saleObj.billing_pdf_url || saleObj.billing_ticket_url
+                        ? {
+                            cae: String(saleObj.billing_cae || ''),
+                            fecha: String(saleObj.sold_at || saleObj.created_at || saleObj.date || ''),
+                            nro: String(saleObj.billing_number || ''),
+                            invoiceNumber: String(saleObj.billing_number || ''),
+                            vtoCae: String(saleObj.billing_vto_cae || ''),
+                            qrData: String(saleObj.billing_qr_data || ''),
+                            url: String(saleObj.billing_pdf_url || '') || undefined,
+                            pdfUrl: String(saleObj.billing_pdf_url || '') || undefined,
+                            ticketUrl: String(saleObj.billing_ticket_url || '') || undefined,
+                        }
+                        : null
+                );
                 // Normalización de campos numéricos
                 const subtotal = typeof saleObj.subtotal === 'number' ? saleObj.subtotal : Number(saleObj.subtotal ?? 0);
                 const adjustmentAmount = typeof saleObj.adjustmentAmount === 'number' ? saleObj.adjustmentAmount : Number(saleObj.adjustmentAmount ?? 0);
@@ -247,11 +314,6 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                     id: saleObj.id ?? '',
                     facturaInfo,
                 };
-                console.log('[TICKET DIAG] safeSale.items length:', safeSale.items?.length ?? 0);
-                if (!safeSale.items || safeSale.items.length === 0) {
-                    console.warn('[TICKET WARN] venta sin items:', safeSale);
-                }
-                console.log('[TICKET SAFE SALE]', safeSale);
                 if (safeSale.facturaInfo) {
                     const officialUrl = safeSale.facturaInfo.ticketUrl || safeSale.facturaInfo.url;
                     if (officialUrl) {
@@ -276,39 +338,9 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
         };
 
         if (sale) {
-            openSale(sale);
+            await openSale(sale, tx);
         } else {
-            // Lookup Supabase: primero por id, luego por legacy_sale_id
-            (async () => {
-                if (api && api.supabase) {
-                    const { data: primarySale } = await api.supabase
-                        .from('st_sales')
-                        .select('*')
-                        .eq('id', originalSaleId)
-                        .maybeSingle();
-
-                    let foundSale = primarySale;
-
-                    if (!foundSale) {
-                        const { data: legacySale } = await api.supabase
-                            .from('st_sales')
-                            .select('*')
-                            .eq('legacy_sale_id', originalSaleId)
-                            .maybeSingle();
-
-                        foundSale = legacySale;
-                    }
-
-                    if (!foundSale) {
-                        alert('No se encontraron los detalles de la venta original para este movimiento.');
-                        return;
-                    }
-
-                    openSale(foundSale);
-                } else {
-                    alert('No se encontraron los detalles de la venta original para este movimiento.');
-                }
-            })();
+            await openSale(buildOrphanSaleFromTransaction(tx), tx);
         }
     };
   
@@ -318,20 +350,33 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
 
     const handleConfirmDelete = async () => {
         if (!txToDelete) return;
+        const transactionToDelete = txToDelete;
         setIsDeleting(true);
         try {
-            if (txToDelete.type === 'Venta' && txToDelete.originalSaleId) {
-                console.log('[ANNUL_BY_LEGACY_START]', txToDelete.originalSaleId);
-                await api.annulSaleByLegacyId(txToDelete.originalSaleId);
-                addToast('Venta anulada con éxito. El stock ha sido revertido.', 'success');
-            } else if (txToDelete.type === 'Pago' && txToDelete.id) {
-                await api.deletePayment(txToDelete.id);
+            if (transactionToDelete.type === 'Venta' && transactionToDelete.originalSaleId) {
+                try {
+                    await api.annulSaleByLegacyId(transactionToDelete.originalSaleId);
+                    addToast('Venta anulada con éxito. El stock ha sido revertido.', 'success');
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : 'Ocurrió un error desconocido.';
+                    if (errorMessage === 'No se encontró la venta en Supabase para anular.' && transactionToDelete.id) {
+                        await api.annulOrphanAccountSaleTransaction(transactionToDelete.id);
+                        addToast('Movimiento de cuenta corriente anulado correctamente.', 'success');
+                    } else {
+                        throw error;
+                    }
+                }
+            } else if (transactionToDelete.type === 'Pago' && transactionToDelete.id) {
+                await api.deletePayment(transactionToDelete.id);
                 addToast('Pago eliminado con éxito.', 'success');
-            } else if (txToDelete.type === 'Nota de Crédito' && txToDelete.id) {
-                await api.deleteAccountTransactionById(txToDelete.id);
+            } else if (transactionToDelete.type === 'Nota de Crédito' && transactionToDelete.id) {
+                await api.deleteAccountTransactionById(transactionToDelete.id);
                 addToast('Nota de crédito eliminada con éxito.', 'success');
             }
-            refreshData();
+
+            setTransactions((prev) => prev.filter((tx) => tx.id !== transactionToDelete.id));
+            setTxToDelete(null);
+            await Promise.all([Promise.resolve(refreshData()), fetchStatement()]);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "Ocurrió un error desconocido.";
             addToast(`Error al eliminar: ${errorMessage}`, 'error');
@@ -422,7 +467,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                                     <div className="flex items-center justify-center space-x-2">
                                                         {tx.type === 'Venta' && tx.originalSaleId && (
                                                             <button
-                                                                onClick={() => handleViewTicket(String(tx.originalSaleId || ''))}
+                                                                onClick={() => handleViewTicket(tx)}
                                                                 className="text-indigo-600 hover:text-indigo-800"
                                                                 title="Ver ticket de venta original"
                                                             >
@@ -464,7 +509,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
             onConfirm={handleConfirmDelete}
             title={txToDelete?.type === 'Venta' ? 'Anular Venta' : 'Eliminar Pago'}
             message={txToDelete?.type === 'Venta'
-                ? `¿Está seguro de que desea anular la venta ${txToDelete?.originalSaleId?.slice(0, 8)}? Esta acción es irreversible, revertirá el stock y ajustará la cuenta corriente.`
+                ? `¿Está seguro de que desea anular la venta ${txToDelete?.originalSaleId?.slice(0, 8)}? Si no tiene registro principal asociado, se anulará el movimiento de cuenta corriente y se revertirá el stock si hay ítems disponibles.`
                 : '¿Está seguro de que desea eliminar este pago? Esta acción es irreversible y ajustará la cuenta corriente.'}
             confirmText={txToDelete?.type === 'Venta' ? 'Sí, Anular Venta' : 'Sí, Eliminar Pago'}
             isProcessing={isDeleting}

@@ -1,33 +1,141 @@
-// PROMPT 031: Anular venta por legacy_sale_id
-export const annulSaleByLegacyIdSupabase = async (legacySaleId: string): Promise<void> => {
+const UUID_V4_FLEX_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const ACCOUNT_STATEMENT_SALE_SELECT = `
+    *,
+    st_sale_items (
+        quantity,
+        unit_price,
+        product_id,
+        product_code,
+        product_name_snapshot,
+        st_products (
+            id,
+            cod,
+            name
+        )
+    ),
+    st_customers (
+        id,
+        full_name,
+        whatsapp,
+        document_type,
+        document_number,
+        iva_condition
+    )
+`;
+
+const resolveSaleRowForAccountTransaction = async (inputId: string): Promise<any | null> => {
     if (!supabase) throw new Error('Supabase no inicializado');
-    if (!legacySaleId) throw new Error('legacySaleId inválido');
-    console.log('[ANNUL_BY_LEGACY_START]', legacySaleId);
-    const { data: sale, error } = await supabase
-        .from('st_sales')
-        .select('id')
-        .eq('legacy_sale_id', legacySaleId)
-        .single();
-    if (error || !sale?.id) {
-        throw new Error(`No se encontró venta con legacy_sale_id=${legacySaleId}`);
+
+    const normalizedId = String(inputId || '').trim();
+    if (!normalizedId) return null;
+
+    if (UUID_V4_FLEX_REGEX.test(normalizedId)) {
+        const { data: byId, error: byIdError } = await supabase
+            .from('st_sales')
+            .select(ACCOUNT_STATEMENT_SALE_SELECT)
+            .eq('id', normalizedId)
+            .maybeSingle();
+        if (byIdError) throw byIdError;
+        if (byId) return byId;
     }
-    console.log('[ANNUL_BY_LEGACY_RESOLVED]', { legacySaleId, saleId: sale.id });
-    await annulSaleSupabase(sale.id);
+
+    const { data: byLegacySaleId, error: byLegacySaleIdError } = await supabase
+        .from('st_sales')
+        .select(ACCOUNT_STATEMENT_SALE_SELECT)
+        .eq('legacy_sale_id', normalizedId)
+        .maybeSingle();
+    if (byLegacySaleIdError) throw byLegacySaleIdError;
+    if (byLegacySaleId) return byLegacySaleId;
+
+    const { data: byLegacyInvoiceId, error: byLegacyInvoiceIdError } = await supabase
+        .from('st_sales')
+        .select(ACCOUNT_STATEMENT_SALE_SELECT)
+        .eq('legacy_invoice_id', normalizedId)
+        .maybeSingle();
+    if (byLegacyInvoiceIdError) throw byLegacyInvoiceIdError;
+    if (byLegacyInvoiceId) return byLegacyInvoiceId;
+
+    return null;
+};
+
+const resolveSaleIdForAnnulment = async (inputId: string): Promise<string | null> => {
+    const resolvedSale = await resolveSaleRowForAccountTransaction(inputId);
+    return resolvedSale?.id ? String(resolvedSale.id) : null;
+};
+
+export const resolveSaleForAccountTransaction = async (originalSaleId: string): Promise<any | null> => {
+    return resolveSaleRowForAccountTransaction(originalSaleId);
+};
+
+// PROMPT 031: Anular venta resolviendo ID real desde original_sale_id
+export const annulSaleByLegacyIdSupabase = async (saleIdentifier: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const normalizedIdentifier = String(saleIdentifier || '').trim();
+    if (!normalizedIdentifier) throw new Error('ID de venta inválido para anulación.');
+
+    const resolvedSaleId = await resolveSaleIdForAnnulment(normalizedIdentifier);
+
+    if (!resolvedSaleId) {
+        throw new Error('No se encontró la venta en Supabase para anular.');
+    }
+
+    await annulSaleSupabase(resolvedSaleId);
 
     // PROMPT 032: Eliminar movimiento de cuenta corriente asociado
+    const idsToDelete = Array.from(new Set([normalizedIdentifier, resolvedSaleId].filter(Boolean)));
     const { error: txDeleteError } = await supabase
         .from('st_account_transactions')
         .delete()
-        .eq('original_sale_id', legacySaleId)
+        .in('original_sale_id', idsToDelete)
         .eq('type', 'Venta');
     if (txDeleteError) {
-        console.warn('[ANNUL_BY_LEGACY_TRANSACTION_DELETE_ERROR]', txDeleteError);
-    } else {
-        console.log('[ANNUL_BY_LEGACY_TRANSACTION_DELETED]', { legacySaleId });
+        console.warn('[ANNUL_TRANSACTION_DELETE_ERROR]', txDeleteError);
     }
 };
 
 export const annulSaleByLegacyId = annulSaleByLegacyIdSupabase;
+
+export const annulOrphanAccountSaleTransaction = async (transactionId: string): Promise<void> => {
+    if (!supabase) throw new Error('Supabase no inicializado');
+
+    const normalizedTransactionId = String(transactionId || '').trim();
+    if (!normalizedTransactionId) throw new Error('ID de movimiento inválido.');
+
+    const { data: transaction, error: transactionError } = await supabase
+        .from('st_account_transactions')
+        .select('id, customer_id, type, debit, credit, original_sale_id, items, description')
+        .eq('id', normalizedTransactionId)
+        .maybeSingle();
+
+    if (transactionError) throw transactionError;
+    if (!transaction) throw new Error('Movimiento de cuenta corriente no encontrado.');
+    if (transaction.type !== 'Venta') {
+        throw new Error('El movimiento seleccionado no corresponde a una venta.');
+    }
+
+    const resolvedSaleId = transaction.original_sale_id
+        ? await resolveSaleIdForAnnulment(String(transaction.original_sale_id))
+        : null;
+
+    if (resolvedSaleId) {
+        throw new Error('La venta tiene registro asociado y debe anularse como venta normal.');
+    }
+
+    const parsedItems = parseTransactionItems(transaction.items) || [];
+    if (parsedItems.length > 0) {
+        await restoreStockFromCreditNoteItems(parsedItems);
+    }
+
+    const { error: deleteError } = await supabase
+        .from('st_account_transactions')
+        .delete()
+        .eq('id', normalizedTransactionId);
+
+    if (deleteError) throw deleteError;
+};
+
 import { normalizeProductCode } from '../src/utils/importNormalizer';
 // ...existing code...
 // Elimina cualquier transacción de st_account_transactions por id (pago, nota de crédito, etc)
@@ -3383,35 +3491,87 @@ export const createCreditNote = async (payload: CreateCreditNotePayload): Promis
 export const restoreStockFromCreditNoteItems = async (items: CartItem[]): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
-    const qtyByCod = new Map<string, number>();
+    const restoreCandidates = new Map<string, { productId?: string; cod?: string; quantity: number }>();
     for (const item of items || []) {
+        const productId = String((item as any)?.product?.id || '').trim();
         const cod = String(item?.product?.cod || '').trim();
         const quantity = Number(item?.quantity || 0);
-        if (!cod || !Number.isFinite(quantity) || quantity <= 0) continue;
-        qtyByCod.set(cod, (qtyByCod.get(cod) || 0) + quantity);
+        if ((!productId && !cod) || !Number.isFinite(quantity) || quantity <= 0) continue;
+
+        const candidateKey = productId ? `id:${productId}` : `cod:${cod}`;
+        const currentCandidate = restoreCandidates.get(candidateKey);
+        restoreCandidates.set(candidateKey, {
+            productId: productId || currentCandidate?.productId,
+            cod: cod || currentCandidate?.cod,
+            quantity: (currentCandidate?.quantity || 0) + quantity,
+        });
     }
 
-    const productCodes = Array.from(qtyByCod.keys());
-    if (productCodes.length === 0) return;
+    if (restoreCandidates.size === 0) return;
 
-    const { data: products, error: fetchError } = await supabase
-        .from('st_products')
-        .select('cod, current_stock')
-        .in('cod', productCodes);
+    const productIds = Array.from(
+        new Set(
+            Array.from(restoreCandidates.values())
+                .map((candidate) => candidate.productId)
+                .filter(Boolean)
+        )
+    ) as string[];
+    const productCodes = Array.from(
+        new Set(
+            Array.from(restoreCandidates.values())
+                .map((candidate) => candidate.cod)
+                .filter(Boolean)
+        )
+    ) as string[];
 
-    if (fetchError) throw fetchError;
+    const productsById = new Map<string, any>();
+    const productsByCod = new Map<string, any>();
 
-    const productMap = new Map((products || []).map((product: any) => [String(product.cod || ''), product]));
+    if (productIds.length > 0) {
+        const { data: productsByIdRows, error: fetchByIdError } = await supabase
+            .from('st_products')
+            .select('id, cod, current_stock')
+            .in('id', productIds);
 
-    for (const [cod, qtyToRestore] of qtyByCod.entries()) {
-        const dbProduct = productMap.get(cod);
-        if (!dbProduct) continue;
+        if (fetchByIdError) throw fetchByIdError;
 
-        const newCurrentStock = (Number(dbProduct.current_stock) || 0) + qtyToRestore;
+        for (const product of productsByIdRows || []) {
+            if (product?.id) productsById.set(String(product.id), product);
+            if (product?.cod) productsByCod.set(String(product.cod), product);
+        }
+    }
+
+    if (productCodes.length > 0) {
+        const { data: productsByCodRows, error: fetchByCodError } = await supabase
+            .from('st_products')
+            .select('id, cod, current_stock')
+            .in('cod', productCodes);
+
+        if (fetchByCodError) throw fetchByCodError;
+
+        for (const product of productsByCodRows || []) {
+            if (product?.id) productsById.set(String(product.id), product);
+            if (product?.cod) productsByCod.set(String(product.cod), product);
+        }
+    }
+
+    for (const candidate of restoreCandidates.values()) {
+        const dbProduct =
+            (candidate.productId ? productsById.get(candidate.productId) : undefined) ||
+            (candidate.cod ? productsByCod.get(candidate.cod) : undefined);
+        if (!dbProduct) {
+            console.warn('[RESTORE_STOCK_PRODUCT_NOT_FOUND]', {
+                productId: candidate.productId || null,
+                cod: candidate.cod || null,
+            });
+            continue;
+        }
+
+        const newCurrentStock = (Number(dbProduct.current_stock) || 0) + candidate.quantity;
         const { error: updateError } = await supabase
             .from('st_products')
             .update({ current_stock: newCurrentStock, updated_at: new Date().toISOString() })
-            .eq('cod', cod);
+            .eq('id', dbProduct.id);
 
         if (updateError) throw updateError;
     }
@@ -3496,7 +3656,7 @@ export const annulSaleSupabase = async (saleId: string): Promise<void> => {
 
     // 2. Validar que no esté ya anulada
     if (String((sale as any).status || '').trim() === 'annulled') {
-        throw new Error('La venta ya está anulada.');
+        throw new Error('La venta ya se encuentra anulada.');
     }
 
     // 3. Validar que no esté facturada (bloquear anulación directa)
