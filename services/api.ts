@@ -82,17 +82,6 @@ export const annulSaleByLegacyIdSupabase = async (saleIdentifier: string): Promi
     }
 
     await annulSaleSupabase(resolvedSaleId);
-
-    // PROMPT 032: Eliminar movimiento de cuenta corriente asociado
-    const idsToDelete = Array.from(new Set([normalizedIdentifier, resolvedSaleId].filter(Boolean)));
-    const { error: txDeleteError } = await supabase
-        .from('st_account_transactions')
-        .delete()
-        .in('original_sale_id', idsToDelete)
-        .eq('type', 'Venta');
-    if (txDeleteError) {
-        console.warn('[ANNUL_TRANSACTION_DELETE_ERROR]', txDeleteError);
-    }
 };
 
 export const annulSaleByLegacyId = annulSaleByLegacyIdSupabase;
@@ -3710,7 +3699,20 @@ export const annulSaleSupabase = async (saleId: string): Promise<void> => {
 
     // 8. Crear movimiento de saldo a favor en cuenta corriente
     const totalAmount = Number((sale as any).total || 0);
-    if (totalAmount > 0) {
+    const { data: originalSaleTx, error: originalSaleTxError } = await supabase
+        .from('st_account_transactions')
+        .select('debit')
+        .eq('type', 'Venta')
+        .eq('original_sale_id', normalizedSaleId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+    if (originalSaleTxError) throw originalSaleTxError;
+
+    const originalDebitAmount = Number((originalSaleTx as any)?.debit || 0);
+    const creditAmount = originalDebitAmount > 0 ? originalDebitAmount : totalAmount;
+
+    if (creditAmount > 0) {
         await supabase
             .from('st_account_transactions')
             .insert([{
@@ -3718,7 +3720,7 @@ export const annulSaleSupabase = async (saleId: string): Promise<void> => {
                 type: 'Anulación de Venta',
                 description: `Saldo a favor por anulación de venta #${normalizedSaleId}`,
                 debit: 0,
-                credit: totalAmount,
+                credit: creditAmount,
                 original_sale_id: normalizedSaleId,
                 shift_id: (sale as any).shift_id || null,
                 items: saleItems ? JSON.stringify(saleItems) : null,
