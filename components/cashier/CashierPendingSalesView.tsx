@@ -72,6 +72,7 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
     const [saleToCharge, setSaleToCharge] = useState<PendingSale | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [claimingSaleId, setClaimingSaleId] = useState<string | null>(null);
+    const [cancellingSaleId, setCancellingSaleId] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const isMountedRef = useRef(true);
@@ -195,6 +196,43 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
             setClaimingSaleId(null);
         }
     }, [addToast, currentUser, loadPendingSales]);
+
+    const canAdminCancelPendingSale = useCallback((sale: PendingSale) => {
+        const isAdmin = currentUser?.Rol === 'Admin';
+        const cancelableStatus = sale.status === 'waiting' || sale.status === 'claimed';
+        const alreadyConverted = Boolean(sale.converted_sale_id) || sale.status === 'paid';
+        return isAdmin && cancelableStatus && !alreadyConverted;
+    }, [currentUser?.Rol]);
+
+    const handleCancelPendingSale = useCallback(async (sale: PendingSale) => {
+        if (!canAdminCancelPendingSale(sale)) return;
+        if (cancellingSaleId) return;
+
+        const confirmed = window.confirm(
+            `¿Querés eliminar el pedido pendiente #${sale.pending_number}? Esta acción no afecta ventas ni stock.`
+        );
+        if (!confirmed) return;
+
+        setCancellingSaleId(sale.id);
+        setError(null);
+
+        try {
+            await api.cancelPendingSaleSupabase(sale.id, 'Cancelado por administrador');
+            setPendingSales((prev) => prev.filter((item) => item.id !== sale.id));
+            addToast('Pedido pendiente eliminado correctamente.', 'success');
+
+            await Promise.all([
+                Promise.resolve(refreshData()),
+                loadPendingSales(),
+            ]);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'No se pudo eliminar el pedido pendiente.';
+            setError(message);
+            addToast(message, 'error');
+        } finally {
+            setCancellingSaleId(null);
+        }
+    }, [addToast, canAdminCancelPendingSale, cancellingSaleId, loadPendingSales, refreshData]);
 
     const summary = useMemo(() => {
         const total = pendingSales.reduce((sum, sale) => sum + sale.total, 0);
@@ -462,6 +500,19 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
                                         </td>
                                         <td className="whitespace-nowrap px-4 py-3 text-right">
                                             <div className="flex justify-end gap-2">
+                                            {canAdminCancelPendingSale(sale) && (
+                                                <button
+                                                    onClick={() => handleCancelPendingSale(sale)}
+                                                    disabled={cancellingSaleId === sale.id}
+                                                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-70"
+                                                >
+                                                    <Icon
+                                                        path="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0"
+                                                        className={`h-4 w-4 ${cancellingSaleId === sale.id ? 'animate-spin' : ''}`}
+                                                    />
+                                                    {cancellingSaleId === sale.id ? 'Eliminando...' : 'Eliminar'}
+                                                </button>
+                                            )}
                                             {canCurrentCashierCharge(sale, currentUser?.ID_Usuario) && (
                                                 <button
                                                     onClick={() => setSaleToCharge(sale)}

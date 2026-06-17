@@ -6034,22 +6034,69 @@ export const markPendingSaleAsPaidSupabase = async (
  * NO toca ventas, stock, caja ni facturación.
  */
 export const cancelPendingSaleSupabase = async (
-    pendingSaleId: string
+    pendingSaleId: string,
+    reason?: string
 ): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     if (!pendingSaleId) throw new Error('ID de pedido pendiente requerido');
 
+    const { data: currentPendingSale, error: fetchError } = await supabase
+        .from('st_pending_sales')
+        .select('id, status, converted_sale_id')
+        .eq('id', pendingSaleId)
+        .maybeSingle();
+
+    if (fetchError) throw fetchError;
+    if (!currentPendingSale) throw new Error('No se encontró el pedido pendiente.');
+
+    const currentStatus = String(currentPendingSale.status || '').trim().toLowerCase();
+    if (currentPendingSale.converted_sale_id || ['paid', 'completed'].includes(currentStatus)) {
+        throw new Error('No se puede eliminar un pedido ya cobrado.');
+    }
+    if (currentStatus === 'cancelled') {
+        return;
+    }
+
+    if (!['waiting', 'claimed'].includes(currentStatus)) {
+        throw new Error('El pedido no está disponible para eliminar.');
+    }
+
+    const now = new Date().toISOString();
+    const baseUpdatePayload = {
+        status: 'cancelled',
+        cancelled_at: now,
+        updated_at: now,
+    };
+
+    const updatePayloadWithReason = {
+        ...baseUpdatePayload,
+        cancelled_reason: reason || 'Cancelado por administrador',
+    };
+
     const { error } = await supabase
         .from('st_pending_sales')
-        .update({
-            status: 'cancelled',
-            cancelled_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        })
+        .update(updatePayloadWithReason)
         .eq('id', pendingSaleId)
         .in('status', ['waiting', 'claimed']); // solo se puede cancelar si no está ya pagado/cancelado
 
-    if (error) throw error;
+    if (!error) return;
+
+    const columnMissingCancelledReason =
+        String((error as any)?.message || '').includes('cancelled_reason') ||
+        String((error as any)?.details || '').includes('cancelled_reason') ||
+        String((error as any)?.hint || '').includes('cancelled_reason');
+
+    if (!columnMissingCancelledReason) {
+        throw error;
+    }
+
+    const { error: fallbackError } = await supabase
+        .from('st_pending_sales')
+        .update(baseUpdatePayload)
+        .eq('id', pendingSaleId)
+        .in('status', ['waiting', 'claimed']);
+
+    if (fallbackError) throw fallbackError;
 };
 
 // =============================================================================
