@@ -50,6 +50,15 @@ const isSaleAlreadyBilled = (sale: Sale): boolean => {
   return hasBillingEvidence;
 };
 
+// Una venta está electrónicamente facturada solo si tiene AMBOS: un CAE real y un número de comprobante.
+// No basta con tener un ticketUrl interno, una URL de impresión común ni un campo billing_cae
+// sin número de comprobante asociado.
+const isElectronicallyBilledSale = (sale: Sale): boolean => {
+  const cae = String(sale.facturaInfo?.cae || '').trim();
+  const nro = String(sale.facturaInfo?.nro || '').trim();
+  return Boolean(cae) && Boolean(nro);
+};
+
 const resolveSaleSubtotalBase = (sale: Sale): number => {
   const rawSubtotal = Number(sale.subtotal ?? 0);
   if (Number.isFinite(rawSubtotal) && rawSubtotal > 0) {
@@ -1441,18 +1450,8 @@ export const SalesDashboard: React.FC<
           itemsCount: data.items.length,
         });
 
-        const saleWithBillingFallback = saleForCreditNote as Sale & { billing_cae?: string; billingCae?: string };
-        const hasFiscalInvoice = Boolean(
-          saleForCreditNote.facturaInfo?.cae ||
-          saleWithBillingFallback.billing_cae ||
-          saleWithBillingFallback.billingCae
-        );
-
-        console.log('[NC_FLOW_TYPE]', {
-          saleId: saleForCreditNote.id,
-          hasFiscalInvoice,
-          isFiscalCreditNote: hasFiscalInvoice,
-        });
+        // Detectar si la venta tiene factura electrónica real: requiere TANTO CAE COMO NRO de comprobante.
+        const hasFiscalInvoice = isElectronicallyBilledSale(saleForCreditNote);
 
         let ncBillingInfo:
           | {
@@ -1476,7 +1475,8 @@ export const SalesDashboard: React.FC<
           );
 
           if (!userConfirmed) {
-            throw new Error('La generacion electronica de la nota de credito fue cancelada por el usuario.');
+            if (ticketWindow) ticketWindow.close();
+            return;
           }
 
           addToast('Generando Nota de Crédito Electrónica...', 'info');
