@@ -205,6 +205,10 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
     }, [currentUser?.Rol]);
 
     const handleCancelPendingSale = useCallback(async (sale: PendingSale) => {
+        if (currentUser?.Rol !== 'Admin') {
+            addToast('Solo un administrador puede eliminar pedidos pendientes.', 'error');
+            return;
+        }
         if (!canAdminCancelPendingSale(sale)) return;
         if (cancellingSaleId) return;
 
@@ -217,7 +221,7 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
         setError(null);
 
         try {
-            await api.cancelPendingSaleSupabase(sale.id, 'Cancelado por administrador');
+            await api.cancelPendingSaleSupabase(sale.id, 'Cancelado por administrador', currentUser?.Rol);
             setPendingSales((prev) => prev.filter((item) => item.id !== sale.id));
             addToast('Pedido pendiente eliminado correctamente.', 'success');
 
@@ -232,7 +236,7 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
         } finally {
             setCancellingSaleId(null);
         }
-    }, [addToast, canAdminCancelPendingSale, cancellingSaleId, loadPendingSales, refreshData]);
+    }, [addToast, canAdminCancelPendingSale, cancellingSaleId, currentUser?.Rol, loadPendingSales, refreshData]);
 
     const summary = useMemo(() => {
         const total = pendingSales.reduce((sum, sale) => sum + sale.total, 0);

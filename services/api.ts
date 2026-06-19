@@ -6035,10 +6035,14 @@ export const markPendingSaleAsPaidSupabase = async (
  */
 export const cancelPendingSaleSupabase = async (
     pendingSaleId: string,
-    reason?: string
+    reason?: string,
+    currentUserRole?: string
 ): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     if (!pendingSaleId) throw new Error('ID de pedido pendiente requerido');
+    if (String(currentUserRole || '').trim() !== 'Admin') {
+        throw new Error('Solo un administrador puede eliminar pedidos pendientes.');
+    }
 
     const { data: currentPendingSale, error: fetchError } = await supabase
         .from('st_pending_sales')
