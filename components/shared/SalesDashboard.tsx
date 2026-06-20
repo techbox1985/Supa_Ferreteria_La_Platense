@@ -275,10 +275,73 @@ const openHtmlInNewWindow = (
   return win;
 };
 
+const getSafeItemProductName = (item: any): string => {
+  return (
+    item?.product?.Producto ||
+    item?.product?.name ||
+    item?.product?.Nombre ||
+    item?.product_name_snapshot ||
+    item?.name ||
+    item?.description ||
+    item?.Descripcion ||
+    item?.product_code ||
+    item?.cod ||
+    'Producto sin nombre'
+  );
+};
+
+const formatCreditNoteItemsSummary = (items: any[] | undefined): string => {
+  if (!Array.isArray(items) || items.length === 0) return 'Sin detalle de ítems';
+  return items
+    .map((item) => `${Number(item?.quantity || 0)}x ${getSafeItemProductName(item)}`)
+    .join(', ');
+};
+
+const getCreditNoteFiscalDocumentUrl = (note: AccountTransaction, preferred: 'ticket' | 'pdf'): string => {
+  const facturaInfoAny = (note?.facturaInfo || {}) as any;
+  const ticketUrl = String(facturaInfoAny?.ticketUrl || '').trim();
+  const pdfUrl = String(facturaInfoAny?.pdfUrl || facturaInfoAny?.url || '').trim();
+  const a4Url = String(facturaInfoAny?.a4Url || '').trim();
+
+  if (preferred === 'ticket') {
+    return ticketUrl || pdfUrl || a4Url || '';
+  }
+
+  return pdfUrl || a4Url || ticketUrl || '';
+};
+
+const normalizeCreditNoteItemsForPrint = (items: any[] | undefined): CartItem[] => {
+  if (!Array.isArray(items)) return [];
+
+  return items
+    .map((item: any) => {
+      const quantity = Number(item?.quantity || 0);
+      const price = Number(item?.unit_price || item?.price || 0);
+      const name = getSafeItemProductName(item);
+      const code = String(item?.product_code || item?.product?.cod || item?.cod || '').trim();
+
+      const product: Product = {
+        cod: code || 'SIN-CODIGO',
+        Producto: name,
+        Precio: price,
+        'Precio Final': price,
+      };
+
+      return {
+        product,
+        quantity,
+        price,
+      } as CartItem;
+    })
+    .filter((item) => Number(item.quantity) > 0);
+};
+
 const CreditNoteRow: React.FC<{
   note: AccountTransaction;
   onOpenActions: (note: AccountTransaction) => void;
 }> = React.memo(({ note, onOpenActions }) => {
+  const itemsSummary = formatCreditNoteItemsSummary(note.items as any[] | undefined);
+
   return (
     <tr
       className="bg-red-50 hover:bg-red-100 transition-colors cursor-pointer select-none"
@@ -302,9 +365,9 @@ const CreditNoteRow: React.FC<{
           </div>
           <div
             className="text-xs font-normal text-gray-600 truncate"
-            title={note.items?.map(i => `${i.quantity}x ${i.product.Producto}`).join(', ')}
+            title={itemsSummary}
           >
-            {note.items?.map(i => `${i.quantity}x ${i.product.Producto}`).join(', ')}
+            {itemsSummary}
           </div>
         </div>
       </td>
@@ -398,6 +461,14 @@ const SaleRow: React.FC<{
   const hasA4 = Boolean(sale.facturaInfo?.url);
   const officialTicket80Url = sale.facturaInfo?.ticketUrl;
   const officialTicketA4Url = sale.facturaInfo?.url;
+  const hasCreditNotes = Array.isArray(sale.creditNotes) && sale.creditNotes.length > 0;
+  const returnedTotal = Number(sale.returnedTotal || 0);
+  const isNcTotal = hasCreditNotes && returnedTotal >= Number(sale.total || 0);
+  const ncBadgeLabel = isNcTotal ? 'NC Total' : 'NC Parcial';
+  const returnedTotalLabel = returnedTotal.toLocaleString('es-AR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
   const hasPartialReturn = !isAnnulled && (sale.returnedTotal || 0) > 0;
   const finalTotal = sale.total - (sale.returnedTotal || 0);
 
@@ -434,6 +505,11 @@ const SaleRow: React.FC<{
       <td className="px-2 py-4 text-sm font-mono w-20 min-w-[80px]">
         <div className="flex flex-col items-start gap-0.5">
           <span>{sale.saleNumber ? `#${sale.saleNumber}` : sale.id.slice(0, 8)}</span>
+          {hasCreditNotes && returnedTotal > 0 && (
+            <span className="inline-block px-2 py-0.5 text-[11px] font-semibold rounded bg-amber-100 text-amber-800 whitespace-nowrap">
+              {`${ncBadgeLabel} $${returnedTotalLabel}`}
+            </span>
+          )}
           {sale.cashierPendingNumber && (
             <span className="text-xs text-blue-600 font-sans font-medium whitespace-nowrap">
               Pedido caja #{sale.cashierPendingNumber}
@@ -1305,8 +1381,7 @@ export const SalesDashboard: React.FC<
 
   const handleOpenCreditNoteFiscalDocument = useCallback(
     (note: AccountTransaction, docType: 'ticket' | 'pdf') => {
-      const targetUrl =
-        docType === 'pdf' ? note.facturaInfo?.pdfUrl || note.facturaInfo?.url : note.facturaInfo?.ticketUrl;
+      const targetUrl = getCreditNoteFiscalDocumentUrl(note, docType);
 
       if (!targetUrl) {
         addToast(
@@ -1557,10 +1632,40 @@ export const SalesDashboard: React.FC<
 
   const handleReprintCreditNote = useCallback(
     (note: AccountTransaction) => {
-      const customer =
-        customers.find(c => c.Id_Cliente === note.originalSaleId) || customers.find(c => c.Id_Cliente === '0');
+      const fiscalUrl = getCreditNoteFiscalDocumentUrl(note, 'ticket');
+      if (fiscalUrl) {
+        const win = window.open(fiscalUrl, '_blank', 'noopener,noreferrer');
+        if (!win) {
+          addToast('La ventana fue bloqueada. Habilite las ventanas emergentes.', 'error');
+        }
+        return;
+      }
 
-      if (!note.items || !customer) {
+      const normalizedItems = normalizeCreditNoteItemsForPrint(note.items as any[] | undefined);
+
+      const noteAny = note as any;
+      const customerNameSnapshot = String(
+        noteAny?.customer_name_snapshot || noteAny?.customerName || noteAny?.customer_name || ''
+      ).trim();
+      const customerDocumentSnapshot = String(
+        noteAny?.customer_document_snapshot || noteAny?.customer_document || ''
+      ).trim();
+
+      const customer =
+        customers.find(c => c.Id_Cliente === String(note.customer_id || '')) ||
+        customers.find(c => c.Id_Cliente === '0') ||
+        {
+          Id_Cliente: '0',
+          'Nombre y Apellido': customerNameSnapshot || 'Consumidor Final',
+          Whatsapp: '',
+          'Tipo.Documento': 'DNI',
+          Documento: customerDocumentSnapshot,
+          Condicion_IVA: 'Consumidor Final',
+          Deuda: 0,
+          Pagos: 0,
+        };
+
+      if (normalizedItems.length === 0 || !customer) {
         alert('No se puede reimprimir: faltan datos del cliente o de los items.');
         return;
       }
@@ -1569,7 +1674,7 @@ export const SalesDashboard: React.FC<
         id: note.id,
         date: note.date,
         customer,
-        items: note.items,
+        items: normalizedItems,
         total: note.credit,
         description: note.description,
         originalSaleId: note.originalSaleId || '',
@@ -1585,7 +1690,7 @@ export const SalesDashboard: React.FC<
         ticketWindow.document.close();
       }
     },
-    [customers]
+    [customers, addToast]
   );
 
   const handleAddCreditNote = useCallback(

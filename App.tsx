@@ -95,7 +95,6 @@ const AppContent: React.FC = () => {
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [categories, setCategories] = useState<string[]>([]);
-    const [rawTransactions] = useState<any[]>([]);
     const [accountTransactions, setAccountTransactions] = useState<any[]>([]);
 
     // Estados de UI
@@ -380,18 +379,22 @@ const AppContent: React.FC = () => {
     }, [customers, accountTransactions]);
 
     const processedTransactions = useMemo(() => {
-        return (Array.isArray(rawTransactions) ? rawTransactions : []).map((t: any, index: number): AccountTransaction => ({
-            id: t.ID_Transaccion || t.id || `temp-${index}`,
-            date: new Date(t.Fecha || t['Fecha']),
-            type: t.Tipo as any,
-            description: t.Descripcion || t['Descripcion'],
-            debit: parseSheetNumber(t.Debe || t['Debe']),
-            credit: parseSheetNumber(t.Haber || t['Haber']),
-            balance: parseSheetNumber(t.Saldo || t['Saldo']),
-            originalSaleId: t.Venta_Original_ID || t['Venta Original ID'],
-            shiftId: t.ID_Turno || t['ID Turno'],
+        return (Array.isArray(accountTransactions) ? accountTransactions : []).map((t: any, index: number): AccountTransaction => ({
+            id: t?.id || t?.ID_Transaccion || `temp-${index}`,
+            date: t?.date instanceof Date ? t.date : new Date(t?.date || t?.Fecha || t?.['Fecha']),
+            type: (t?.type || t?.Tipo) as any,
+            description: t?.description || t?.Descripcion || t?.['Descripcion'] || '',
+            customer_id: t?.customer_id ? String(t.customer_id) : undefined,
+            payment_method: t?.payment_method ? String(t.payment_method) : undefined,
+            debit: Number(t?.debit ?? parseSheetNumber(t?.Debe || t?.['Debe']) ?? 0),
+            credit: Number(t?.credit ?? parseSheetNumber(t?.Haber || t?.['Haber']) ?? 0),
+            balance: Number(t?.balance ?? parseSheetNumber(t?.Saldo || t?.['Saldo']) ?? 0),
+            originalSaleId: t?.originalSaleId || t?.original_sale_id || t?.Venta_Original_ID || t?.['Venta Original ID'],
+            items: Array.isArray(t?.items) ? t.items : undefined,
+            shiftId: t?.shiftId || t?.shift_id || t?.ID_Turno || t?.['ID Turno'],
+            facturaInfo: t?.facturaInfo,
         }));
-    }, [rawTransactions]);
+    }, [accountTransactions]);
 
     const processedSales = useMemo(() => {
         const safeRawSales = Array.isArray(rawSales) ? rawSales : [];
