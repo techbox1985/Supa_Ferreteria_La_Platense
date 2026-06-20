@@ -59,6 +59,184 @@ const isElectronicallyBilledSale = (sale: Sale): boolean => {
   return Boolean(cae) && Boolean(nro);
 };
 
+const getNestedValue = (obj: any, path: string): any => {
+  return path.split('.').reduce((acc, key) => (acc && typeof acc === 'object' ? acc[key] : undefined), obj);
+};
+
+const pickFirstNonEmptyString = (nodes: any[], keys: string[]): string => {
+  for (const key of keys) {
+    for (const node of nodes) {
+      const value = getNestedValue(node, key);
+      if (value === null || value === undefined) continue;
+      const normalized = String(value).trim();
+      if (normalized) return normalized;
+    }
+  }
+  return '';
+};
+
+const tryComposeInvoiceNumber = (nodes: any[]): string => {
+  const ptoVtaRaw = pickFirstNonEmptyString(nodes, ['ptoVta', 'pto_vta', 'puntoVenta', 'punto_venta']);
+  const cbteNroRaw = pickFirstNonEmptyString(nodes, ['cbteNro', 'cbte_nro', 'nroComprobante', 'numeroComprobante']);
+  if (!ptoVtaRaw || !cbteNroRaw) return '';
+
+  const ptoVtaDigits = ptoVtaRaw.replace(/\D/g, '');
+  const cbteDigits = cbteNroRaw.replace(/\D/g, '');
+  if (!ptoVtaDigits || !cbteDigits) return '';
+
+  return `${ptoVtaDigits.padStart(5, '0')}-${cbteDigits.padStart(8, '0')}`;
+};
+
+type NormalizedCreditNoteFacturaInfo = {
+  cae: string;
+  nro: string;
+  invoiceNumber: string;
+  vtoCae: string;
+  qrData: string;
+  fecha: string;
+  url?: string;
+  pdfUrl?: string;
+  ticketUrl?: string;
+  [key: string]: any;
+};
+
+const normalizeCreditNoteFiscalResponse = (
+  response: any,
+  sale: Sale
+): {
+  isValid: boolean;
+  facturaInfo?: NormalizedCreditNoteFacturaInfo;
+  rawStatus: string;
+} => {
+  const nodes: any[] = [];
+  const seen = new Set<any>();
+
+  const pushNode = (node: any) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    nodes.push(node);
+  };
+
+  pushNode(response);
+  pushNode(response?.data);
+  pushNode(response?.invoice);
+  pushNode(response?.data?.invoice);
+  pushNode(response?.data?.data);
+  pushNode(response?.result);
+  pushNode(response?.data?.result);
+  pushNode(response?.comprobante);
+  pushNode(response?.data?.comprobante);
+  pushNode(response?.arca);
+  pushNode(response?.data?.arca);
+  pushNode(response?.providerResponse);
+  pushNode(response?.data?.providerResponse);
+
+  const cae = pickFirstNonEmptyString(nodes, [
+    'cae',
+    'CAE',
+    'cAE',
+    'codAut',
+    'codigoAutorizacion',
+    'codigo_autorizacion',
+    'cae_nro',
+    'authorizationCode',
+  ]);
+
+  const nroDirect = pickFirstNonEmptyString(nodes, [
+    'nro',
+    'numero',
+    'number',
+    'comprobante',
+    'comprobanteNumero',
+    'comprobante_numero',
+    'numeroComprobante',
+    'invoiceNumber',
+    'billing_number',
+    'cbteNro',
+    'nroComprobante',
+  ]);
+  const nro = nroDirect || tryComposeInvoiceNumber(nodes);
+
+  const pdfUrlRaw = pickFirstNonEmptyString(nodes, [
+    'pdfUrl',
+    'pdf_url',
+    'comprobante_pdf_url',
+    'billing_pdf_url',
+    'url',
+    'link',
+    'downloadUrl',
+    'comprobanteUrl',
+    'pdf',
+    'urlPdf',
+  ]);
+  const ticketUrlRaw = pickFirstNonEmptyString(nodes, [
+    'ticketUrl',
+    'ticket_url',
+    'comprobante_ticket_url',
+    'billing_ticket_url',
+    'url',
+    'link',
+    'comprobanteUrl',
+    'ticket',
+    'urlTicket',
+  ]);
+  const genericUrl = pickFirstNonEmptyString(nodes, ['url', 'comprobanteUrl', 'link', 'downloadUrl']);
+
+  const finalPdfUrl = pdfUrlRaw || ticketUrlRaw || genericUrl;
+  const finalTicketUrl = ticketUrlRaw || pdfUrlRaw || genericUrl;
+
+  const qrData = pickFirstNonEmptyString(nodes, [
+    'qrData',
+    'qr_data',
+    'billing_qr_data',
+    'qr',
+    'codigoQr',
+    'qrUrl',
+  ]);
+  const vtoCae = pickFirstNonEmptyString(nodes, [
+    'vtoCae',
+    'vto_cae',
+    'vencimientoCae',
+    'vencimiento_cae',
+    'billing_vto_cae',
+    'fechaVencimientoCAE',
+  ]);
+  const cbteTipo = pickFirstNonEmptyString(nodes, [
+    'cbteTipo',
+    'comprobante_tipo',
+    'tipoComprobante',
+    'tipo',
+    'documentType',
+  ]);
+
+  const rawStatus = String(response?.status || '').trim().toLowerCase();
+  const isValid = Boolean(cae) && Boolean(nro) && Boolean(finalPdfUrl || finalTicketUrl);
+
+  if (!isValid) {
+    return { isValid, rawStatus };
+  }
+
+  return {
+    isValid,
+    rawStatus,
+    facturaInfo: {
+      cae,
+      nro,
+      invoiceNumber: nro,
+      vtoCae,
+      qrData,
+      fecha: new Date().toLocaleString('es-AR'),
+      url: finalPdfUrl || finalTicketUrl,
+      pdfUrl: finalPdfUrl,
+      ticketUrl: finalTicketUrl,
+      cbteTipo,
+      isCreditNote: true,
+      originalSaleId: sale.id,
+      originalBillingNumber: String(sale.facturaInfo?.nro || ''),
+    },
+  };
+};
+
 const resolveSaleSubtotalBase = (sale: Sale): number => {
   const rawSubtotal = Number(sale.subtotal ?? 0);
   if (Number.isFinite(rawSubtotal) && rawSubtotal > 0) {
@@ -1453,19 +1631,7 @@ export const SalesDashboard: React.FC<
         // Detectar si la venta tiene factura electrónica real: requiere TANTO CAE COMO NRO de comprobante.
         const hasFiscalInvoice = isElectronicallyBilledSale(saleForCreditNote);
 
-        let ncBillingInfo:
-          | {
-              cae: string;
-              nro: string;
-              invoiceNumber: string;
-              vtoCae: string;
-              qrData: string;
-              fecha: string;
-              url: string;
-              pdfUrl: string;
-              ticketUrl: string;
-            }
-          | undefined;
+        let ncBillingInfo: NormalizedCreditNoteFacturaInfo | undefined;
 
         if (hasFiscalInvoice) {
           console.log('[NC_FISCAL_FLOW_START]', { saleId: saleForCreditNote.id });
@@ -1483,28 +1649,20 @@ export const SalesDashboard: React.FC<
           const apiResponse = await api.generateElectronicCreditNote(saleForCreditNote, data.items);
           console.log('[NCS_ARCA_RESPONSE]', apiResponse);
 
-          const invoiceData = apiResponse.data;
-          const pdfUrl = String(invoiceData?.comprobante_pdf_url || invoiceData?.pdf_url || invoiceData?.url || '').trim();
-          const ticketUrl = String(invoiceData?.comprobante_ticket_url || invoiceData?.ticket_url || '').trim();
-          const cae = String(invoiceData?.cae || '').trim();
-          const nro = String(invoiceData?.nro || invoiceData?.invoiceNumber || '').trim();
-          const qrData = String(invoiceData?.qrData || '').trim();
+          const normalizedFiscal = normalizeCreditNoteFiscalResponse(apiResponse, saleForCreditNote);
+          if (!normalizedFiscal.isValid) {
+            if (normalizedFiscal.rawStatus === 'facturado') {
+              console.error('[NCS_FISCAL_RESPONSE_INVALID_BUT_EMITTED]', {
+                saleId: saleForCreditNote.id,
+                response: apiResponse,
+              });
+              throw new Error('La nota de crédito fue emitida por el proveedor, pero el sistema no pudo guardar sus datos fiscales. No vuelva a intentar. Contacte a administración.');
+            }
 
-          if (!invoiceData || !cae || !nro || !pdfUrl || !ticketUrl) {
-            throw new Error('El proveedor de facturacion no devolvio cae, nro, pdf url y ticket url validos para la Nota de Credito.');
+            throw new Error('El proveedor de facturacion no devolvio datos fiscales validos para la Nota de Credito.');
           }
 
-          ncBillingInfo = {
-            cae,
-            nro,
-            invoiceNumber: nro,
-            vtoCae: String(invoiceData?.vtoCae || '').trim(),
-            qrData,
-            fecha: new Date().toLocaleString('es-AR'),
-            url: pdfUrl,
-            pdfUrl,
-            ticketUrl,
-          };
+          ncBillingInfo = normalizedFiscal.facturaInfo;
 
           console.log('[NCS_BILLING_INFO]', ncBillingInfo);
         } else {
