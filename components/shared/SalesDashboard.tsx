@@ -1825,7 +1825,7 @@ export const SalesDashboard: React.FC<
         }
 
         if (stockRestoreResult.restoredCount === 0 && stockRestoreResult.skippedNonStockCount > 0) {
-          addToast('Nota de crédito generada correctamente. Los ítems comunes no modifican stock.', 'success');
+          addToast('Nota de crédito generada correctamente. Los ítems comunes o manuales no modifican stock.', 'success');
         } else {
           addToast('Nota de crédito procesada con éxito.', 'success');
         }

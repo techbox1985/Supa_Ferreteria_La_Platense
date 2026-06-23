@@ -3519,7 +3519,14 @@ export const restoreStockFromCreditNoteItems = async (
         if (!Number.isFinite(quantity) || quantity <= 0) continue;
 
         if (!productId && !cod) {
-            throw new Error('No se pudo restaurar stock: item de NC sin product_id ni product_code.');
+            skippedNonStockCount += 1;
+            console.info('[RESTORE_STOCK_SKIPPED_NON_STOCK_ITEM]', {
+                reason: 'missing_product_id_and_code',
+                product_id: null,
+                product_code: null,
+                product_name_snapshot: (item as any)?.product_name_snapshot || (item as any)?.name || null,
+            });
+            continue;
         }
 
         const candidateKey = productId ? `id:${productId}` : `cod:${cod}`;
@@ -3591,6 +3598,16 @@ export const restoreStockFromCreditNoteItems = async (
             (candidate.productId ? productsById.get(candidate.productId) : undefined) ||
             (candidate.cod ? productsByCod.get(candidate.cod) : undefined);
         if (!dbProduct) {
+            if (!candidate.productId) {
+                skippedNonStockCount += 1;
+                console.info('[RESTORE_STOCK_SKIPPED_NON_STOCK_ITEM]', {
+                    reason: 'product_id_null_product_not_found',
+                    product_id: null,
+                    product_code: candidate.cod || null,
+                });
+                continue;
+            }
+
             console.error('[RESTORE_STOCK_PRODUCT_NOT_FOUND]', {
                 productId: candidate.productId || null,
                 cod: candidate.cod || null,
@@ -3717,7 +3734,7 @@ export const annulSaleSupabase = async (saleId: string): Promise<void> => {
     // 5. Obtener items de la venta para devolver stock
     const { data: saleItems, error: itemsError } = await supabase
         .from('st_sale_items')
-        .select('product_id, quantity')
+        .select('product_id, product_code, quantity')
         .eq('sale_id', normalizedSaleId);
     
     if (itemsError) throw itemsError;
@@ -3741,8 +3758,15 @@ export const annulSaleSupabase = async (saleId: string): Promise<void> => {
     // 7. Devolver stock si hay items
     if (saleItems && saleItems.length > 0) {
         const itemsToRestore = saleItems.map((item: any) => ({
-            product: { cod: String(item.product_id || '') },
-            quantity: Number(item.quantity || 0)
+            product: {
+                id: item?.product_id ? String(item.product_id) : undefined,
+                cod: item?.product_code ? String(item.product_code) : '',
+                Producto: item?.product_code ? String(item.product_code) : 'Producto sin nombre',
+            },
+            product_id: item?.product_id ? String(item.product_id) : undefined,
+            product_code: item?.product_code ? String(item.product_code) : undefined,
+            quantity: Number(item.quantity || 0),
+            price: 0,
         }));
         await restoreStockFromCreditNoteItems(itemsToRestore as CartItem[]);
     }
