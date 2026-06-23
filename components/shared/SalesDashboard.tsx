@@ -1789,7 +1789,7 @@ export const SalesDashboard: React.FC<
           ncNumber: ncBillingInfo?.nro,
         });
 
-        await api.restoreStockFromCreditNoteItems(data.items);
+        const stockRestoreResult = await api.restoreStockFromCreditNoteItems(data.items);
 
         const isFullyReturned = await api.isSaleFullyReturnedByQuantity(saleForCreditNote.id);
         if (isFullyReturned) {
@@ -1824,7 +1824,11 @@ export const SalesDashboard: React.FC<
           ticketWindow.document.close();
         }
 
-        addToast('Nota de crédito procesada con éxito.', 'success');
+        if (stockRestoreResult.restoredCount === 0 && stockRestoreResult.skippedNonStockCount > 0) {
+          addToast('Nota de crédito generada correctamente. Los ítems comunes no modifican stock.', 'success');
+        } else {
+          addToast('Nota de crédito procesada con éxito.', 'success');
+        }
         setSaleForCreditNote(null);
       } catch (error) {
         if (ticketWindow) ticketWindow.close();

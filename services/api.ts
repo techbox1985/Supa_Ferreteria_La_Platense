@@ -3477,15 +3477,50 @@ export const createCreditNote = async (payload: CreateCreditNotePayload): Promis
     console.log('[NC TRACE] createCreditNote after insert', requestId, data?.[0]?.id);
 };
 
-export const restoreStockFromCreditNoteItems = async (items: CartItem[]): Promise<void> => {
+const isNonStockCreditNoteItem = (item: any): boolean => {
+    const productId = item?.product_id ?? item?.product?.id ?? null;
+    const rawCode = String(item?.product_code || item?.product?.cod || item?.cod || '').trim().toUpperCase();
+    const productName = String(
+        item?.product_name_snapshot ||
+        item?.product?.Producto ||
+        item?.product?.name ||
+        item?.name ||
+        ''
+    ).trim().toUpperCase();
+
+    const isCommonCode = rawCode.startsWith('COMMON_');
+    const isVarioName = productName === 'PRODUCTO VARIO';
+
+    return (!productId && isCommonCode) || isCommonCode || isVarioName;
+};
+
+export const restoreStockFromCreditNoteItems = async (
+    items: CartItem[]
+): Promise<{ restoredCount: number; skippedNonStockCount: number }> => {
     if (!supabase) throw new Error('Supabase no inicializado');
 
     const restoreCandidates = new Map<string, { productId?: string; cod?: string; quantity: number }>();
+    let skippedNonStockCount = 0;
+
     for (const item of items || []) {
-        const productId = String((item as any)?.product?.id || '').trim();
-        const cod = String(item?.product?.cod || '').trim();
+        if (isNonStockCreditNoteItem(item)) {
+            skippedNonStockCount += 1;
+            console.info('[RESTORE_STOCK_SKIPPED_NON_STOCK_ITEM]', {
+                product_id: (item as any)?.product_id || (item as any)?.product?.id || null,
+                product_code: (item as any)?.product_code || (item as any)?.product?.cod || (item as any)?.cod || null,
+                product_name_snapshot: (item as any)?.product_name_snapshot || (item as any)?.name || null,
+            });
+            continue;
+        }
+
+        const productId = String((item as any)?.product_id || (item as any)?.product?.id || '').trim();
+        const cod = String((item as any)?.product_code || item?.product?.cod || (item as any)?.cod || '').trim();
         const quantity = Number(item?.quantity || 0);
-        if ((!productId && !cod) || !Number.isFinite(quantity) || quantity <= 0) continue;
+        if (!Number.isFinite(quantity) || quantity <= 0) continue;
+
+        if (!productId && !cod) {
+            throw new Error('No se pudo restaurar stock: item de NC sin product_id ni product_code.');
+        }
 
         const candidateKey = productId ? `id:${productId}` : `cod:${cod}`;
         const currentCandidate = restoreCandidates.get(candidateKey);
@@ -3496,7 +3531,12 @@ export const restoreStockFromCreditNoteItems = async (items: CartItem[]): Promis
         });
     }
 
-    if (restoreCandidates.size === 0) return;
+    if (restoreCandidates.size === 0) {
+        return {
+            restoredCount: 0,
+            skippedNonStockCount,
+        };
+    }
 
     const productIds = Array.from(
         new Set(
@@ -3544,16 +3584,20 @@ export const restoreStockFromCreditNoteItems = async (items: CartItem[]): Promis
         }
     }
 
+    let restoredCount = 0;
+
     for (const candidate of restoreCandidates.values()) {
         const dbProduct =
             (candidate.productId ? productsById.get(candidate.productId) : undefined) ||
             (candidate.cod ? productsByCod.get(candidate.cod) : undefined);
         if (!dbProduct) {
-            console.warn('[RESTORE_STOCK_PRODUCT_NOT_FOUND]', {
+            console.error('[RESTORE_STOCK_PRODUCT_NOT_FOUND]', {
                 productId: candidate.productId || null,
                 cod: candidate.cod || null,
             });
-            continue;
+            throw new Error(
+                `No se pudo restaurar stock: producto no encontrado en st_products (id=${candidate.productId || 'null'}, cod=${candidate.cod || 'null'}).`
+            );
         }
 
         const newCurrentStock = (Number(dbProduct.current_stock) || 0) + candidate.quantity;
@@ -3563,7 +3607,13 @@ export const restoreStockFromCreditNoteItems = async (items: CartItem[]): Promis
             .eq('id', dbProduct.id);
 
         if (updateError) throw updateError;
+        restoredCount += 1;
     }
+
+    return {
+        restoredCount,
+        skippedNonStockCount,
+    };
 };
 
 export const isSaleFullyReturnedByQuantity = async (saleId: string): Promise<boolean> => {
