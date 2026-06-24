@@ -31,6 +31,8 @@ interface POSViewProps {
   saleBeingEdited: Sale | null;
   onClearSaleBeingEdited: () => void;
   onOptimisticAddSale: (sale: Sale) => void;
+  canChargeInPos: boolean;
+  canSendToCashier: boolean;
 }
 
 const POSView: React.FC<POSViewProps> = ({
@@ -50,6 +52,8 @@ const POSView: React.FC<POSViewProps> = ({
   saleBeingEdited,
   onClearSaleBeingEdited,
   onOptimisticAddSale,
+  canChargeInPos,
+  canSendToCashier,
 }) => {
   const INITIAL_PRODUCTS_LIMIT = 80;
   const { activeShift, currentUser } = useContext(AuthContext);
@@ -583,7 +587,8 @@ const categoryOptions = useMemo(() => {
             setIsBudgetMode(true);
             setCheckoutOpen(true);
           }}
-          onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
+          canChargeInPos={canChargeInPos}
+          onSendToCashier={canSendToCashier ? handleSendToCashier : undefined}
           isSendingToCashier={isSendingToCashier}
           onUpdateCartItemDetails={onUpdateCartItemDetails}
           selectedCustomer={posCustomer}
@@ -652,7 +657,8 @@ const categoryOptions = useMemo(() => {
                 setCheckoutOpen(true);
                 setIsMobileCartOpen(false);
               }}
-              onSendToCashier={currentUser?.Rol === 'Vendedor' ? handleSendToCashier : undefined}
+              canChargeInPos={canChargeInPos}
+              onSendToCashier={canSendToCashier ? handleSendToCashier : undefined}
               isSendingToCashier={isSendingToCashier}
               onUpdateCartItemDetails={onUpdateCartItemDetails}
               selectedCustomer={posCustomer}

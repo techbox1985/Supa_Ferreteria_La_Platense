@@ -341,6 +341,13 @@ const CreditNoteRow: React.FC<{
   onOpenActions: (note: AccountTransaction) => void;
 }> = React.memo(({ note, onOpenActions }) => {
   const itemsSummary = formatCreditNoteItemsSummary(note.items as any[] | undefined);
+  const facturaInfoAny = (note.facturaInfo || {}) as any;
+  const noteNumber = String(facturaInfoAny?.nro || facturaInfoAny?.invoiceNumber || '').trim();
+  const cae = String(facturaInfoAny?.cae || '').trim();
+  const isExternalManual =
+    facturaInfoAny?.externalManualCreditNote === true ||
+    String(facturaInfoAny?.source || '').trim() === 'manual_provider_registration';
+  const externalProvider = String(facturaInfoAny?.provider || '').trim();
 
   return (
     <tr
@@ -363,6 +370,24 @@ const CreditNoteRow: React.FC<{
           >
             {note.facturaInfo ? `(Oficial ${note.facturaInfo.nro})` : `(Ref: ${note.originalSaleId?.slice(0, 8)})`}
           </div>
+          {noteNumber && (
+            <div className="text-xs font-normal text-gray-700 truncate" title={`Comprobante ${noteNumber}`}>
+              {`Comprobante ${noteNumber}`}
+            </div>
+          )}
+          {cae && (
+            <div className="text-xs font-normal text-gray-700 truncate" title={`CAE ${cae}`}>
+              {`CAE ${cae}`}
+            </div>
+          )}
+          {isExternalManual && (
+            <div
+              className="text-xs font-normal text-indigo-700 truncate"
+              title={externalProvider ? `Emitida externamente (${externalProvider})` : 'Emitida externamente'}
+            >
+              {externalProvider ? `Emitida externamente (${externalProvider})` : 'Emitida externamente'}
+            </div>
+          )}
           <div
             className="text-xs font-normal text-gray-600 truncate"
             title={itemsSummary}
@@ -463,7 +488,8 @@ const SaleRow: React.FC<{
   const officialTicketA4Url = sale.facturaInfo?.url;
   const hasCreditNotes = Array.isArray(sale.creditNotes) && sale.creditNotes.length > 0;
   const returnedTotal = Number(sale.returnedTotal || 0);
-  const isNcTotal = hasCreditNotes && returnedTotal >= Number(sale.total || 0);
+  const saleTotal = Number(sale.total || 0);
+  const isNcTotal = hasCreditNotes && (returnedTotal > saleTotal || Math.abs(returnedTotal - saleTotal) < 0.05);
   const ncBadgeLabel = isNcTotal ? 'NC Total' : 'NC Parcial';
   const returnedTotalLabel = returnedTotal.toLocaleString('es-AR', {
     minimumFractionDigits: 2,

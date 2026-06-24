@@ -112,6 +112,16 @@ export interface AccountTransaction {
     url?: string;
     pdfUrl?: string;
     ticketUrl?: string;
+    isCreditNote?: boolean;
+    externalManualCreditNote?: boolean;
+    provider?: string;
+    tipo?: string;
+    total?: number;
+    status?: string;
+    paymentStatus?: string;
+    originalSaleId?: string;
+    originalSaleNumber?: number;
+    source?: string;
   };
 }
 

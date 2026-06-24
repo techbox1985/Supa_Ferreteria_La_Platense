@@ -29,24 +29,33 @@ const formatDateTime = (value: Date | null) => {
     });
 };
 
+const isPendingSaleAlreadyConverted = (sale: PendingSale): boolean => {
+    const normalizedStatus = String(sale.status || '').trim().toLowerCase();
+    return Boolean(sale.converted_sale_id) || normalizedStatus === 'paid' || normalizedStatus === 'completed';
+};
+
 const getStatusLabel = (status: PendingSale['status']) => {
     if (status === 'waiting') return 'Esperando';
     if (status === 'claimed') return 'Tomado';
     return status;
 };
 
-const getStatusClasses = (status: PendingSale['status']) =>
-    status === 'claimed'
+const getStatusClasses = (status: PendingSale['status'], alreadyConverted = false) =>
+    alreadyConverted
+        ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+        : status === 'claimed'
         ? 'bg-sky-50 text-sky-700 ring-sky-200'
         : 'bg-amber-50 text-amber-700 ring-amber-200';
 
 const getClaimLabel = (sale: PendingSale, currentUserId?: string) => {
+    if (isPendingSaleAlreadyConverted(sale)) return 'Venta generada';
     if (sale.status !== 'claimed') return null;
     if (sale.cashier_id && sale.cashier_id === currentUserId) return 'Tomado por vos';
     return `Tomado por: ${sale.cashier_name_snapshot || 'otro cajero'}`;
 };
 
 const canCurrentCashierCharge = (sale: PendingSale, currentUserId?: string) =>
+    !isPendingSaleAlreadyConverted(sale) &&
     sale.status === 'claimed' &&
     Boolean(sale.cashier_id) &&
     sale.cashier_id === currentUserId;
@@ -258,6 +267,12 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
     const handleFinalizePendingSale = useCallback(async (checkoutSale: Sale, generateInvoice: boolean) => {
         if (!saleToCharge) throw new Error('No hay pedido seleccionado para cobrar.');
         if (!currentUser?.ID_Usuario) throw new Error('No se pudo identificar al cajero actual.');
+        if (isPendingSaleAlreadyConverted(saleToCharge)) {
+            addToast('Este pedido ya fue cobrado.', 'error');
+            await loadPendingSales();
+            setSaleToCharge(null);
+            return;
+        }
         if (saleToCharge.status !== 'claimed') throw new Error('El pedido no esta tomado.');
         if (saleToCharge.cashier_id !== currentUser.ID_Usuario) {
             throw new Error('El pedido fue tomado por otro cajero.');
@@ -269,10 +284,16 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
             throw new Error('El total del pedido debe ser mayor a cero.');
         }
 
-        const latestClaimedSales = await api.getPendingSalesSupabase(['claimed']);
-        const latestPendingSale = latestClaimedSales.find((item) => item.id === saleToCharge.id);
+        const latestPendingSales = await api.getPendingSalesSupabase(['waiting', 'claimed', 'paid', 'cancelled']);
+        const latestPendingSale = latestPendingSales.find((item) => item.id === saleToCharge.id);
         if (!latestPendingSale) {
             throw new Error('El pedido ya no esta disponible para cobrar.');
+        }
+        if (isPendingSaleAlreadyConverted(latestPendingSale)) {
+            addToast('Este pedido ya fue cobrado.', 'error');
+            await loadPendingSales();
+            setSaleToCharge(null);
+            return;
         }
         if (latestPendingSale.status !== 'claimed' || latestPendingSale.cashier_id !== currentUser.ID_Usuario) {
             throw new Error('El pedido ya no esta tomado por el cajero actual.');
@@ -474,8 +495,8 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
                                     <tr key={sale.id} className="hover:bg-slate-50">
                                         <td className="whitespace-nowrap px-4 py-3 text-sm font-semibold text-slate-900">#{sale.pending_number}</td>
                                         <td className="whitespace-nowrap px-4 py-3 text-sm">
-                                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${getStatusClasses(sale.status)}`}>
-                                                {getStatusLabel(sale.status)}
+                                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${getStatusClasses(sale.status, isPendingSaleAlreadyConverted(sale))}`}>
+                                                {isPendingSaleAlreadyConverted(sale) ? 'Cobrado' : getStatusLabel(sale.status)}
                                             </span>
                                         </td>
                                         <td className="whitespace-nowrap px-4 py-3 text-sm text-slate-600">{sale.seller_name_snapshot || '-'}</td>
@@ -497,9 +518,16 @@ const CashierPendingSalesView: React.FC<CashierPendingSalesViewProps> = ({ custo
                                                     {claimingSaleId === sale.id ? 'Tomando...' : 'Tomar pedido'}
                                                 </button>
                                             ) : (
-                                                <span className="text-sm font-medium text-slate-600">
-                                                    {getClaimLabel(sale, currentUser?.ID_Usuario) || 'Tomado'}
-                                                </span>
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="text-sm font-medium text-slate-600">
+                                                        {getClaimLabel(sale, currentUser?.ID_Usuario) || 'Tomado'}
+                                                    </span>
+                                                    {isPendingSaleAlreadyConverted(sale) && (
+                                                        <span className="inline-flex w-fit rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                                                            Venta generada
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
                                         </td>
                                         <td className="whitespace-nowrap px-4 py-3 text-right">

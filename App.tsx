@@ -12,6 +12,7 @@ const SalesHistoryView = React.lazy(() => import('./components/sales-history/Sal
 const CashierPendingSalesView = React.lazy(() => import('./components/cashier/CashierPendingSalesView'));
 const StoreOrdersView = React.lazy(() => import('./components/store-orders/StoreOrdersView'));
 const SellerPendingSalesTrackingView = React.lazy(() => import('./components/seller/SellerPendingSalesTrackingView'));
+const LowStockView = React.lazy(() => import('./components/low-stock/LowStockView').then((m) => ({ default: m.LowStockView })));
 import { BillingCopilotWindow } from './components/shared/BillingCopilotWindow';
 import { CustomerStatementModal } from './components/customers/CustomerStatementModal';
 import { SyncQueueModal } from './components/sync/SyncQueueModal';
@@ -45,6 +46,41 @@ const parseSheetNumber = (value: any): number => {
     return isNaN(number) ? 0 : number;
 };
 
+const normalizeText = (value: any): string =>
+    String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toLowerCase();
+
+const normalizeIdKey = (value: any): string => String(value ?? '').trim().toLowerCase();
+
+const isCreditNoteTransaction = (transaction: AccountTransaction): boolean => {
+    const normalizedType = normalizeText(transaction?.type);
+    const facturaInfoAny = (transaction?.facturaInfo || {}) as any;
+
+    return (
+        normalizedType === 'nota de credito' ||
+        facturaInfoAny?.isCreditNote === true ||
+        facturaInfoAny?.externalManualCreditNote === true
+    );
+};
+
+const getCreditNoteLinkedSaleId = (transaction: AccountTransaction): string => {
+    const facturaInfoAny = (transaction?.facturaInfo || {}) as any;
+    return normalizeIdKey(transaction?.originalSaleId || facturaInfoAny?.originalSaleId);
+};
+
+const getCreditNoteLinkedSaleNumberKey = (transaction: AccountTransaction): string => {
+    const facturaInfoAny = (transaction?.facturaInfo || {}) as any;
+    const raw = facturaInfoAny?.originalSaleNumber;
+    if (raw === null || raw === undefined || raw === '') return '';
+    const numeric = Number(raw);
+    if (Number.isFinite(numeric) && numeric > 0) return String(Math.trunc(numeric));
+    const text = String(raw).trim();
+    return text || '';
+};
+
 const buildFacturaInfo = (item: any) => {
     const cae = item.Factura_CAE || '';
     const nro = item.Factura_Nro || '';
@@ -74,6 +110,20 @@ const AppContent: React.FC = () => {
     const { addToast } = useToast();
     const initialLoadUserRef = useRef<string | null>(null);
     const initialLoadInFlightRef = useRef(false);
+
+    const isAdmin = currentUser?.Rol === 'Admin';
+    const isSeller = currentUser?.Rol === 'Vendedor';
+    const isCashier = currentUser?.Rol === 'Cajero';
+
+    const canViewPos = isAdmin || isSeller;
+    const canChargeInPos = isAdmin;
+    const canSendToCashier = isAdmin || isSeller;
+    const canViewCashierPendingSales = isAdmin || isCashier;
+    const canViewSalesHistory = isAdmin || isCashier;
+    const canViewExpenses = isAdmin || isCashier;
+    const canViewLowStock = isAdmin || isCashier;
+    const canViewCustomers = isAdmin || isCashier;
+    const canViewCashTracking = isAdmin || isSeller;
 
     type View =
         | 'pos' | 'customers' | 'budgets' | 'expenses' | 'sales-history' | 'cashier-pending-sales' | 'store-orders'
@@ -407,11 +457,23 @@ const AppContent: React.FC = () => {
         );
 
         const creditNotesBySaleId = new Map<string, AccountTransaction[]>();
+        const creditNotesBySaleNumber = new Map<string, AccountTransaction[]>();
         processedTransactions.forEach((t: AccountTransaction) => {
-            if (t.type === 'Nota de Crédito' && t.originalSaleId) {
-                const notes = creditNotesBySaleId.get(t.originalSaleId) || [];
+            if (!isCreditNoteTransaction(t)) return;
+
+            const linkedSaleIdKey = getCreditNoteLinkedSaleId(t);
+            const linkedSaleNumberKey = getCreditNoteLinkedSaleNumberKey(t);
+
+            if (linkedSaleIdKey) {
+                const notes = creditNotesBySaleId.get(linkedSaleIdKey) || [];
                 notes.push(t);
-                creditNotesBySaleId.set(t.originalSaleId, notes);
+                creditNotesBySaleId.set(linkedSaleIdKey, notes);
+            }
+
+            if (linkedSaleNumberKey) {
+                const notesByNumber = creditNotesBySaleNumber.get(linkedSaleNumberKey) || [];
+                notesByNumber.push(t);
+                creditNotesBySaleNumber.set(linkedSaleNumberKey, notesByNumber);
             }
         });
 
@@ -457,8 +519,14 @@ const AppContent: React.FC = () => {
                     }
                 }
 
-                const notes = creditNotesBySaleId.get(saleId) || [];
-                const returnedTotal = notes.reduce((sum, note) => sum + note.credit, 0);
+                const saleIdKey = normalizeIdKey(saleId);
+                const saleNumber = parseSheetNumber(
+                    saleRow.Nro_Venta || saleRow['Nro Venta'] || saleRow.sale_number || saleRow.saleNumber
+                );
+                const notesById = creditNotesBySaleId.get(saleIdKey) || [];
+                const notesByNumber = saleNumber > 0 ? creditNotesBySaleNumber.get(String(saleNumber)) || [] : [];
+                const notes = Array.from(new Map([...notesById, ...notesByNumber].map((note) => [note.id, note])).values());
+                const returnedTotal = notes.reduce((sum, note) => sum + Number(note.credit || 0), 0);
                 const saleStatus: 'active' | 'annulled' =
                     (saleRow.Estado || saleRow['Estado'])?.toLowerCase() === 'anulada' ? 'annulled' : 'active';
 
@@ -484,7 +552,7 @@ const AppContent: React.FC = () => {
 
                 const sale: Sale & { document_type?: string } = {
                     id: saleId,
-                    saleNumber: parseSheetNumber(saleRow.Nro_Venta || saleRow['Nro Venta'] || saleRow.sale_number || saleRow.saleNumber),
+                    saleNumber,
                     date: new Date(saleRow.Fecha || saleRow['Fecha']),
                     customer: saleCustomer,
                     subtotal,
@@ -564,11 +632,23 @@ const AppContent: React.FC = () => {
         );
 
         const creditNotesBySaleId = new Map<string, AccountTransaction[]>();
+        const creditNotesBySaleNumber = new Map<string, AccountTransaction[]>();
         processedTransactions.forEach((t: AccountTransaction) => {
-            if (t.type === 'Nota de Crédito' && t.originalSaleId) {
-                const notes = creditNotesBySaleId.get(t.originalSaleId) || [];
+            if (!isCreditNoteTransaction(t)) return;
+
+            const linkedSaleIdKey = getCreditNoteLinkedSaleId(t);
+            const linkedSaleNumberKey = getCreditNoteLinkedSaleNumberKey(t);
+
+            if (linkedSaleIdKey) {
+                const notes = creditNotesBySaleId.get(linkedSaleIdKey) || [];
                 notes.push(t);
-                creditNotesBySaleId.set(t.originalSaleId, notes);
+                creditNotesBySaleId.set(linkedSaleIdKey, notes);
+            }
+
+            if (linkedSaleNumberKey) {
+                const notesByNumber = creditNotesBySaleNumber.get(linkedSaleNumberKey) || [];
+                notesByNumber.push(t);
+                creditNotesBySaleNumber.set(linkedSaleNumberKey, notesByNumber);
             }
         });
 
@@ -614,8 +694,14 @@ const AppContent: React.FC = () => {
                     }
                 }
 
-                const notes = creditNotesBySaleId.get(saleId) || [];
-                const returnedTotal = notes.reduce((sum, note) => sum + note.credit, 0);
+                const saleIdKey = normalizeIdKey(saleId);
+                const saleNumber = parseSheetNumber(
+                    saleRow.Nro_Venta || saleRow['Nro Venta'] || saleRow.sale_number || saleRow.saleNumber
+                );
+                const notesById = creditNotesBySaleId.get(saleIdKey) || [];
+                const notesByNumber = saleNumber > 0 ? creditNotesBySaleNumber.get(String(saleNumber)) || [] : [];
+                const notes = Array.from(new Map([...notesById, ...notesByNumber].map((note) => [note.id, note])).values());
+                const returnedTotal = notes.reduce((sum, note) => sum + Number(note.credit || 0), 0);
                 const saleStatus: 'active' | 'annulled' =
                     (saleRow.Estado || saleRow['Estado'])?.toLowerCase() === 'anulada' ? 'annulled' : 'active';
 
@@ -641,7 +727,7 @@ const AppContent: React.FC = () => {
 
                 const sale: Sale & { document_type?: string } = {
                     id: saleId,
-                    saleNumber: parseSheetNumber(saleRow.Nro_Venta || saleRow['Nro Venta'] || saleRow.sale_number || saleRow.saleNumber),
+                    saleNumber,
                     date: new Date(saleRow.Fecha || saleRow['Fecha']),
                     customer: saleCustomer,
                     subtotal,
@@ -907,12 +993,44 @@ const AppContent: React.FC = () => {
     }, [openSaleInPosEditor]);
 
     const renderView = () => {
-        const cashierAllowedViews: View[] = ['cashier-pending-sales', 'sales-history', 'customers', 'expenses', 'store-orders'];
-        const effectiveView = (currentUser?.Rol === 'Cajero' && !cashierAllowedViews.includes(currentView))
-            ? 'cashier-pending-sales'
-            : currentView;
-        if (effectiveView.startsWith('admin-') || effectiveView === 'low-stock') {
-            const subView = effectiveView === 'low-stock' ? 'low-stock-admin' : effectiveView.slice(6);
+        const resolveEffectiveView = (): View => {
+            if (isCashier) {
+                if (currentView === 'pos') return 'cashier-pending-sales';
+                if (currentView.startsWith('admin-')) return 'cashier-pending-sales';
+                if (currentView === 'budgets') return 'cashier-pending-sales';
+                if (currentView === 'customers' && !canViewCustomers) return 'cashier-pending-sales';
+                if (currentView === 'cashier-pending-sales' && !canViewCashierPendingSales) return 'sales-history';
+                if (currentView === 'sales-history' && !canViewSalesHistory) return 'cashier-pending-sales';
+                if (currentView === 'expenses' && !canViewExpenses) return 'cashier-pending-sales';
+                if (currentView === 'low-stock' && !canViewLowStock) return 'cashier-pending-sales';
+                if (currentView === 'seller-tracking' && !canViewCashTracking) return 'cashier-pending-sales';
+                return currentView;
+            }
+
+            if (isSeller) {
+                if (
+                    currentView === 'sales-history' ||
+                    currentView === 'expenses' ||
+                    currentView === 'low-stock' ||
+                    currentView === 'customers' ||
+                    currentView === 'cashier-pending-sales' ||
+                    currentView === 'store-orders'
+                ) {
+                    return canViewPos ? 'pos' : 'seller-tracking';
+                }
+                if (currentView.startsWith('admin-')) {
+                    return canViewPos ? 'pos' : 'seller-tracking';
+                }
+                return currentView;
+            }
+
+            return currentView;
+        };
+
+        const effectiveView = resolveEffectiveView();
+
+        if (effectiveView.startsWith('admin-')) {
+            const subView = effectiveView.slice(6);
             return (
                 <AdminPanelView
                     products={products}
@@ -950,10 +1068,15 @@ const AppContent: React.FC = () => {
                         saleBeingEdited={saleBeingEdited}
                         onClearSaleBeingEdited={() => setSaleBeingEdited(null)}
                         onOptimisticAddSale={handleOptimisticAddSale}
+                        canChargeInPos={canChargeInPos}
+                        canSendToCashier={canSendToCashier}
                     />
                 );
 
             case 'customers':
+                if (!canViewCustomers) {
+                    return null;
+                }
                 return (
                     <CustomersView
                         products={products}
@@ -997,6 +1120,9 @@ const AppContent: React.FC = () => {
             case 'store-orders':
                 return <StoreOrdersView />;
 
+            case 'low-stock':
+                return <LowStockView products={products} isLoading={isLoading || isProductsLoading} />;
+
             case 'seller-tracking':
                 return <SellerPendingSalesTrackingView />;
 
@@ -1019,8 +1145,14 @@ const AppContent: React.FC = () => {
                 <Sidebar
                     currentView={currentView}
                     onNavigate={(view) => setCurrentView(view)}
-                    isAdmin={currentUser?.Rol === 'Admin'}
-                    canSeeLowStock={currentUser?.Rol === 'Admin' || currentUser?.Rol === 'Vendedor'}
+                    isAdmin={isAdmin}
+                    canViewPos={canViewPos}
+                    canViewCashierPendingSales={canViewCashierPendingSales}
+                    canViewSalesHistory={canViewSalesHistory}
+                    canViewExpenses={canViewExpenses}
+                    canViewLowStock={canViewLowStock}
+                    canViewCustomers={canViewCustomers}
+                    canViewCashTracking={canViewCashTracking}
                     currentUser={currentUser}
                 />
                 <main className="flex-grow overflow-y-auto relative">

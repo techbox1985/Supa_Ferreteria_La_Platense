@@ -17,6 +17,7 @@ interface CartProps {
   selectedCustomer?: Customer | null;
   customers?: Customer[];
   onSelectCustomer?: (customer: Customer | null) => void;
+  canChargeInPos?: boolean;
 }
 
 const CartEntry: React.FC<{ 
@@ -76,7 +77,7 @@ const CartEntry: React.FC<{
     )
 }
 
-export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onBudget, onUpdateCartItemDetails, onSendToCashier, isSendingToCashier, selectedCustomer, customers, onSelectCustomer }) => {
+export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem, onClearCart, onCheckout, onBudget, onUpdateCartItemDetails, onSendToCashier, isSendingToCashier, selectedCustomer, customers, onSelectCustomer, canChargeInPos = true }) => {
   const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const customerDiscountPct = selectedCustomer?.discount_percentage || 0;
   const customerDiscountAmount = cartSubtotal * customerDiscountPct / 100;
@@ -161,14 +162,16 @@ export const Cart: React.FC<CartProps> = ({ cart, onUpdateQuantity, onRemoveItem
                   </div>
                 )}
             </div>
-            <button
-              onClick={onCheckout}
-              disabled={cart.length === 0}
-              className="bg-green-600 text-white py-2 px-3 rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-            >
-              <Icon path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z" className="w-6 h-6"/>
-              <span>Cobrar</span>
-            </button>
+            {canChargeInPos && (
+              <button
+                onClick={onCheckout}
+                disabled={cart.length === 0}
+                className="bg-green-600 text-white py-2 px-3 rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+              >
+                <Icon path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z" className="w-6 h-6"/>
+                <span>Cobrar</span>
+              </button>
+            )}
             <button
               onClick={onBudget}
               disabled={cart.length === 0}

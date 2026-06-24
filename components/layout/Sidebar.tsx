@@ -13,7 +13,13 @@ interface SidebarProps {
     currentView: View;
     onNavigate: (view: View) => void;
     isAdmin: boolean;
-    canSeeLowStock: boolean;
+    canViewPos: boolean;
+    canViewCashierPendingSales: boolean;
+    canViewSalesHistory: boolean;
+    canViewExpenses: boolean;
+    canViewLowStock: boolean;
+    canViewCustomers: boolean;
+    canViewCashTracking: boolean;
     currentUser?: User | null;
 }
 
@@ -45,12 +51,24 @@ const SectionTitle: React.FC<{ children: React.ReactNode }> = ({ children }) => 
     </div>
 );
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdmin, canSeeLowStock, currentUser }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+    currentView,
+    onNavigate,
+    isAdmin,
+    canViewPos,
+    canViewCashierPendingSales,
+    canViewSalesHistory,
+    canViewExpenses,
+    canViewLowStock,
+    canViewCustomers,
+    canViewCashTracking,
+    currentUser,
+}) => {
     return (
         <aside className="w-52 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 overflow-y-auto">
             <nav className="p-3 space-y-0.5">
                 <SectionTitle>Ventas</SectionTitle>
-                {currentUser?.Rol !== 'Cajero' && (
+                {canViewPos && (
                     <SidebarItem
                         label="POS"
                         iconPath="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c.51 0 .962-.343 1.087-.835l.383-1.437M7.5 14.25L5.106 5.165A2.25 2.25 0 002.894 3H2.25"
@@ -58,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                         onClick={() => onNavigate('pos')}
                     />
                 )}
-                {(currentUser?.Rol === 'Cajero' || currentUser?.Rol === 'Admin') && (
+                {canViewCashierPendingSales && (
                     <SidebarItem
                         label="Pedidos pendientes"
                         iconPath="M9 12h6m-6 4.5h6m2.25 4.5H6.75A2.25 2.25 0 014.5 18.75V5.25A2.25 2.25 0 016.75 3h7.5L19.5 8.25v10.5A2.25 2.25 0 0117.25 21z"
@@ -66,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                         onClick={() => onNavigate('cashier-pending-sales')}
                     />
                 )}
-                {(currentUser?.Rol === 'Vendedor' || currentUser?.Rol === 'Admin') && (
+                {canViewCashTracking && (
                     <SidebarItem
                         label="Seguimiento caja"
                         iconPath="M9 12.75L11.25 15 15 9.75m-2.25 2.25A9 9 0 1112 3a9 9 0 010 18z"
@@ -82,25 +100,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onNavigate, isAdm
                         onClick={() => onNavigate('store-orders')}
                     />
                 )}
-                <SidebarItem
-                    label="Historial"
-                    iconPath="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
-                    isActive={currentView === 'sales-history'}
-                    onClick={() => onNavigate('sales-history')}
-                />
-                <SidebarItem
-                    label="Gastos"
-                    iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
-                    isActive={currentView === 'expenses'}
-                    onClick={() => onNavigate('expenses')}
-                />
-                <SidebarItem
-                    label="Clientes"
-                    iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
-                    isActive={currentView === 'customers'}
-                    onClick={() => onNavigate('customers')}
-                />
-                {canSeeLowStock && (
+                {canViewSalesHistory && (
+                    <SidebarItem
+                        label="Historial"
+                        iconPath="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"
+                        isActive={currentView === 'sales-history'}
+                        onClick={() => onNavigate('sales-history')}
+                    />
+                )}
+                {canViewExpenses && (
+                    <SidebarItem
+                        label="Gastos"
+                        iconPath="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75m-15.75 0v-2.25a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121.75 16.5v2.25"
+                        isActive={currentView === 'expenses'}
+                        onClick={() => onNavigate('expenses')}
+                    />
+                )}
+                {canViewCustomers && (
+                    <SidebarItem
+                        label="Clientes"
+                        iconPath="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.231 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-4.67c.12-.24.232-.487.335-.737m-3.05-2.828c.328.316.63.645.913.985"
+                        isActive={currentView === 'customers'}
+                        onClick={() => onNavigate('customers')}
+                    />
+                )}
+                {canViewLowStock && (
                     <SidebarItem
                         label="Bajo Stock"
                         iconPath="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"

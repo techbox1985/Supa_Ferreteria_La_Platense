@@ -3886,8 +3886,23 @@ const parseTransactionFacturaInfo = (facturaInfoRaw: unknown): AccountTransactio
     const fecha = String(facturaInfo.fecha || '').trim();
     const vtoCae = String(facturaInfo.vtoCae || '').trim();
     const qrData = String(facturaInfo.qrData || '').trim();
+    const isCreditNote = facturaInfo.isCreditNote === true;
+    const externalManualCreditNote = facturaInfo.externalManualCreditNote === true;
+    const provider = String(facturaInfo.provider || '').trim() || undefined;
+    const tipo = String(facturaInfo.tipo || '').trim() || undefined;
+    const status = String(facturaInfo.status || '').trim() || undefined;
+    const paymentStatus = String(facturaInfo.paymentStatus || '').trim() || undefined;
+    const source = String(facturaInfo.source || '').trim() || undefined;
+    const originalSaleId = String(facturaInfo.originalSaleId || '').trim() || undefined;
+    const originalSaleNumberRaw = facturaInfo.originalSaleNumber;
+    const originalSaleNumber = Number.isFinite(Number(originalSaleNumberRaw))
+        ? Number(originalSaleNumberRaw)
+        : undefined;
+    const total = Number.isFinite(Number(facturaInfo.total)) ? Number(facturaInfo.total) : undefined;
 
-    if (!cae && !nro && !pdfUrl && !ticketUrl) return undefined;
+    if (!cae && !nro && !pdfUrl && !ticketUrl && !isCreditNote && !externalManualCreditNote && !originalSaleId && !originalSaleNumber) {
+        return undefined;
+    }
 
     return {
         cae,
@@ -3899,6 +3914,16 @@ const parseTransactionFacturaInfo = (facturaInfoRaw: unknown): AccountTransactio
         url: pdfUrl,
         pdfUrl,
         ticketUrl,
+        isCreditNote,
+        externalManualCreditNote,
+        provider,
+        tipo,
+        status,
+        paymentStatus,
+        originalSaleId,
+        originalSaleNumber,
+        source,
+        total,
     };
 };
 
@@ -3954,6 +3979,10 @@ export const isCreditNoteFiscalDocument = (facturaInfo: AccountTransaction['fact
         if (!facturaInfo) return false;
 
     const facturaInfoAny = facturaInfo as any;
+
+        if (facturaInfoAny?.isCreditNote === true || facturaInfoAny?.externalManualCreditNote === true) {
+            return true;
+        }
 
         const explicitTypeCandidates = [
         facturaInfoAny.cbteTipo,
