@@ -172,6 +172,13 @@ export interface Sale {
   customer_discount_amount?: number;
   // PROMPT 098: número de pedido enviado a caja que originó esta venta
   cashierPendingNumber?: number;
+  converted_to_sale_id?: string | null;
+  sellerId?: string;
+  sellerName?: string;
+  userProfileId?: string;
+  createdBy?: string;
+  userId?: string;
+  pendingNumber?: number;
 }
 
 export interface Expense {
@@ -200,6 +207,10 @@ export interface User {
 export interface Shift {
   ID_Turno: string;
   ID_Usuario: string;
+  user_profile_id?: string;
+  user_profile_user_id?: string;
+  user_profile_nombre?: string;
+  user_profile_email?: string;
   Fecha_Apertura: Date;
   Fecha_Cierre: Date | null;
   Monto_Apertura: number;
@@ -227,6 +238,12 @@ export interface Budget {
   created_at?: string;
   converted_to_sale_id?: string | null;
   shiftId: string;
+  sellerId?: string;
+  sellerName?: string;
+  userProfileId?: string;
+  createdBy?: string;
+  userId?: string;
+  pendingNumber?: number;
 }
 
 export interface StockEntryItem {

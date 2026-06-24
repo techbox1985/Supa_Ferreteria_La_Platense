@@ -2090,7 +2090,9 @@ export const getShiftsSupabase = async (): Promise<Shift[]> => {
             *,
             st_user_profiles (
                 id,
-                nombre
+                user_id,
+                nombre,
+                email
             )
         `)
         .order('opened_at', { ascending: false });
@@ -2100,6 +2102,10 @@ export const getShiftsSupabase = async (): Promise<Shift[]> => {
     return (data || []).map(item => ({
         ID_Turno: item.id,
         ID_Usuario: item.st_user_profiles?.id || 'Unknown',
+        user_profile_id: item.st_user_profiles?.id || undefined,
+        user_profile_user_id: item.st_user_profiles?.user_id || undefined,
+        user_profile_nombre: item.st_user_profiles?.nombre || undefined,
+        user_profile_email: item.st_user_profiles?.email || undefined,
         Fecha_Apertura: new Date(item.opened_at),
         Fecha_Cierre: item.closed_at ? new Date(item.closed_at) : null,
         Monto_Apertura: Number(item.opening_amount),
@@ -2129,7 +2135,10 @@ export const openShiftSupabase = async (userId: string, openingAmount: number): 
         .select(`
             *,
             st_user_profiles (
-                id
+                id,
+                user_id,
+                nombre,
+                email
             )
         `)
         .single();
@@ -2139,6 +2148,10 @@ export const openShiftSupabase = async (userId: string, openingAmount: number): 
     return {
         ID_Turno: data.id,
         ID_Usuario: data.st_user_profiles?.id || userId,
+        user_profile_id: data.st_user_profiles?.id || undefined,
+        user_profile_user_id: data.st_user_profiles?.user_id || undefined,
+        user_profile_nombre: data.st_user_profiles?.nombre || undefined,
+        user_profile_email: data.st_user_profiles?.email || undefined,
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: null,
         Monto_Apertura: Number(data.opening_amount),
@@ -2304,7 +2317,10 @@ export const closeShiftSupabase = async (shiftId: string, closingAmount: number)
         .select(`
             *,
             st_user_profiles (
-                id
+                id,
+                user_id,
+                nombre,
+                email
             )
         `)
         .single();
@@ -2314,6 +2330,10 @@ export const closeShiftSupabase = async (shiftId: string, closingAmount: number)
     return {
         ID_Turno: data.id,
         ID_Usuario: data.st_user_profiles?.id || 'Unknown',
+        user_profile_id: data.st_user_profiles?.id || undefined,
+        user_profile_user_id: data.st_user_profiles?.user_id || undefined,
+        user_profile_nombre: data.st_user_profiles?.nombre || undefined,
+        user_profile_email: data.st_user_profiles?.email || undefined,
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: new Date(data.closed_at),
         Monto_Apertura: Number(data.opening_amount),
@@ -2336,7 +2356,10 @@ export const getActiveShiftSupabase = async (userId: string): Promise<Shift | nu
         .select(`
             *,
             st_user_profiles (
-                id
+                id,
+                user_id,
+                nombre,
+                email
             )
         `)
         .eq('user_profile_id', profile.id)
@@ -2349,6 +2372,10 @@ export const getActiveShiftSupabase = async (userId: string): Promise<Shift | nu
     return {
         ID_Turno: data.id,
         ID_Usuario: data.st_user_profiles?.id || userId,
+        user_profile_id: data.st_user_profiles?.id || undefined,
+        user_profile_user_id: data.st_user_profiles?.user_id || undefined,
+        user_profile_nombre: data.st_user_profiles?.nombre || undefined,
+        user_profile_email: data.st_user_profiles?.email || undefined,
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: null,
         Monto_Apertura: Number(data.opening_amount),
@@ -2369,7 +2396,10 @@ export const getAnyActiveShiftSupabase = async (): Promise<Shift | null> => {
         .select(`
             *,
             st_user_profiles (
-                id
+                id,
+                user_id,
+                nombre,
+                email
             )
         `)
         .eq('status', 'open')
@@ -2383,6 +2413,10 @@ export const getAnyActiveShiftSupabase = async (): Promise<Shift | null> => {
     return {
         ID_Turno: data.id,
         ID_Usuario: data.st_user_profiles?.id || 'Unknown',
+        user_profile_id: data.st_user_profiles?.id || undefined,
+        user_profile_user_id: data.st_user_profiles?.user_id || undefined,
+        user_profile_nombre: data.st_user_profiles?.nombre || undefined,
+        user_profile_email: data.st_user_profiles?.email || undefined,
         Fecha_Apertura: new Date(data.opened_at),
         Fecha_Cierre: null,
         Monto_Apertura: Number(data.opening_amount),
@@ -2538,17 +2572,7 @@ export const getBudgetsSupabase = async (): Promise<Budget[]> => {
     const { data: budgetsRaw, error: budgetsError } = await supabase
         .from('st_budgets')
         .select(`
-            id,
-            budget_number,
-            customer_id,
-            budgeted_at,
-            subtotal,
-            adjustment_amount,
-            total,
-            status,
-                converted_to_sale_id,
-            customer_name_snapshot,
-            customer_document_snapshot,
+            *,
             st_budget_items (
                 id,
                 product_id,
@@ -2589,9 +2613,19 @@ export const getBudgetsSupabase = async (): Promise<Budget[]> => {
         total: Number(b.total ?? 0),
         status: b.status,
         converted_to_sale_id: b.converted_to_sale_id || null,
-        shiftId: '',
+        shiftId: String(b.shift_id || b.shiftId || '').trim(),
         subtotal: typeof b.subtotal === 'number' ? b.subtotal : undefined,
         adjustmentAmount: typeof b.adjustment_amount === 'number' ? b.adjustment_amount : undefined,
+        sellerId: String(
+            b.seller_id || b.sellerId || b.user_profile_id || b.userProfileId || b.created_by || b.createdBy || b.user_id || b.userId || ''
+        ).trim() || undefined,
+        sellerName: String(
+            b.seller_name_snapshot || b.sellerName || b.seller_name || b.vendedor || b.created_by_name || b.createdByName || ''
+        ).trim() || undefined,
+        userProfileId: String(b.user_profile_id || b.userProfileId || '').trim() || undefined,
+        createdBy: String(b.created_by || b.createdBy || '').trim() || undefined,
+        userId: String(b.user_id || b.userId || '').trim() || undefined,
+        pendingNumber: Number.isFinite(Number(b.pending_number)) ? Number(b.pending_number) : undefined,
     }));
 };
 

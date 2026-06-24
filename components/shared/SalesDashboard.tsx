@@ -717,6 +717,7 @@ export const SalesDashboard: React.FC<
   >(new Map());
   const { activeShift, currentUser } = useContext(AuthContext);
   const { addToast } = useToast();
+  const isSellerRole = currentUser?.Rol === 'Vendedor';
   // Permisos: permitir eliminar a Admin, Oficina, Encargado y Cajero
   const canDeleteSale = currentUser && ['Admin', 'Oficina', 'Encargado', 'Cajero'].includes(currentUser.Rol);
 
@@ -2318,7 +2319,7 @@ export const SalesDashboard: React.FC<
               {selectedItemForActions.type === 'sale' &&
               (selectedItemForActions.item as SaleWithDocumentType).document_type === 'budget' ? (
                 <>
-                  {onEditSale && (selectedItemForActions.item as Sale).status !== 'annulled' && !isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
+                  {!isSellerRole && onEditSale && (selectedItemForActions.item as Sale).status !== 'annulled' && !isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
                     <button
                       onClick={() => {
                         onEditSale(selectedItemForActions.item as Sale);
@@ -2331,19 +2332,21 @@ export const SalesDashboard: React.FC<
                     </button>
                   )}
 
-                  <button
-                    onClick={() => {
-                      if (typeof window !== 'undefined') {
-                        const event = new CustomEvent('edit-sale', { detail: selectedItemForActions.item });
-                        window.dispatchEvent(event);
-                      }
-                      setSelectedItemForActions(null);
-                    }}
-                    className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
-                  >
-                    <Icon path="M12 4v16m8-8H4" className="w-6 h-6" />
-                    <span className="font-medium">Convertir a Venta</span>
-                  </button>
+                  {!isSellerRole && (
+                    <button
+                      onClick={() => {
+                        if (typeof window !== 'undefined') {
+                          const event = new CustomEvent('edit-sale', { detail: selectedItemForActions.item });
+                          window.dispatchEvent(event);
+                        }
+                        setSelectedItemForActions(null);
+                      }}
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
+                    >
+                      <Icon path="M12 4v16m8-8H4" className="w-6 h-6" />
+                      <span className="font-medium">Convertir a Venta</span>
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {
@@ -2369,7 +2372,7 @@ export const SalesDashboard: React.FC<
                 </>
               ) : selectedItemForActions.type === 'sale' ? (
                 <>
-                  {onEditSale && (selectedItemForActions.item as Sale).status !== 'annulled' && !isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
+                  {!isSellerRole && onEditSale && (selectedItemForActions.item as Sale).status !== 'annulled' && !isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
                     <button
                       onClick={() => {
                         onEditSale(selectedItemForActions.item as Sale);
@@ -2383,6 +2386,7 @@ export const SalesDashboard: React.FC<
                   )}
 
                   {!isSaleAlreadyBilled(selectedItemForActions.item as Sale) ? (
+                    !isSellerRole ? (
                     <button
                       onClick={() => {
                         setSaleToBill(selectedItemForActions.item as Sale);
@@ -2394,6 +2398,7 @@ export const SalesDashboard: React.FC<
                       <Icon path="M18 3H9v18M9 12h6" className="w-6 h-6" />
                       <span className="font-medium">Facturar Venta</span>
                     </button>
+                    ) : null
                   ) : (
                     <div className="flex items-center justify-between p-3 bg-green-50 text-green-700 rounded-xl">
                       <div className="flex items-center space-x-3">
@@ -2511,7 +2516,7 @@ export const SalesDashboard: React.FC<
                     </div>
                   )}
 
-                  {(selectedItemForActions.item as Sale).status === 'annulled' &&
+                  {!isSellerRole && (selectedItemForActions.item as Sale).status === 'annulled' &&
                     isSaleAlreadyBilled(selectedItemForActions.item as Sale) &&
                     !selectedSaleGeneratedCreditNote && (
                       <button
@@ -2555,34 +2560,38 @@ export const SalesDashboard: React.FC<
                     <span className="font-medium">Enviar por WhatsApp</span>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      handleGenerateRemito(selectedItemForActions.item as Sale);
-                      setSelectedItemForActions(null);
-                    }}
-                    disabled={(selectedItemForActions.item as Sale).status === 'annulled'}
-                    className="flex items-center space-x-3 w-full p-3 text-left hover:bg-gray-100 text-gray-700 rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    <Icon path="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" className="w-6 h-6" />
-                    <span className="font-medium">Generar Remito</span>
-                  </button>
+                  {!isSellerRole && (
+                    <button
+                      onClick={() => {
+                        handleGenerateRemito(selectedItemForActions.item as Sale);
+                        setSelectedItemForActions(null);
+                      }}
+                      disabled={(selectedItemForActions.item as Sale).status === 'annulled'}
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-gray-100 text-gray-700 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      <Icon path="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" className="w-6 h-6" />
+                      <span className="font-medium">Generar Remito</span>
+                    </button>
+                  )}
 
-                  <button
-                    onClick={() => {
-                      handleAddCreditNote(selectedItemForActions.item as Sale);
-                      setSelectedItemForActions(null);
-                    }}
-                    disabled={
-                      (selectedItemForActions.item as Sale).status === 'annulled' ||
-                      (selectedItemForActions.item as Sale).total -
-                        ((selectedItemForActions.item as Sale).returnedTotal || 0) <=
-                        0
-                    }
-                    className="flex items-center space-x-3 w-full p-3 text-left hover:bg-orange-50 text-orange-700 rounded-xl transition-colors disabled:opacity-50"
-                  >
-                    <Icon path="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" className="w-6 h-6" />
-                    <span className="font-medium">Generar Nota de Crédito</span>
-                  </button>
+                  {!isSellerRole && (
+                    <button
+                      onClick={() => {
+                        handleAddCreditNote(selectedItemForActions.item as Sale);
+                        setSelectedItemForActions(null);
+                      }}
+                      disabled={
+                        (selectedItemForActions.item as Sale).status === 'annulled' ||
+                        (selectedItemForActions.item as Sale).total -
+                          ((selectedItemForActions.item as Sale).returnedTotal || 0) <=
+                          0
+                      }
+                      className="flex items-center space-x-3 w-full p-3 text-left hover:bg-orange-50 text-orange-700 rounded-xl transition-colors disabled:opacity-50"
+                    >
+                      <Icon path="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" className="w-6 h-6" />
+                      <span className="font-medium">Generar Nota de Crédito</span>
+                    </button>
+                  )}
 
                   {/* Restaurado botón Eliminar Venta - PROMPT 013 */}
                   {/* Solo mostrar Eliminar Venta si el usuario tiene permiso */}

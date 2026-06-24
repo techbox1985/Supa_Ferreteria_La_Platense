@@ -1,8 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
-import { Sale, Product, Customer, User, Shift, AccountTransaction } from '../../types';
+import React, { useState, useMemo, useContext, useEffect, useCallback, useRef } from 'react';
+import { Sale, Product, Customer, User, Shift, AccountTransaction, PendingSale } from '../../types';
 import { Icon } from '../ui/Icon';
 import { SalesDashboard } from '../shared/SalesDashboard';
+import { AuthContext } from '../../contexts/AuthContext';
 
 
 interface SalesHistoryViewProps {
@@ -16,9 +17,14 @@ interface SalesHistoryViewProps {
     fetchSalesForDateRange?: (startDate: string, endDate: string) => Promise<void>;
     onEditSale?: (sale: Sale) => void;
     accountTransactions?: AccountTransaction[];
+    pendingSales?: PendingSale[];
 }
 
-const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, fetchSalesForDateRange, onEditSale, accountTransactions = [] }) => {
+const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, customers, allUsers, shifts, isLoading, refreshData, fetchSalesForDateRange, onEditSale, accountTransactions = [], pendingSales = [] }) => {
+    const { currentUser } = useContext(AuthContext);
+    const isSeller = currentUser?.Rol === 'Vendedor';
+    const currentUserId = String(currentUser?.ID_Usuario || '').trim();
+
     // Helper para obtener YYYY-MM-DD en hora local
     const getLocalDateString = (date: Date) => {
         const year = date.getFullYear();
@@ -48,6 +54,236 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     const [docTypeFilter, setDocTypeFilter] = useState<'all' | 'sale' | 'budget'>('all');
     const [searchTerm, setSearchTerm] = useState('');
 
+    const normalizeText = (value: unknown) =>
+        String(value ?? '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toLowerCase();
+
+    const isDevMode = Boolean((import.meta as any)?.env?.DEV);
+
+    const sellerIdentity = useMemo(() => {
+        const currentUserAny = (currentUser || {}) as any;
+        return {
+            profileId: String(currentUserAny?.id || currentUserAny?.ID_Usuario || '').trim(),
+            authUserId: String(currentUserAny?.user_id || currentUserAny?.userId || '').trim(),
+            email: normalizeText(currentUserAny?.email || currentUserAny?.Email || ''),
+            name: normalizeText(currentUserAny?.nombre || currentUserAny?.Nombre || ''),
+        };
+    }, [currentUser]);
+
+    const sellerOwnedShiftIds = useMemo(() => {
+        if (!isSeller) return new Set<string>();
+
+        const candidateProfileId = sellerIdentity.profileId;
+        const candidateAuthUserId = sellerIdentity.authUserId;
+        const candidateEmail = sellerIdentity.email;
+        const candidateName = sellerIdentity.name;
+
+        const ids = new Set<string>();
+
+        for (const shift of shifts || []) {
+            const profileId = String((shift as any)?.user_profile_id || shift.ID_Usuario || '').trim();
+            const profileUserId = String((shift as any)?.user_profile_user_id || '').trim();
+            const profileEmail = normalizeText((shift as any)?.user_profile_email || '');
+            const profileName = normalizeText((shift as any)?.user_profile_nombre || '');
+
+            const matchByProfileId = Boolean(candidateProfileId) && Boolean(profileId) && profileId === candidateProfileId;
+            const matchByAuthUserId = Boolean(candidateAuthUserId) && Boolean(profileUserId) && profileUserId === candidateAuthUserId;
+            const matchByEmail = Boolean(candidateEmail) && Boolean(profileEmail) && profileEmail === candidateEmail;
+            const canFallbackByName = !candidateProfileId && !candidateAuthUserId && !candidateEmail;
+            const matchByName = canFallbackByName && Boolean(candidateName) && Boolean(profileName) && profileName === candidateName;
+
+            if (matchByProfileId || matchByAuthUserId || matchByEmail || matchByName) {
+                ids.add(shift.ID_Turno);
+            }
+        }
+
+        if (ids.size === 0) {
+            console.warn('[SELLER_HISTORY_SCOPE_WARNING] No se pudo asociar vendedor con shift/user_profile.', {
+                currentUserId: candidateProfileId || null,
+                currentAuthUserId: candidateAuthUserId || null,
+                currentEmail: candidateEmail || null,
+                currentName: candidateName || null,
+                shiftsLoaded: Array.isArray(shifts) ? shifts.length : 0,
+            });
+        }
+
+        return ids;
+    }, [isSeller, shifts, sellerIdentity]);
+
+    const convertedSaleSellerMap = useMemo(() => {
+        const map = new Map<string, { sellerId: string; sellerName: string; pendingNumber?: number }>();
+        (pendingSales || []).forEach((ps) => {
+            const convertedSaleId = String(ps?.converted_sale_id || '').trim();
+            if (!convertedSaleId) return;
+            map.set(convertedSaleId, {
+                sellerId: String(ps?.seller_id || '').trim(),
+                sellerName: String(ps?.seller_name_snapshot || '').trim(),
+                pendingNumber: Number.isFinite(Number(ps?.pending_number)) ? Number(ps.pending_number) : undefined,
+            });
+        });
+        return map;
+    }, [pendingSales]);
+
+    const budgetScopeWarningShownRef = useRef(false);
+    const budgetScopeDebugCountRef = useRef(0);
+
+    const isSaleOwnedBySeller = useCallback((sale: Sale): boolean => {
+        const documentType = String((sale as any)?.document_type || '').trim().toLowerCase();
+        const isBudget = documentType === 'budget';
+        const convertedSeller =
+            convertedSaleSellerMap.get(String(sale.id || '').trim()) ||
+            convertedSaleSellerMap.get(String((sale as any)?.converted_to_sale_id || '').trim());
+
+        if (convertedSeller) {
+            const bySellerId =
+                Boolean(convertedSeller.sellerId) &&
+                (
+                    convertedSeller.sellerId === sellerIdentity.profileId ||
+                    convertedSeller.sellerId === currentUserId ||
+                    convertedSeller.sellerId === sellerIdentity.authUserId
+                );
+            const bySellerName =
+                !bySellerId &&
+                Boolean(convertedSeller.sellerName) &&
+                normalizeText(convertedSeller.sellerName) === sellerIdentity.name;
+            const matched = bySellerId || bySellerName;
+
+            if (isDevMode && isBudget && budgetScopeDebugCountRef.current < 5) {
+                budgetScopeDebugCountRef.current += 1;
+                console.debug('[SELLER_BUDGET_SCOPE_DEBUG]', {
+                    saleNumber: sale.saleNumber || null,
+                    documentType: documentType || null,
+                    shiftId: sale.shiftId || null,
+                    sellerId: convertedSeller.sellerId || null,
+                    sellerName: convertedSeller.sellerName || null,
+                    pendingNumber: convertedSeller.pendingNumber || (sale as any)?.pendingNumber || null,
+                    currentUserId: sellerIdentity.profileId || currentUserId || null,
+                    currentUserName: sellerIdentity.name || null,
+                    match: matched,
+                    source: 'pending_converted_sale_map',
+                });
+            }
+
+            return matched;
+        }
+
+        const ownSellerId = String(
+            (sale as any)?.sellerId ||
+            (sale as any)?.seller_id ||
+            (sale as any)?.userProfileId ||
+            (sale as any)?.user_profile_id ||
+            (sale as any)?.createdBy ||
+            (sale as any)?.created_by ||
+            (sale as any)?.userId ||
+            (sale as any)?.user_id ||
+            ''
+        ).trim();
+        const ownSellerName = String(
+            (sale as any)?.sellerName ||
+            (sale as any)?.seller_name_snapshot ||
+            (sale as any)?.seller_name ||
+            (sale as any)?.vendedor ||
+            ''
+        ).trim();
+
+        if (isBudget && (ownSellerId || ownSellerName)) {
+            const bySellerId = Boolean(ownSellerId) && (
+                ownSellerId === sellerIdentity.profileId ||
+                ownSellerId === currentUserId ||
+                ownSellerId === sellerIdentity.authUserId
+            );
+            const bySellerName =
+                !bySellerId &&
+                Boolean(ownSellerName) &&
+                normalizeText(ownSellerName) === sellerIdentity.name;
+            const matched = bySellerId || bySellerName;
+
+            if (isDevMode && budgetScopeDebugCountRef.current < 5) {
+                budgetScopeDebugCountRef.current += 1;
+                console.debug('[SELLER_BUDGET_SCOPE_DEBUG]', {
+                    saleNumber: sale.saleNumber || null,
+                    documentType: documentType || null,
+                    shiftId: sale.shiftId || null,
+                    sellerId: ownSellerId || null,
+                    sellerName: ownSellerName || null,
+                    pendingNumber: (sale as any)?.pendingNumber || null,
+                    currentUserId: sellerIdentity.profileId || currentUserId || null,
+                    currentUserName: sellerIdentity.name || null,
+                    match: matched,
+                    source: 'budget_own_fields',
+                });
+            }
+
+            return matched;
+        }
+
+        const byShift = sellerOwnedShiftIds.has(String(sale.shiftId || '').trim());
+        if (byShift) {
+            if (isDevMode && isBudget && budgetScopeDebugCountRef.current < 5) {
+                budgetScopeDebugCountRef.current += 1;
+                console.debug('[SELLER_BUDGET_SCOPE_DEBUG]', {
+                    saleNumber: sale.saleNumber || null,
+                    documentType: documentType || null,
+                    shiftId: sale.shiftId || null,
+                    sellerId: ownSellerId || null,
+                    sellerName: ownSellerName || null,
+                    pendingNumber: (sale as any)?.pendingNumber || null,
+                    currentUserId: sellerIdentity.profileId || currentUserId || null,
+                    currentUserName: sellerIdentity.name || null,
+                    match: true,
+                    source: 'shift_fallback',
+                });
+            }
+            return true;
+        }
+
+        if (isBudget && !budgetScopeWarningShownRef.current) {
+            budgetScopeWarningShownRef.current = true;
+            console.warn('[SELLER_BUDGET_SCOPE_WARNING] Presupuesto sin señales confiables de vendedor. Se incluye para evitar filtro destructivo.', {
+                saleId: sale.id,
+                saleNumber: sale.saleNumber || null,
+                documentType: documentType || null,
+                shiftId: sale.shiftId || null,
+                sellerId: ownSellerId || null,
+                sellerName: ownSellerName || null,
+                pendingNumber: (sale as any)?.pendingNumber || null,
+                currentUserId: sellerIdentity.profileId || currentUserId || null,
+                currentUserName: sellerIdentity.name || null,
+            });
+        }
+
+        if (isBudget) {
+            if (isDevMode && budgetScopeDebugCountRef.current < 5) {
+                budgetScopeDebugCountRef.current += 1;
+                console.debug('[SELLER_BUDGET_SCOPE_DEBUG]', {
+                    saleNumber: sale.saleNumber || null,
+                    documentType: documentType || null,
+                    shiftId: sale.shiftId || null,
+                    sellerId: ownSellerId || null,
+                    sellerName: ownSellerName || null,
+                    pendingNumber: (sale as any)?.pendingNumber || null,
+                    currentUserId: sellerIdentity.profileId || currentUserId || null,
+                    currentUserName: sellerIdentity.name || null,
+                    match: true,
+                    source: 'non_destructive_budget_fallback',
+                });
+            }
+            return true;
+        }
+
+        // Fallback para ventas directas sin pending convertido: por turno.
+        return false;
+    }, [convertedSaleSellerMap, sellerIdentity, currentUserId, sellerOwnedShiftIds]);
+
+    useEffect(() => {
+        if (isSeller && currentUserId) {
+            setSellerFilter(currentUserId);
+        }
+    }, [isSeller, currentUserId]);
+
     const applyStartDate = async () => {
         if (!draftStartDate || draftStartDate === startDate) return;
         setStartDate(draftStartDate);
@@ -63,7 +299,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
     };
     
     const shiftUserMap = useMemo(() => {
-        return new Map(shifts.map(shift => [shift.ID_Turno, shift.ID_Usuario]));
+        return new Map(shifts.map(shift => [shift.ID_Turno, (shift as any).user_profile_id || shift.ID_Usuario]));
     }, [shifts]);
 
     const toLocalDayKey = (value: Date | string) => {
@@ -88,11 +324,17 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
             const isInDateRange = saleDayKey >= fromDayKey && saleDayKey <= toDayKey;
             if (!isInDateRange) return false;
 
+            // Scope vendedor: prioridad por pedido convertido -> seller original.
+            if (isSeller) {
+                return isSaleOwnedBySeller(sale);
+            }
+
+            const saleUserId = shiftUserMap.get(sale.shiftId || '');
+
             if (sellerFilter === 'All') {
                 return true;
             }
 
-            const saleUserId = shiftUserMap.get(sale.shiftId || '');
             return saleUserId === sellerFilter;
         });
 
@@ -122,7 +364,7 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
         }
 
         return filtered;
-    }, [processedSales, startDate, endDate, sellerFilter, shiftUserMap]);
+    }, [processedSales, startDate, endDate, sellerFilter, shiftUserMap, isSeller, isSaleOwnedBySeller]);
 
     // Filtrado por tipo de documento (venta/presupuesto)
     const filteredByDocType = useMemo(() => {
@@ -138,13 +380,14 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
 
     // Pagos de cuenta corriente filtrados por el mismo rango de fechas del historial
     const accountTransactionsInRange = useMemo(() => {
+        if (isSeller) return [];
         if (!accountTransactions || accountTransactions.length === 0) return [];
         return accountTransactions.filter(t => {
             if (t.type !== 'Pago' || t.credit <= 0) return false;
             const dayKey = toLocalDayKey(t.date);
             return dayKey >= startDate && dayKey <= endDate;
         });
-    }, [accountTransactions, startDate, endDate]);
+    }, [accountTransactions, startDate, endDate, isSeller]);
 
     if (isLoading) {
         return (
@@ -211,23 +454,25 @@ const SalesHistoryView: React.FC<SalesHistoryViewProps> = ({ processedSales, cus
                     className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
                 />
             </div>
-            <div className="grow">
-                <label htmlFor="seller-filter" className="block text-sm font-medium text-gray-700">Vendedor</label>
-                <select 
-                    id="seller-filter"
-                    value={sellerFilter}
-                    onChange={e => setSellerFilter(e.target.value)}
-                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                >
-                    <option value="All">Todos los Vendedores</option>
-                    {allUsers
-                        .filter(u => u.Rol === 'Vendedor' || u.Rol === 'Admin')
-                        .map(user => (
-                            <option key={user.ID_Usuario} value={user.ID_Usuario}>{user.Nombre}</option>
-                        ))
-                    }
-                </select>
-            </div>
+            {!isSeller && (
+                <div className="grow">
+                    <label htmlFor="seller-filter" className="block text-sm font-medium text-gray-700">Vendedor</label>
+                    <select 
+                        id="seller-filter"
+                        value={sellerFilter}
+                        onChange={e => setSellerFilter(e.target.value)}
+                        className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    >
+                        <option value="All">Todos los Vendedores</option>
+                        {allUsers
+                            .filter(u => u.Rol === 'Vendedor' || u.Rol === 'Admin')
+                            .map(user => (
+                                <option key={user.ID_Usuario} value={user.ID_Usuario}>{user.Nombre}</option>
+                            ))
+                        }
+                    </select>
+                </div>
+            )}
             {/* Buscador real */}
             <div className="grow md:max-w-xs relative mt-4 md:mt-0">
                 <label htmlFor="search-term" className="block text-sm font-medium text-gray-700">Buscar</label>

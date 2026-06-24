@@ -29,6 +29,7 @@ import {
     Supplier,
     AccountTransaction,
     ECheq,
+    PendingSale,
 } from './types';
 import { isDeleted } from './utils/productFilters';
 import { calculateCustomerBalance } from './services/api';
@@ -119,7 +120,7 @@ const AppContent: React.FC = () => {
     const canChargeInPos = isAdmin;
     const canSendToCashier = isAdmin || isSeller;
     const canViewCashierPendingSales = isAdmin || isCashier;
-    const canViewSalesHistory = isAdmin || isCashier;
+    const canViewSalesHistory = isAdmin || isCashier || isSeller;
     const canViewExpenses = isAdmin || isCashier;
     const canViewLowStock = isAdmin || isCashier;
     const canViewCustomers = isAdmin || isCashier;
@@ -146,6 +147,7 @@ const AppContent: React.FC = () => {
     const [suppliers, setSuppliers] = useState<Supplier[]>([]);
     const [categories, setCategories] = useState<string[]>([]);
     const [accountTransactions, setAccountTransactions] = useState<any[]>([]);
+    const [pendingSalesHistory, setPendingSalesHistory] = useState<PendingSale[]>([]);
 
     // Estados de UI
     const [isLoading, setIsLoading] = useState(true);
@@ -220,6 +222,7 @@ const AppContent: React.FC = () => {
                 usersResult,
                 suppliersResult,
                 accountTransactionsResult,
+                pendingSalesResult,
             ] = await Promise.allSettled([
                 api.getProducts(),
                 api.getSales(),
@@ -228,6 +231,7 @@ const AppContent: React.FC = () => {
                 api.getUsers(),
                 api.getSuppliers(),
                 api.getAccountTransactions(),
+                api.getPendingSalesSupabase(['waiting', 'claimed', 'paid', 'cancelled']),
             ]);
 
             if (productsResult.status === 'fulfilled') {
@@ -271,6 +275,12 @@ const AppContent: React.FC = () => {
                 setAccountTransactions(accountTransactionsResult.value || []);
             } else {
                 console.error('Error fetching account transactions:', accountTransactionsResult.reason);
+            }
+
+            if (pendingSalesResult.status === 'fulfilled') {
+                setPendingSalesHistory(pendingSalesResult.value || []);
+            } else {
+                console.error('Error fetching pending sales for history scope:', pendingSalesResult.reason);
             }
         } catch (error) {
             console.error('Error fetching critical data:', error);
@@ -613,10 +623,16 @@ const AppContent: React.FC = () => {
             status: 'active',
             returnedTotal: 0,
             creditNotes: [],
-            shiftId: budget.shiftId || undefined,
+            shiftId: budget.shiftId || budget.shift_id || undefined,
             facturacion: 'N',
             isPendingSync: false,
             converted_to_sale_id: budget.converted_to_sale_id || null,
+            sellerId: budget.sellerId || budget.seller_id || budget.userProfileId || budget.user_profile_id || budget.createdBy || budget.created_by || budget.userId || budget.user_id || undefined,
+            sellerName: budget.sellerName || budget.seller_name_snapshot || budget.seller_name || budget.vendedor || undefined,
+            userProfileId: budget.userProfileId || budget.user_profile_id || undefined,
+            createdBy: budget.createdBy || budget.created_by || undefined,
+            userId: budget.userId || budget.user_id || undefined,
+            pendingNumber: Number.isFinite(Number(budget.pendingNumber ?? budget.pending_number)) ? Number(budget.pendingNumber ?? budget.pending_number) : undefined,
             document_type: 'budget',
         }));
 
@@ -788,10 +804,16 @@ const AppContent: React.FC = () => {
             status: 'active',
             returnedTotal: 0,
             creditNotes: [],
-            shiftId: budget.shiftId || undefined,
+            shiftId: budget.shiftId || budget.shift_id || undefined,
             facturacion: 'N',
             isPendingSync: false,
             converted_to_sale_id: budget.converted_to_sale_id || null,
+            sellerId: budget.sellerId || budget.seller_id || budget.userProfileId || budget.user_profile_id || budget.createdBy || budget.created_by || budget.userId || budget.user_id || undefined,
+            sellerName: budget.sellerName || budget.seller_name_snapshot || budget.seller_name || budget.vendedor || undefined,
+            userProfileId: budget.userProfileId || budget.user_profile_id || undefined,
+            createdBy: budget.createdBy || budget.created_by || undefined,
+            userId: budget.userId || budget.user_id || undefined,
+            pendingNumber: Number.isFinite(Number(budget.pendingNumber ?? budget.pending_number)) ? Number(budget.pendingNumber ?? budget.pending_number) : undefined,
             document_type: 'budget',
         }));
 
@@ -1009,7 +1031,6 @@ const AppContent: React.FC = () => {
 
             if (isSeller) {
                 if (
-                    currentView === 'sales-history' ||
                     currentView === 'expenses' ||
                     currentView === 'low-stock' ||
                     currentView === 'customers' ||
@@ -1111,6 +1132,7 @@ const AppContent: React.FC = () => {
                         fetchSalesForDateRange={fetchSalesForHistoryDateRange}
                         onEditSale={handleEditSale}
                         accountTransactions={accountTransactions}
+                        pendingSales={pendingSalesHistory}
                     />
                 );
 
