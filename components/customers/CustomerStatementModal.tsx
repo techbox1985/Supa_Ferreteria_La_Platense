@@ -9,6 +9,7 @@ import { useToast } from '../../contexts/ToastContext';
 import { ConfirmationModal } from '../ui/ConfirmationModal';
 import { calculateCustomerBalance } from '../../services/api';
 import { PaymentModal } from './PaymentModal';
+import { AuthContext } from '../../contexts/AuthContext';
 
 interface CustomerStatementModalProps {
   isOpen: boolean;
@@ -41,7 +42,8 @@ const getTypeStyle = (type: AccountTransaction['type']) => {
     }
 }
 
-export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ isOpen, onClose, customer, allSales, isAdmin, refreshData }) => {
+export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ isOpen, onClose, customer, allSales, isAdmin: _isAdmin, refreshData }) => {
+    const { currentUser } = React.useContext(AuthContext);
     // Guardar y normalizar el customer recibido
     const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
     const safeCustomer: Customer = {
@@ -60,6 +62,9 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
     const { addToast } = useToast();
     const [txToDelete, setTxToDelete] = useState<AccountTransaction | null>(null);
     const [isDeleting, setIsDeleting] = useState(false);
+    const currentUserRole = String((currentUser as any)?.Rol || (currentUser as any)?.rol || (currentUser as any)?.role || '').trim().toLowerCase();
+    const canRecordCustomerPayment = currentUserRole === 'admin' || currentUserRole === 'cajero';
+    const canDeleteCustomerAccountMovement = currentUserRole === 'admin' || currentUserRole === 'cajero';
 
     const fetchStatement = async () => {
         if (!safeCustomer?.Id_Cliente) {
@@ -91,6 +96,13 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
             setTransactions([]);
         }
     }, [isOpen, safeCustomer && safeCustomer.Id_Cliente]);
+
+    useEffect(() => {
+        if (isPaymentModalOpen && !canRecordCustomerPayment) {
+            setIsPaymentModalOpen(false);
+            addToast('El vendedor puede ver la deuda, pero no puede registrar pagos. Esta acción corresponde al cajero.', 'error');
+        }
+    }, [isPaymentModalOpen, canRecordCustomerPayment, addToast]);
   
     // Usar el helper para calcular el resumen SOLO desde el ledger
     const summary = useMemo(() => {
@@ -345,10 +357,18 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
     };
   
     const handleDeleteRequest = (tx: AccountTransaction) => {
+        if (!canDeleteCustomerAccountMovement) {
+            addToast('El vendedor puede ver la cuenta corriente, pero no puede eliminar movimientos.', 'error');
+            return;
+        }
         setTxToDelete(tx);
     };
 
     const handleConfirmDelete = async () => {
+        if (!canDeleteCustomerAccountMovement) {
+            addToast('El vendedor puede ver la cuenta corriente, pero no puede eliminar movimientos.', 'error');
+            return;
+        }
         if (!txToDelete) return;
         const transactionToDelete = txToDelete;
         setIsDeleting(true);
@@ -416,13 +436,15 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                         <Icon path="M6.75 7.5h10.5a.75.75 0 01.75.75v10.5a.75.75 0 01-.75-.75h-10.5a.75.75 0 01-.75-.75V8.25a.75.75 0 01.75-.75z" className="w-5 h-5"/>
                         <span>Imprimir Resumen</span>
                     </button>
-                    <button
-                        onClick={() => setIsPaymentModalOpen(true)}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2"
-                    >
-                        <Icon path="M12 4v16m8-8H4" className="w-5 h-5"/>
-                        <span>Registrar Pago</span>
-                    </button>
+                    {canRecordCustomerPayment && (
+                        <button
+                            onClick={() => setIsPaymentModalOpen(true)}
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors flex items-center space-x-2"
+                        >
+                            <Icon path="M12 4v16m8-8H4" className="w-5 h-5"/>
+                            <span>Registrar Pago</span>
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -474,7 +496,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                                                                 <Icon path="M2.036 12.322a1.012 1.012 0 010-.639l4.418-5.523A1.012 1.012 0 017.5 6h9a1.012 1.012 0 01.946.689l4.418 5.523a1.012 1.012 0 010 .639l-4.418 5.523A1.012 1.012 0 0116.5 18h-9a1.012 1.012 0 01-.946-.689L2.036 12.322zM15 12a3 3 0 11-6 0 3 3 0 016 0z" className="w-5 h-5"/>
                                                             </button>
                                                         )}
-                                                        {isAdmin && ((tx.type === 'Venta' && tx.originalSaleId) || tx.type === 'Pago' || tx.type === 'Nota de Crédito') && (
+                                                        {canDeleteCustomerAccountMovement && ((tx.type === 'Venta' && tx.originalSaleId) || tx.type === 'Pago' || tx.type === 'Nota de Crédito') && (
                                                             <button
                                                                 onClick={() => handleDeleteRequest(tx)}
                                                                 className="text-red-600 hover:text-red-800"
@@ -521,6 +543,10 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                 customer={{ ...safeCustomer, Deuda: effectiveDebt }}
                 onSave={async (paymentData) => {
                     try {
+                        if (!canRecordCustomerPayment) {
+                            addToast('El vendedor puede ver la deuda, pero no puede registrar pagos. Esta acción corresponde al cajero.', 'error');
+                            throw new Error('Sin permisos para registrar pagos');
+                        }
                                                 await api.recordPayment(
                                                     safeCustomer.Id_Cliente,
                                                     paymentData.amount,
@@ -532,7 +558,9 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({ 
                         setIsPaymentModalOpen(false);
                         refreshData();
                     } catch (error) {
-                        addToast('Error al registrar el pago.', 'error');
+                        if ((error as Error)?.message !== 'Sin permisos para registrar pagos') {
+                            addToast('Error al registrar el pago.', 'error');
+                        }
                     }
                 }}
             />

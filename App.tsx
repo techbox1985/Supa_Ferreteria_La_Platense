@@ -123,7 +123,7 @@ const AppContent: React.FC = () => {
     const canViewSalesHistory = isAdmin || isCashier || isSeller;
     const canViewExpenses = isAdmin || isCashier;
     const canViewLowStock = isAdmin || isCashier;
-    const canViewCustomers = isAdmin || isCashier;
+    const canViewCustomers = isAdmin || isCashier || isSeller;
     const canViewCashTracking = isAdmin || isSeller;
 
     type View =
@@ -1033,7 +1033,6 @@ const AppContent: React.FC = () => {
                 if (
                     currentView === 'expenses' ||
                     currentView === 'low-stock' ||
-                    currentView === 'customers' ||
                     currentView === 'cashier-pending-sales' ||
                     currentView === 'store-orders'
                 ) {
