@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useContext, useCallback, useEffect } from 'react';
-import { Sale, Product, Customer, CartItem, CreditNote, AccountTransaction, Budget } from '../../types';
+import { Sale, Product, Customer, CartItem, CreditNote, AccountTransaction, Budget, ECheq } from '../../types';
 import { isCreditNoteFiscalDocument } from '../../services/api';
 
 // Local type for sales with document_type
@@ -25,15 +25,10 @@ import { SearchableSelect } from '../ui/SearchableSelect';
 import { sendTicketViaWhatsApp } from '../../utils/whatsappHelper';
 import { getPrintStyles } from '../../utils/printStyles';
 import { BillingModal } from './BillingModal';
+import { CheckoutModal } from '../pos/CheckoutModal';
 
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-
-const parseMoneyInput = (value: string): number => {
-  const normalized = String(value ?? '').trim().replace(/\./g, '').replace(',', '.');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
 
 const formatMoneyInput = (value: number): string => {
   if (!Number.isFinite(value)) return '0';
@@ -49,6 +44,70 @@ const isSaleAlreadyBilled = (sale: Sale): boolean => {
   );
   return hasBillingEvidence;
 };
+
+const PAYMENT_EDIT_TOLERANCE = 0.05;
+
+const isSaleCancelled = (sale: Sale): boolean => {
+  const status = String((sale as any)?.status || '').trim().toLowerCase();
+  return status === 'annulled' || status === 'anulada' || status === 'cancelled';
+};
+
+const hasTotalCreditNote = (sale: Sale): boolean => {
+  const total = Number(sale.total || 0);
+  const returnedTotal = Number(sale.returnedTotal || 0);
+  return total > 0 && returnedTotal >= total - PAYMENT_EDIT_TOLERANCE;
+};
+
+const toFiniteNumber = (value: any): number => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().replace(/\./g, '').replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const normalizeEcheqsForEdit = (value: any): ECheq[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({ amount: toFiniteNumber(item?.amount), days: toFiniteNumber(item?.days) }))
+    .filter((item) => item.amount > 0);
+};
+
+const resolveSalePaymentForEdit = (sale: Sale): Sale['payment'] => {
+  const source: any = sale as any;
+  const paymentSource: any = source?.payment || {};
+
+  const cash = toFiniteNumber(
+    paymentSource.cash ?? source.payment_cash ?? source.paymentCash ?? source.Pago_Efectivo ?? source['Pago Efectivo'] ?? source.Efectivo
+  );
+  const digital = toFiniteNumber(
+    paymentSource.digital ?? source.payment_digital ?? source.paymentDigital ?? source.Pago_Digital ?? source['Pago Digital'] ?? source.Digital
+  );
+  const credit = toFiniteNumber(
+    paymentSource.credit ?? source.payment_credit ?? source.paymentCredit ?? source.Pago_Cuenta_Corriente ?? source['Pago Cuenta Corriente'] ?? source.CtaCte
+  );
+
+  let echeqs = normalizeEcheqsForEdit(paymentSource.echeqs);
+  if (echeqs.length === 0) {
+    const rawEcheqs = source['Echeqs (JSON)'] || source['Echeqs JSON'] || source['Echeqs(JSON)'];
+    if (typeof rawEcheqs === 'string' && rawEcheqs.trim()) {
+      try {
+        echeqs = normalizeEcheqsForEdit(JSON.parse(rawEcheqs));
+      } catch {
+        echeqs = [];
+      }
+    }
+  }
+
+  return { cash, digital, credit, echeqs };
+};
+
+const normalizeSaleForPaymentEdit = (sale: Sale): Sale => ({
+  ...sale,
+  payment: resolveSalePaymentForEdit(sale),
+});
 
 // Una venta está electrónicamente facturada solo si tiene AMBOS: un CAE real y un número de comprobante.
 // No basta con tener un ticketUrl interno, una URL de impresión común ni un campo billing_cae
@@ -235,31 +294,6 @@ const normalizeCreditNoteFiscalResponse = (
       originalBillingNumber: String(sale.facturaInfo?.nro || ''),
     },
   };
-};
-
-const resolveSaleSubtotalBase = (sale: Sale): number => {
-  const rawSubtotal = Number(sale.subtotal ?? 0);
-  if (Number.isFinite(rawSubtotal) && rawSubtotal > 0) {
-    return rawSubtotal;
-  }
-
-  const rawTotal = Number(sale.total ?? 0);
-  const rawAdjustment = Number(sale.adjustmentAmount ?? 0);
-  const derivedSubtotal = rawTotal - rawAdjustment;
-  return Number.isFinite(derivedSubtotal) ? derivedSubtotal : 0;
-};
-
-const resolveSaleDisplayTotal = (sale: Sale): number => {
-  const rawTotal = Number(sale.total ?? 0);
-  const subtotalBase = resolveSaleSubtotalBase(sale);
-  const adjustmentAmount = Number(sale.adjustmentAmount ?? 0);
-  const derivedTotal = subtotalBase + adjustmentAmount;
-
-  if (Number.isFinite(rawTotal) && (rawTotal !== 0 || derivedTotal === 0)) {
-    return rawTotal;
-  }
-
-  return Number.isFinite(derivedTotal) ? derivedTotal : 0;
 };
 
 const openHtmlInNewWindow = (
@@ -718,6 +752,7 @@ export const SalesDashboard: React.FC<
   const { activeShift, currentUser } = useContext(AuthContext);
   const { addToast } = useToast();
   const isSellerRole = currentUser?.Rol === 'Vendedor';
+  const canEditPaymentRole = currentUser ? ['Admin', 'Cajero'].includes(currentUser.Rol) : false;
   // Permisos: permitir eliminar a Admin, Oficina, Encargado y Cajero
   const canDeleteSale = currentUser && ['Admin', 'Oficina', 'Encargado', 'Cajero'].includes(currentUser.Rol);
 
@@ -1259,6 +1294,22 @@ export const SalesDashboard: React.FC<
   }, [differenceData.detailRows, differenceData.differenceTotal, statTitlePrefix]);
 
   const handleOpenPaymentEditModal = useCallback((sale: Sale, options?: { closeSummaryModal?: boolean; closeActionsMenu?: boolean }) => {
+    const canEditPayment = currentUser && ['Admin', 'Cajero'].includes(currentUser.Rol);
+    if (!canEditPayment) {
+      addToast('Solo Admin o Cajero pueden editar el cobro.', 'error');
+      return;
+    }
+
+    if (isSaleCancelled(sale)) {
+      addToast('No se puede editar el cobro de una venta anulada.', 'error');
+      return;
+    }
+
+    if (hasTotalCreditNote(sale)) {
+      addToast('No se puede editar el cobro de una venta con nota de crédito total.', 'error');
+      return;
+    }
+
     if (options?.closeSummaryModal) {
       setModalConfig(prev => ({ ...prev, isOpen: false }));
     }
@@ -1267,31 +1318,45 @@ export const SalesDashboard: React.FC<
       setSelectedItemForActions(null);
     }
 
+    const saleForEdit = normalizeSaleForPaymentEdit(sale);
+    const saleAny = sale as any;
+    const normalizedPayment = saleForEdit.payment;
+
+    if ((import.meta as any)?.env?.DEV) {
+      console.debug('[EDIT_PAYMENT_SOURCE_DEBUG]', {
+        saleId: sale.id,
+        saleNumber: sale.saleNumber,
+        total: sale.total,
+        payment: saleAny?.payment,
+        paymentCash: saleAny?.payment?.cash,
+        paymentDigital: saleAny?.payment?.digital,
+        paymentCredit: saleAny?.payment?.credit,
+        paymentEcheqs: saleAny?.payment?.echeqs,
+        payment_cash: saleAny?.payment_cash,
+        payment_digital: saleAny?.payment_digital,
+        payment_credit: saleAny?.payment_credit,
+        paymentCashAlias: saleAny?.paymentCash,
+        paymentDigitalAlias: saleAny?.paymentDigital,
+        paymentCreditAlias: saleAny?.paymentCredit,
+        Pago_Efectivo: saleAny?.Pago_Efectivo,
+        Pago_Digital: saleAny?.Pago_Digital,
+        Pago_Cuenta_Corriente: saleAny?.Pago_Cuenta_Corriente,
+        Efectivo: saleAny?.Efectivo,
+        Digital: saleAny?.Digital,
+        CtaCte: saleAny?.CtaCte,
+        normalizedPayment,
+      });
+    }
+
     setPaymentEditState({
       isOpen: true,
-      sale,
-      cash: formatMoneyInput(Number(sale.payment.cash || 0)),
-      digital: formatMoneyInput(Number(sale.payment.digital || 0)),
-      credit: formatMoneyInput(Number(sale.payment.credit || 0)),
+      sale: saleForEdit,
+      cash: formatMoneyInput(Number(normalizedPayment.cash || 0)),
+      digital: formatMoneyInput(Number(normalizedPayment.digital || 0)),
+      credit: formatMoneyInput(Number(normalizedPayment.credit || 0)),
       isSaving: false,
     });
-  }, []);
-
-  // (Eliminado handleOpenDiscountEditModal y setDiscountEditState, ya no se usan)
-  // void handleOpenDiscountEditModal; (eliminado)
-
-  const paymentEditTotals = useMemo(() => {
-    const sumPayments =
-      parseMoneyInput(paymentEditState.cash) +
-      parseMoneyInput(paymentEditState.digital) +
-      parseMoneyInput(paymentEditState.credit);
-
-    const total = Number(paymentEditState.sale?.total || 0);
-    return {
-      sumPayments,
-      difference: total - sumPayments,
-    };
-  }, [paymentEditState.cash, paymentEditState.credit, paymentEditState.digital, paymentEditState.sale]);
+  }, [addToast, currentUser]);
 
   const handleClosePaymentEditModal = useCallback(() => {
     if (paymentEditState.isSaving) return;
@@ -1305,33 +1370,36 @@ export const SalesDashboard: React.FC<
     });
   }, [paymentEditState.isSaving]);
 
+  const handleFinalizeCheckoutPaymentEdit = useCallback(async (updatedSale: Sale) => {
+    if (!paymentEditState.sale) throw new Error('No hay venta para editar.');
 
+    const payment = updatedSale.payment || { cash: 0, digital: 0, credit: 0, echeqs: [] };
+    const cash = Number(payment.cash || 0);
+    const digital = Number(payment.digital || 0);
+    const credit = Number(payment.credit || 0);
+    const echeqs = Array.isArray(payment.echeqs) ? payment.echeqs : [];
+    const echeqTotal = echeqs.reduce((sum, item) => sum + Number(item?.amount || 0), 0);
+    const expectedTotal = Number(paymentEditState.sale.total || 0);
+    const totalPaid = cash + digital + credit + echeqTotal;
 
-  const handleSavePaymentEdit = useCallback(async () => {
-    if (!paymentEditState.sale) return;
-
-    const cash = parseMoneyInput(paymentEditState.cash);
-    const digital = parseMoneyInput(paymentEditState.digital);
-    const credit = parseMoneyInput(paymentEditState.credit);
+    if (Math.abs(totalPaid - expectedTotal) > PAYMENT_EDIT_TOLERANCE) {
+      throw new Error('La suma de medios de pago debe coincidir con el total de la venta.');
+    }
 
     setPaymentEditState(prev => ({ ...prev, isSaving: true }));
 
     try {
-      await api.updateSalePaymentAllocation(paymentEditState.sale.id, { cash, digital, credit });
+      await api.updateSalePaymentAllocation(paymentEditState.sale.id, { cash, digital, credit, echeqs } as any);
 
-      // Optimistic update: reflect new payments immediately without waiting for parent re-render
       const savedSaleId = paymentEditState.sale.id;
-      setPatchedPayments(prev => { const next = new Map(prev); next.set(savedSaleId, { cash, digital, credit }); return next; });
-
-      addToast('Pagos de la venta actualizados correctamente.', 'success');
-      setPaymentEditState({
-        isOpen: false,
-        sale: null,
-        cash: '0',
-        digital: '0',
-        credit: '0',
-        isSaving: false,
+      setPatchedPayments(prev => {
+        const next = new Map(prev);
+        next.set(savedSaleId, { cash, digital, credit });
+        return next;
       });
+
+      addToast('Cobro actualizado correctamente.', 'success');
+      handleClosePaymentEditModal();
       await refreshData();
     } catch (error) {
       const errMsg =
@@ -1342,8 +1410,9 @@ export const SalesDashboard: React.FC<
             : JSON.stringify(error);
       addToast(`No se pudo actualizar los pagos: ${errMsg}`, 'error');
       setPaymentEditState(prev => ({ ...prev, isSaving: false }));
+      throw error;
     }
-  }, [addToast, paymentEditState.cash, paymentEditState.credit, paymentEditState.digital, paymentEditState.sale, refreshData]);
+  }, [addToast, handleClosePaymentEditModal, paymentEditState.sale, refreshData]);
 
 
   const handleView = useCallback(
@@ -2074,103 +2143,20 @@ export const SalesDashboard: React.FC<
         size={modalConfig.size}
       />
 
-      {paymentEditState.isOpen && paymentEditState.sale && (
-        <Modal
-          isOpen={paymentEditState.isOpen}
-          onClose={handleClosePaymentEditModal}
-          title={`Editar Pagos Venta #${paymentEditState.sale.id.slice(0, 8)}`}
-          size="lg"
-        >
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
-                <p className="text-gray-500 text-xs">ID Venta</p>
-                <p className="font-semibold text-gray-800 font-mono">{paymentEditState.sale.id.slice(0, 8)}</p>
-              </div>
-              <div className="bg-gray-50 rounded-md border border-gray-200 p-3">
-                <p className="text-gray-500 text-xs">Fecha</p>
-                <p className="font-semibold text-gray-800">{new Date(paymentEditState.sale.date).toLocaleString('es-AR')}</p>
-              </div>
-              <div className="bg-gray-50 rounded-md border border-gray-200 p-3 md:col-span-2">
-                <p className="text-gray-500 text-xs">Cliente</p>
-                <p className="font-semibold text-gray-800">{paymentEditState.sale.customer?.['Nombre y Apellido'] || 'Consumidor Final'}</p>
-              </div>
-              <div className="bg-blue-50 rounded-md border border-blue-200 p-3 md:col-span-2">
-                <p className="text-blue-700 text-xs">Total de la venta</p>
-                <p className="font-bold text-blue-900 text-lg">{formatCurrency(resolveSaleDisplayTotal(paymentEditState.sale))}</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Efectivo</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={paymentEditState.cash}
-                  onChange={(e) => setPaymentEditState(prev => ({ ...prev, cash: e.target.value }))}
-                  disabled={paymentEditState.isSaving}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Digital</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={paymentEditState.digital}
-                  onChange={(e) => setPaymentEditState(prev => ({ ...prev, digital: e.target.value }))}
-                  disabled={paymentEditState.isSaving}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Cta. Cte.</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={paymentEditState.credit}
-                  onChange={(e) => setPaymentEditState(prev => ({ ...prev, credit: e.target.value }))}
-                  disabled={paymentEditState.isSaving}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="rounded-md border border-gray-200 bg-gray-50 p-3 space-y-1">
-              <div className="flex items-center justify-between text-sm text-gray-700">
-                <span>Suma de pagos</span>
-                <span className="font-semibold">{formatCurrency(paymentEditTotals.sumPayments)}</span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-700">Diferencia actual</span>
-                <span className={`font-semibold ${Math.abs(paymentEditTotals.difference) <= 1 ? 'text-emerald-700' : 'text-red-700'}`}>
-                  {formatCurrency(paymentEditTotals.difference)}
-                </span>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={handleClosePaymentEditModal}
-                disabled={paymentEditState.isSaving}
-                className="px-4 py-2 text-sm rounded-md bg-gray-200 text-gray-800 hover:bg-gray-300 disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleSavePaymentEdit}
-                disabled={paymentEditState.isSaving}
-                className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {paymentEditState.isSaving ? 'Guardando...' : 'Guardar pagos'}
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <CheckoutModal
+        isOpen={paymentEditState.isOpen}
+        onClose={handleClosePaymentEditModal}
+        cart={paymentEditState.sale?.items || []}
+        customers={customers}
+        onFinalizeSale={async (sale) => {
+          await handleFinalizeCheckoutPaymentEdit(sale);
+        }}
+        onAddNewCustomer={() => {
+          addToast('El alta de clientes no está habilitada en edición de cobro.', 'info');
+        }}
+        saleBeingEdited={paymentEditState.sale}
+        isBudgetMode={false}
+      />
 
       {saleToBill && (
         <BillingModal
@@ -2372,6 +2358,20 @@ export const SalesDashboard: React.FC<
                 </>
               ) : selectedItemForActions.type === 'sale' ? (
                 <>
+                  {canEditPaymentRole &&
+                    !isSaleCancelled(selectedItemForActions.item as Sale) &&
+                    !hasTotalCreditNote(selectedItemForActions.item as Sale) && (
+                      <button
+                        onClick={() => {
+                          handleOpenPaymentEditModal(selectedItemForActions.item as Sale, { closeActionsMenu: true });
+                        }}
+                        className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
+                      >
+                        <Icon path="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 21z" className="w-6 h-6" />
+                        <span className="font-medium">Editar cobro</span>
+                      </button>
+                    )}
+
                   {!isSellerRole && onEditSale && (selectedItemForActions.item as Sale).status !== 'annulled' && !isSaleAlreadyBilled(selectedItemForActions.item as Sale) && (
                     <button
                       onClick={() => {

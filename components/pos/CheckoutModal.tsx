@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Modal } from '../ui/Modal';
 import { Icon } from '../ui/Icon';
 import { CartItem, Customer, Sale, ECheq } from '../../types';
@@ -28,6 +28,52 @@ const parseLocaleNumber = (value: string): number => {
 const formatCurrency = (value: number) =>
   `$${value.toLocaleString('es-AR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const formatInput = (value: number) => String(value).replace('.', ',');
+
+const toFiniteNumber = (value: any): number => {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().replace(/\./g, '').replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+};
+
+const normalizeEcheqs = (value: any): ECheq[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => ({ amount: toFiniteNumber(item?.amount), days: toFiniteNumber(item?.days) }))
+    .filter((item) => item.amount > 0);
+};
+
+const resolveSalePayment = (sale: Sale): Sale['payment'] => {
+  const source: any = sale as any;
+  const paymentSource: any = source?.payment || {};
+
+  const cash = toFiniteNumber(
+    paymentSource.cash ?? source.payment_cash ?? source.paymentCash ?? source.Pago_Efectivo ?? source['Pago Efectivo'] ?? source.Efectivo
+  );
+  const digital = toFiniteNumber(
+    paymentSource.digital ?? source.payment_digital ?? source.paymentDigital ?? source.Pago_Digital ?? source['Pago Digital'] ?? source.Digital
+  );
+  const credit = toFiniteNumber(
+    paymentSource.credit ?? source.payment_credit ?? source.paymentCredit ?? source.Pago_Cuenta_Corriente ?? source['Pago Cuenta Corriente'] ?? source.CtaCte
+  );
+
+  let echeqs = normalizeEcheqs(paymentSource.echeqs);
+  if (echeqs.length === 0) {
+    const rawEcheqs = source['Echeqs (JSON)'] || source['Echeqs JSON'] || source['Echeqs(JSON)'];
+    if (typeof rawEcheqs === 'string' && rawEcheqs.trim()) {
+      try {
+        echeqs = normalizeEcheqs(JSON.parse(rawEcheqs));
+      } catch {
+        echeqs = [];
+      }
+    }
+  }
+
+  return { cash, digital, credit, echeqs };
+};
 
 const CONSUMIDOR_FINAL_INVOICE_LIMIT = 90000;
 
@@ -120,111 +166,99 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const change = useMemo(() => totalPaid - total, [totalPaid, total]);
   const isCtaCteEnabled = useMemo(() => selectedCustomer && selectedCustomer.Id_Cliente !== '0', [selectedCustomer]);
 
-  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
-  const [prevSaleBeingEdited, setPrevSaleBeingEdited] = useState(saleBeingEdited);
-  const [prevSelectedCustomer, setPrevSelectedCustomer] = useState(selectedCustomer);
-  const [prevCondicionIVA, setPrevCondicionIVA] = useState(condicionIVA);
+  useEffect(() => {
+    if (!isOpen) return;
 
-  if (isOpen !== prevIsOpen || saleBeingEdited !== prevSaleBeingEdited) {
-    setPrevIsOpen(isOpen);
-    setPrevSaleBeingEdited(saleBeingEdited);
-    
-    if (isOpen) {
-      setIsProcessing(false);
-      setError('');
-      const finalConsumer = customers.find(
-        (c) => c.Id_Cliente === '0' || c['Nombre y Apellido'].toLowerCase() === 'consumidor final'
-      );
+    setIsProcessing(false);
+    setError('');
+    const finalConsumer = customers.find(
+      (c) => c.Id_Cliente === '0' || c['Nombre y Apellido'].toLowerCase() === 'consumidor final'
+    );
 
-      if (saleBeingEdited) {
-        setSelectedCustomer(saleBeingEdited.customer);
-        setCash(formatInput(saleBeingEdited.payment.cash || 0));
-        setDigital(formatInput(saleBeingEdited.payment.digital || 0));
-        setCredit(formatInput(saleBeingEdited.payment.credit || 0));
-        setEcheqs(saleBeingEdited.payment.echeqs || []);
-        setGenerateInvoice(saleBeingEdited.facturacion !== 'N');
+    if (saleBeingEdited) {
+      const resolvedPayment = resolveSalePayment(saleBeingEdited);
+      setSelectedCustomer(saleBeingEdited.customer);
+      setCash(formatInput(resolvedPayment.cash || 0));
+      setDigital(formatInput(resolvedPayment.digital || 0));
+      setCredit(formatInput(resolvedPayment.credit || 0));
+      setEcheqs(resolvedPayment.echeqs || []);
+      setGenerateInvoice(saleBeingEdited.facturacion !== 'N');
 
-        setDiscountPercent('');
-        setDiscountAmount('');
-        setRecargoPercent('');
-        setRecargoAmount('');
+      setDiscountPercent('');
+      setDiscountAmount('');
+      setRecargoPercent('');
+      setRecargoAmount('');
 
-        const desc = saleBeingEdited.adjustmentDescription || '';
-        if (desc) {
-          const parts = desc.split(' / ');
-          parts.forEach((part) => {
-            const partTrimmed = part.trim();
-            const match = partTrimmed.match(/^(Desc|Recargo)\s(.+)$/);
-            if (!match) return;
+      const desc = saleBeingEdited.adjustmentDescription || '';
+      if (desc) {
+        const parts = desc.split(' / ');
+        parts.forEach((part) => {
+          const partTrimmed = part.trim();
+          const match = partTrimmed.match(/^(Desc|Recargo)\s(.+)$/);
+          if (!match) return;
 
-            const type = match[1];
-            let valueStr = match[2];
+          const type = match[1];
+          const valueStr = match[2];
 
-            if (valueStr.endsWith('%')) {
-              const value = valueStr.replace('%', '').trim();
-              if (type === 'Desc') setDiscountPercent(value);
-              else setRecargoPercent(value);
-            } else {
-              const value = valueStr.replace(/[^\d,.]/g, '').trim();
-              if (type === 'Desc') setDiscountAmount(value);
-              else setRecargoAmount(value);
-            }
-          });
-        } else {
-          const adj = saleBeingEdited.adjustmentAmount || 0;
-          if (adj < 0) {
-            setDiscountAmount(formatInput(Math.abs(adj)));
-          } else if (adj > 0) {
-            setRecargoAmount(formatInput(adj));
+          if (valueStr.endsWith('%')) {
+            const value = valueStr.replace('%', '').trim();
+            if (type === 'Desc') setDiscountPercent(value);
+            else setRecargoPercent(value);
+          } else {
+            const value = valueStr.replace(/[^\d,.]/g, '').trim();
+            if (type === 'Desc') setDiscountAmount(value);
+            else setRecargoAmount(value);
           }
-        }
-
-        setCondicionIVA(saleBeingEdited.customer?.Condicion_IVA || 'Consumidor Final');
-        setFacturacionType(saleBeingEdited.facturacion === 'A' ? 'A' : 'B');
-        setBillingDoc(saleBeingEdited.customer?.Documento || '');
-        setBillingDocType(saleBeingEdited.customer?.['Tipo.Documento'] || 'DNI');
+        });
       } else {
-        const defaultCustomer = preSelectedCustomer ||
-          finalConsumer ||
-          (customers.length > 0 ? customers[0] : null);
-
-        setSelectedCustomer(defaultCustomer);
-        setCondicionIVA(defaultCustomer?.Condicion_IVA || 'Consumidor Final');
-        setBillingDoc(defaultCustomer?.Documento || '');
-        setBillingDocType(defaultCustomer?.['Tipo.Documento'] || 'DNI');
-        setDigital('');
-        setCredit('');
-        setEcheqs([]);
-        setGenerateInvoice(false);
-        setDiscountPercent('');
-        setDiscountAmount('');
-        setRecargoPercent('');
-        setRecargoAmount('');
+        const adj = saleBeingEdited.adjustmentAmount || 0;
+        if (adj < 0) {
+          setDiscountAmount(formatInput(Math.abs(adj)));
+        } else if (adj > 0) {
+          setRecargoAmount(formatInput(adj));
+        }
       }
-    }
-  }
 
-  if (selectedCustomer !== prevSelectedCustomer) {
-    setPrevSelectedCustomer(selectedCustomer);
-    if (selectedCustomer) {
-      setCondicionIVA(selectedCustomer.Condicion_IVA || 'Consumidor Final');
-      setBillingDoc(selectedCustomer.Documento || '');
-      setBillingDocType(selectedCustomer['Tipo.Documento'] || 'DNI');
-      if (!isCtaCteEnabled) {
-        setCredit('');
-      }
+      setCondicionIVA(saleBeingEdited.customer?.Condicion_IVA || 'Consumidor Final');
+      setFacturacionType(saleBeingEdited.facturacion === 'A' ? 'A' : 'B');
+      setBillingDoc(saleBeingEdited.customer?.Documento || '');
+      setBillingDocType(saleBeingEdited.customer?.['Tipo.Documento'] || 'DNI');
+      return;
     }
-  }
 
-  if (condicionIVA !== prevCondicionIVA) {
-    setPrevCondicionIVA(condicionIVA);
+    const defaultCustomer = preSelectedCustomer || finalConsumer || (customers.length > 0 ? customers[0] : null);
+    setSelectedCustomer(defaultCustomer);
+    setCondicionIVA(defaultCustomer?.Condicion_IVA || 'Consumidor Final');
+    setBillingDoc(defaultCustomer?.Documento || '');
+    setBillingDocType(defaultCustomer?.['Tipo.Documento'] || 'DNI');
+    setDigital('');
+    setCredit('');
+    setEcheqs([]);
+    setGenerateInvoice(false);
+    setDiscountPercent('');
+    setDiscountAmount('');
+    setRecargoPercent('');
+    setRecargoAmount('');
+  }, [isOpen, saleBeingEdited, customers, preSelectedCustomer]);
+
+  useEffect(() => {
+    if (!selectedCustomer) return;
+    setCondicionIVA(selectedCustomer.Condicion_IVA || 'Consumidor Final');
+    setBillingDoc(selectedCustomer.Documento || '');
+    setBillingDocType(selectedCustomer['Tipo.Documento'] || 'DNI');
+    if (!saleBeingEdited && !isCtaCteEnabled) {
+      setCredit('');
+    }
+  }, [selectedCustomer, isCtaCteEnabled, saleBeingEdited]);
+
+  useEffect(() => {
     if (condicionIVA === 'Responsable Inscripto') {
       setFacturacionType('A');
       setBillingDocType('CUIT');
-    } else {
-      setFacturacionType('B');
+      return;
     }
-  }
+    setFacturacionType('B');
+  }, [condicionIVA]);
 
   // Dynamic cash adjustment - this one is tricky because it depends on many things.
   // We'll keep it as an effect but use a ref or something to avoid the warning if possible,
@@ -236,9 +270,11 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
   const roundedCashNeeded = Math.ceil(cashNeeded > 0 ? cashNeeded : 0);
   const formattedCashNeeded = formatInput(roundedCashNeeded);
 
-  if (!saleBeingEdited && isOpen && cash !== formattedCashNeeded) {
-    setCash(formattedCashNeeded);
-  }
+  useEffect(() => {
+    if (!saleBeingEdited && isOpen && cash !== formattedCashNeeded) {
+      setCash(formattedCashNeeded);
+    }
+  }, [saleBeingEdited, isOpen, cash, formattedCashNeeded]);
 
   const handleAddEcheq = () => {
     setEcheqs((prev) => [...prev, { amount: 0, days: 0 }]);

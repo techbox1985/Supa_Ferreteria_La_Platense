@@ -3345,10 +3345,22 @@ export const updateSale = async (originalSale: Sale, updatedSale: Sale): Promise
 
 export const updateSalePaymentAllocationSupabase = async (
     saleId: string,
-    payment: { cash: number; digital: number; credit: number }
+    payment: { cash: number; digital: number; credit: number; echeqs?: any }
 ): Promise<void> => {
     if (!supabase) throw new Error('Supabase no inicializado');
     if (!saleId) throw new Error('ID de venta inválido');
+
+    const { data: saleRow, error: saleRowError } = await supabase
+        .from('st_sales')
+        .select('id, customer_id, sold_at, shift_id, notes')
+        .eq('id', saleId)
+        .maybeSingle();
+
+    if (saleRowError) throw saleRowError;
+    if (!saleRow) throw new Error('No se encontró la venta a actualizar.');
+
+    const { adjustmentDescription } = extractSaleNotesAndEcheqs(saleRow.notes);
+    const notes = buildSaleNotesWithEcheqs(adjustmentDescription, payment.echeqs);
 
     const { error } = await supabase
         .from('st_sales')
@@ -3356,16 +3368,86 @@ export const updateSalePaymentAllocationSupabase = async (
             payment_cash: Number(payment.cash || 0),
             payment_digital: Number(payment.digital || 0),
             payment_credit: Number(payment.credit || 0),
+            notes,
             updated_at: new Date().toISOString(),
         })
         .eq('id', saleId);
 
     if (error) throw error;
+
+    const creditAmount = Number(payment.credit || 0);
+    const customerId = saleRow.customer_id ? String(saleRow.customer_id) : null;
+
+    const { data: existingTxRows, error: txFetchError } = await supabase
+        .from('st_account_transactions')
+        .select('id, items, factura_info, date, created_at')
+        .eq('original_sale_id', saleId)
+        .eq('type', 'Venta')
+        .order('created_at', { ascending: true });
+
+    if (txFetchError) throw txFetchError;
+
+    const txRows = Array.isArray(existingTxRows) ? existingTxRows : [];
+    const primaryTx = txRows[0] || null;
+
+    if (txRows.length > 1) {
+        const duplicateIds = txRows.slice(1).map((row: any) => row.id).filter(Boolean);
+        if (duplicateIds.length > 0) {
+            const { error: deleteDuplicatesError } = await supabase
+                .from('st_account_transactions')
+                .delete()
+                .in('id', duplicateIds);
+            if (deleteDuplicatesError) throw deleteDuplicatesError;
+        }
+    }
+
+    if (!customerId || creditAmount <= 0) {
+        if (primaryTx?.id) {
+            const { error: deleteTxError } = await supabase
+                .from('st_account_transactions')
+                .delete()
+                .eq('id', primaryTx.id);
+
+            if (deleteTxError) throw deleteTxError;
+        }
+        return;
+    }
+
+    const soldAtIso = saleRow.sold_at ? new Date(saleRow.sold_at).toISOString() : new Date().toISOString();
+    const txPayload = {
+        customer_id: customerId,
+        type: 'Venta',
+        description: 'Venta a cuenta corriente',
+        debit: creditAmount,
+        credit: 0,
+        original_sale_id: saleId,
+        shift_id: saleRow.shift_id || null,
+        items: primaryTx?.items ?? null,
+        factura_info: primaryTx?.factura_info ?? null,
+        date: soldAtIso,
+        updated_at: new Date().toISOString(),
+    };
+
+    if (primaryTx?.id) {
+        const { error: updateTxError } = await supabase
+            .from('st_account_transactions')
+            .update(txPayload)
+            .eq('id', primaryTx.id);
+
+        if (updateTxError) throw updateTxError;
+        return;
+    }
+
+    const { error: insertTxError } = await supabase
+        .from('st_account_transactions')
+        .insert([{ ...txPayload, created_at: new Date().toISOString() }]);
+
+    if (insertTxError) throw insertTxError;
 };
 
 export const updateSalePaymentAllocation = async (
     saleId: string,
-    payment: { cash: number; digital: number; credit: number }
+    payment: { cash: number; digital: number; credit: number; echeqs?: any }
 ): Promise<void> => {
     return updateSalePaymentAllocationSupabase(saleId, payment);
 };
