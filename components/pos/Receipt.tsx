@@ -12,7 +12,7 @@ const formatCurrency = (amount: number) => {
     }).format(amount);
 };
 
-const COMPANY_LOGO = '/logo-flp.svg';
+const COMPANY_LOGO = '/logo-la-platense.png';
 const COMPANY_NAME = 'Ferreteria La Platense';
 const COMPANY_ADDRESS = 'Av. 31 776, C1900 La Plata';
 const COMPANY_CUIT = '30716380188';

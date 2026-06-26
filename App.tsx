@@ -887,7 +887,7 @@ const AppContent: React.FC = () => {
             Ingresos: 0,
             Online: false,
             Imagen: '',
-            FOTOGRAFIA: '/logo-flp.svg',
+            FOTOGRAFIA: '/logo-la-platense.png',
             'Ultima.Actualizacion': '',
             'Venta.PV': 0,
         };

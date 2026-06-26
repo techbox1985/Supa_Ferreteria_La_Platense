@@ -37,7 +37,7 @@ const Header: React.FC<HeaderProps> = ({ onRefresh, isRefreshing, isOnline, pend
         {/* Bloque Izquierdo */}
         <div className="flex items-center space-x-4 sm:space-x-6 flex-shrink-0 min-w-0">
         <div className="relative group">
-          <img src="/logo-flp.svg" alt="Ferreteria La Platense Logo" className="h-10 transition-transform duration-300 group-hover:scale-105" />
+          <img src="/logo-la-platense.png" alt="Ferreteria La Platense Logo" className="h-10 transition-transform duration-300 group-hover:scale-105" />
           <span className="absolute -top-2 -right-12 bg-primary-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm tracking-wider uppercase">
             Nueva
           </span>
