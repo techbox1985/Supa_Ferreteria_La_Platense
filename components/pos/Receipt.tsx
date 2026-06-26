@@ -14,8 +14,9 @@ const formatCurrency = (amount: number) => {
 
 const COMPANY_LOGO = '/logo-flp.svg';
 const COMPANY_NAME = 'Ferreteria La Platense';
-const COMPANY_ADDRESS = 'Av. 32 808, B1900 La Plata';
-const COMPANY_CUIT = '30718499069';
+const COMPANY_ADDRESS = 'Av. 31 776, C1900 La Plata';
+const COMPANY_CUIT = '30716380188';
+const COMPANY_PHONE = '0221 399-8374';
 const COMPANY_IVA = 'Responsable Inscripto';
 
 const renderCompanyInfo = () => `
@@ -23,6 +24,7 @@ const renderCompanyInfo = () => `
         <p>Empresa: ${COMPANY_NAME}</p>
         <p>Dirección: ${COMPANY_ADDRESS}</p>
         <p>CUIT: ${COMPANY_CUIT}</p>
+        <p>Tel�fono: ${COMPANY_PHONE}</p>
     </div>
 `;
 
