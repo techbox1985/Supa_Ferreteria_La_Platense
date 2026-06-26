@@ -13,7 +13,7 @@ const formatCurrency = (amount: number) => {
 };
 
 const COMPANY_LOGO = 'https://tolosarefrigeracion.com.ar/wp-content/uploads/2024/12/LOGO-min.png';
-const COMPANY_NAME = 'Tolosa Refrigeracion';
+const COMPANY_NAME = 'Ferreteria La Platense';
 const COMPANY_ADDRESS = 'Av. 32 808, B1900 La Plata';
 const COMPANY_CUIT = '30718499069';
 const COMPANY_IVA = 'Responsable Inscripto';
