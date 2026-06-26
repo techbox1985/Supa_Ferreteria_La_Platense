@@ -41,7 +41,7 @@ export const sendTicketViaWhatsApp = (
 
     const fiscalMessageParts = [
       `Hola *${customer['Nombre y Apellido']}*,`,
-      `Te enviamos el comprobante fiscal de tu compra en *Refrigeración Tolosa*.`,
+      `Te enviamos el comprobante fiscal de tu compra en *Ferreteria La Platense*.`,
       '',
       facturaLine,
       `CAE: ${sale.facturaInfo!.cae}`,
@@ -51,7 +51,7 @@ export const sendTicketViaWhatsApp = (
       fiscalReceiptUrl,
       '',
       'Gracias por tu compra.',
-      '_Refrigeración Tolosa_',
+      '_Ferreteria La Platense_',
     ];
 
     const fiscalMessage = fiscalMessageParts.join('\n');
@@ -85,7 +85,7 @@ export const sendTicketViaWhatsApp = (
   // --- Assembling the final message with WhatsApp formatting ---
 
   const messageParts = [
-    '*Refrigeración Tolosa*',
+    '*Ferreteria La Platense*',
     '_Comprobante de Venta_',
     '', // Spacer
     `Estimado/a *${customer['Nombre y Apellido']}*,`,

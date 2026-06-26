@@ -21,7 +21,7 @@ function getAiClient() {
 
 export const generateProductDescription = async (product: Product): Promise<string> => {
   const prompt = `
-    Eres un experto en marketing para una tienda de repuestos de refrigeración llamada "Refrigeración Tolosa".
+    Eres un experto en marketing para una ferreteria y tienda de articulos para construccion, herramientas y mantenimiento llamada "Ferreteria La Platense".
     Genera una descripción de producto atractiva y profesional, de 2 a 3 frases, para el siguiente artículo.
     Enfócate en los beneficios y la calidad. No incluyas el precio.
 

@@ -887,7 +887,7 @@ const AppContent: React.FC = () => {
             Ingresos: 0,
             Online: false,
             Imagen: '',
-            FOTOGRAFIA: 'https://tolosarefrigeracion.com.ar/wp-content/uploads/2024/12/LOGO-min.png',
+            FOTOGRAFIA: '/logo-flp.svg',
             'Ultima.Actualizacion': '',
             'Venta.PV': 0,
         };

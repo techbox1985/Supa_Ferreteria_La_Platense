@@ -130,7 +130,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ children }) => {
             <div className="p-10 bg-white rounded-2xl shadow-premium border border-slate-200/60 w-full max-w-md m-4 transform transition-all duration-500 hover:scale-[1.01]">
                 <div className="text-center mb-10">
                     <div className="relative inline-block">
-                        <img src="https://tolosarefrigeracion.com.ar/wp-content/uploads/2024/12/LOGO-min.png" alt="Refrigeración Tolosa Logo" className="h-20 mx-auto mb-6 drop-shadow-sm" />
+                        <img src="/logo-flp.svg" alt="Ferreteria La Platense Logo" className="h-20 mx-auto mb-6 drop-shadow-sm" />
                         <span className="absolute -top-2 -right-8 bg-primary-900 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm tracking-wider uppercase">
                             Nueva
                         </span>
