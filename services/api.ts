@@ -4292,218 +4292,45 @@ export const convertBudgetToSaleSupabase = async (
     customer: any,
     total: number,
     adjustmentAmount: number,
-    adjustmentDescription: string
+    adjustmentDescription: string,
+    cashierProfileId?: string
 ): Promise<any> => {
-
-
-    // --- Normalización defensiva de customer e items (solo propiedades reales) ---
-    // Normalizar customer
-    const safeCustomer = customer && typeof customer === 'object' ? customer : {};
-    const safeCustomerId = (typeof safeCustomer.Id_Cliente === 'string' && safeCustomer.Id_Cliente !== '0' && !safeCustomer.Id_Cliente.startsWith('CLAD'))
-        ? safeCustomer.Id_Cliente : null;
-    const safeCustomerName = typeof safeCustomer['Nombre y Apellido'] === 'string' && safeCustomer['Nombre y Apellido'].trim() !== ''
-        ? safeCustomer['Nombre y Apellido'] : 'Consumidor Final';
-    const safeCustomerDocumento = typeof safeCustomer.Documento === 'string' ? safeCustomer.Documento : null;
-
-    // Normalizar items (CartItem shape: { product: Product, quantity: number, price: number })
-    const rawItems = Array.isArray(budget?.items) ? budget.items : [];
-    const normalizedItems = rawItems.map((item) => {
-        const product = item && typeof item === 'object' && item.product && typeof item.product === 'object' ? item.product : null;
-        const productCode = product && typeof product.cod === 'string' ? product.cod : null;
-        const productName = product && typeof product.Producto === 'string' ? product.Producto : '';
-        const quantity = typeof item.quantity === 'number' && !isNaN(item.quantity) ? item.quantity : 0;
-        const price = typeof item.price === 'number' && !isNaN(item.price) ? item.price : 0;
-        const subtotal = quantity * price;
-        return {
-            productCode,
-            productName,
-            quantity,
-            price,
-            subtotal,
-            _original: item
-        };
-    });
-
-    // Validaciones defensivas
-    if (!safeCustomerId) {
-        // ...existing code...
-        throw new Error('Presupuesto sin cliente válido');
-    }
-    if (!normalizedItems.length) {
-        // ...existing code...
-        throw new Error('Presupuesto sin ítems válidos para convertir');
-    }
-    for (const item of normalizedItems) {
-        if (!item.productCode || !item.productName || item.quantity <= 0) {
-            // ...existing code...
-            throw new Error('Ítem de presupuesto inválido: falta código, nombre o cantidad');
-        }
-    }
-
-    // Log de diagnóstico de normalización
-    // ...existing code...
-
-    // ...existing code...
-    // ...existing code...
-    // payload eliminado: no se usaba
     if (!supabase) throw new Error('Supabase no inicializado');
 
-    const { data: currentBudget, error: currentBudgetError } = await supabase
-        .from('st_budgets')
-        .select('id, converted_to_sale_id, status')
-        .eq('id', budget.id)
-        .maybeSingle();
+    void customer;
+    void adjustmentAmount;
+    void adjustmentDescription;
 
-    if (currentBudgetError) {
-        // ...existing code...
-        throw currentBudgetError;
-    }
-    if (!currentBudget) {
-        // ...existing code...
-        throw new Error('No se encontró el presupuesto.');
-    }
-    if (currentBudget.converted_to_sale_id) {
-        // ...existing code...
-        throw new Error('Este presupuesto ya fue convertido a venta.');
-    }
+    const paymentCash = Number(payment?.cash ?? 0);
+    const paymentDigital = Number(payment?.digital ?? 0);
+    const paymentCredit = Number(payment?.credit ?? 0);
 
-    const { data: lastSale, error: lastSaleError } = await supabase
-        .from('st_sales')
-        .select('sale_number')
-        .order('sale_number', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    const { data, error } = await supabase.rpc('convert_budget_to_sale', {
+        p_budget_id: budget.id,
+        p_cashier_profile_id: cashierProfileId || null,
+        p_shift_id: shiftId,
+        p_payment_cash: paymentCash,
+        p_payment_digital: paymentDigital,
+        p_payment_credit: paymentCredit,
+        p_invoice_type: (facturacion || 'N').toUpperCase(),
+    });
 
-    if (lastSaleError) {
-        // ...existing code...
-        throw lastSaleError;
+    if (error) {
+        throw new Error(error.message || 'No se pudo convertir el presupuesto.');
     }
 
-    const nextSaleNumber = Number(lastSale?.sale_number ?? 0) + 1;
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.sale_id) {
+        throw new Error(result?.message || 'Conversión inválida: no se recibió venta creada.');
+    }
 
-
-    // Usar siempre safeCustomerId
-    const customerId = safeCustomerId;
-
-    const saleInsert = {
-        sale_number: nextSaleNumber,
-        sold_at: new Date().toISOString(),
-        customer_id: customerId,
-        shift_id: shiftId || null,
-        subtotal: Number(total ?? 0) - Number(adjustmentAmount ?? 0),
-        adjustment_amount: Number(adjustmentAmount ?? 0),
-        total: Number(total ?? 0),
-        payment_cash: Number(payment?.cash ?? 0),
-        payment_digital: Number(payment?.digital ?? 0),
-        payment_credit: Number(payment?.credit ?? 0),
-        invoice_type: facturacion || 'N',
-        status: 'active',
-        customer_name_snapshot: safeCustomerName,
-        customer_document_snapshot: safeCustomerDocumento,
-        notes: buildSaleNotesWithEcheqs(adjustmentDescription, payment?.echeqs)
+    return {
+        sale_id: result.sale_id,
+        sale_number: Number(result.sale_number ?? 0),
+        total: Number(result.total ?? total ?? 0),
+        status: result.status || 'success',
+        message: result.message || 'Presupuesto convertido correctamente.',
     };
-
-    const { data: insertedSale, error: saleError } = await supabase
-        .from('st_sales')
-        .insert([saleInsert])
-        .select()
-        .single();
-
-    if (saleError) {
-        // ...existing code...
-        throw saleError;
-    }
-    // ...existing code...
-
-
-    const productCodes = normalizedItems.map(i => i.productCode).filter((c): c is string => !!c);
-
-    let productMap = new Map<string, string>();
-
-    if (productCodes.length > 0) {
-        const { data: productRows, error: productError } = await supabase
-            .from('st_products')
-            .select('id, cod')
-            .in('cod', productCodes);
-
-        if (productError) {
-            // ...existing code...
-            await supabase.from('st_sales').delete().eq('id', insertedSale.id);
-            throw productError;
-        }
-
-        productMap = new Map((productRows || []).map((p: any) => [p.cod, p.id]));
-        // ...existing code...
-    }
-
-
-    const itemsToInsert = normalizedItems.map(item => ({
-        sale_id: insertedSale.id,
-        product_id: item.productCode ? productMap.get(item.productCode) || null : null,
-        product_code: item.productCode,
-        product_name_snapshot: item.productName,
-        quantity: item.quantity,
-        unit_price: item.price,
-        line_total: item.subtotal
-    }));
-
-    if (itemsToInsert.length > 0) {
-        const { error: itemsError } = await supabase
-            .from('st_sale_items')
-            .insert(itemsToInsert);
-
-        if (itemsError) {
-            // ...existing code...
-            await supabase.from('st_sales').delete().eq('id', insertedSale.id);
-            throw itemsError;
-        }
-        // ...existing code...
-    }
-
-    if (customerId && Number(payment?.credit ?? 0) > 0) {
-        const debitMovement = {
-            customer_id: customerId,
-            type: 'Venta',
-            description: 'Venta generada desde presupuesto',
-            debit: Number(payment.credit),
-            credit: 0,
-            original_sale_id: insertedSale.id,
-            shift_id: shiftId || null,
-            items: JSON.stringify(normalizedItems),
-            factura_info: null,
-            date: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-        };
-
-        const { error: debitError } = await supabase
-            .from('st_account_transactions')
-            .insert([debitMovement]);
-
-        if (debitError) {
-            // ...existing code...
-        } else {
-            // ...existing code...
-        }
-    }
-
-    const { error: budgetUpdateError } = await supabase
-        .from('st_budgets')
-        .update({
-            converted_to_sale_id: insertedSale.id,
-            status: 'approved',
-            updated_at: new Date().toISOString()
-        })
-        .eq('id', budget.id);
-
-    if (budgetUpdateError) {
-        // ...existing code...
-        await supabase.from('st_sale_items').delete().eq('sale_id', insertedSale.id);
-        await supabase.from('st_sales').delete().eq('id', insertedSale.id);
-        throw budgetUpdateError;
-    }
-
-    // ...existing code...
-    return insertedSale;
 }
 
 export const convertBudgetToSale = async (
@@ -4514,7 +4341,8 @@ export const convertBudgetToSale = async (
     customer: any,
     total: number,
     adjustmentAmount: number,
-    adjustmentDescription: string
+    adjustmentDescription: string,
+    cashierProfileId?: string
 ): Promise<any> => {
     return convertBudgetToSaleSupabase(
         budget,
@@ -4524,7 +4352,8 @@ export const convertBudgetToSale = async (
         customer,
         total,
         adjustmentAmount,
-        adjustmentDescription
+        adjustmentDescription,
+        cashierProfileId
     );
 };
 

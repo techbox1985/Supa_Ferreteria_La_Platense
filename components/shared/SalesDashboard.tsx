@@ -109,6 +109,41 @@ const normalizeSaleForPaymentEdit = (sale: Sale): Sale => ({
   payment: resolveSalePaymentForEdit(sale),
 });
 
+const buildCheckoutCartFromBudget = (sale: SaleWithDocumentType): CartItem[] => {
+  const items = Array.isArray(sale.items) ? sale.items : [];
+  return items
+    .map((item, index) => {
+      const price = Number(item?.price ?? item?.product?.Precio ?? item?.product?.['Precio Final'] ?? 0);
+      const quantity = Number(item?.quantity ?? 0);
+      const productName = String(item?.product?.Producto || 'Producto').trim();
+      const productCode = String(item?.product?.cod || `BUDGET_ITEM_${sale.id}_${index}`).trim();
+
+      return {
+        product: {
+          ...item.product,
+          cod: productCode,
+          Producto: productName,
+          Precio: price,
+          'Precio Final': price,
+        },
+        quantity,
+        price,
+      } as CartItem;
+    })
+    .filter((item) => item.quantity > 0);
+};
+
+const buildSyntheticFinalConsumer = (): Customer => ({
+  Id_Cliente: '0',
+  'Nombre y Apellido': 'Consumidor Final',
+  Whatsapp: '',
+  'Tipo.Documento': 'DNI',
+  Documento: '',
+  Condicion_IVA: 'Consumidor Final',
+  Deuda: 0,
+  Pagos: 0,
+});
+
 // Una venta está electrónicamente facturada solo si tiene AMBOS: un CAE real y un número de comprobante.
 // No basta con tener un ticketUrl interno, una URL de impresión común ni un campo billing_cae
 // sin número de comprobante asociado.
@@ -744,6 +779,17 @@ export const SalesDashboard: React.FC<
     credit: '0',
     isSaving: false,
   });
+  const [budgetCheckoutState, setBudgetCheckoutState] = useState<{
+    isOpen: boolean;
+    sale: SaleWithDocumentType | null;
+    preSelectedCustomer: Customer | null;
+    isSaving: boolean;
+  }>({
+    isOpen: false,
+    sale: null,
+    preSelectedCustomer: null,
+    isSaving: false,
+  });
   const [patchedPayments, setPatchedPayments] = useState<Map<string, { cash: number; digital: number; credit: number }>>(new Map());
   const [patchedAdjustments, setPatchedAdjustments] = useState<Map<string, { adjustmentAmount: number; adjustmentDescription: string; total: number }>>(new Map());
   const [patchedSaleVisualState, setPatchedSaleVisualState] = useState<
@@ -1370,6 +1416,16 @@ export const SalesDashboard: React.FC<
     });
   }, [paymentEditState.isSaving]);
 
+  const handleCloseBudgetCheckoutModal = useCallback(() => {
+    if (budgetCheckoutState.isSaving) return;
+    setBudgetCheckoutState({
+      isOpen: false,
+      sale: null,
+      preSelectedCustomer: null,
+      isSaving: false,
+    });
+  }, [budgetCheckoutState.isSaving]);
+
   const handleFinalizeCheckoutPaymentEdit = useCallback(async (updatedSale: Sale) => {
     if (!paymentEditState.sale) throw new Error('No hay venta para editar.');
 
@@ -1683,6 +1739,106 @@ export const SalesDashboard: React.FC<
     const remitoHtml = generateRemitoHtml(sale);
     openHtmlInNewWindow(remitoHtml, 'width=800,height=600,scrollbars=yes,resizable=yes');
   }, []);
+
+  const handleOpenBudgetCheckout = useCallback((sale: SaleWithDocumentType) => {
+    if (sale.document_type !== 'budget') return;
+
+    if (sale.converted_to_sale_id) {
+      addToast('Este presupuesto ya fue convertido a venta.', 'info');
+      return;
+    }
+
+    const customerId = String(sale.customer?.Id_Cliente || '').trim();
+    const customerFromList = customerId ? customers.find((c) => c.Id_Cliente === customerId) || null : null;
+    const fallbackFinalConsumer =
+      customers.find(
+        (c) => c.Id_Cliente === '0' || String(c['Nombre y Apellido'] || '').trim().toLowerCase() === 'consumidor final'
+      ) || null;
+
+    const preSelectedCustomer = customerFromList || sale.customer || fallbackFinalConsumer || buildSyntheticFinalConsumer();
+
+    setBudgetCheckoutState({
+      isOpen: true,
+      sale,
+      preSelectedCustomer,
+      isSaving: false,
+    });
+  }, [addToast, customers]);
+
+  const handleFinalizeBudgetCheckout = useCallback(async (checkoutSale: Sale, generateInvoice: boolean) => {
+    const selectedBudget = budgetCheckoutState.sale;
+    if (!selectedBudget) throw new Error('No hay presupuesto seleccionado para convertir.');
+
+    if (selectedBudget.converted_to_sale_id) {
+      throw new Error('El presupuesto ya fue convertido anteriormente.');
+    }
+
+    if (!currentUser?.ID_Usuario) {
+      throw new Error('No se pudo identificar al usuario actual.');
+    }
+
+    if (generateInvoice) {
+      throw new Error('La conversión de presupuesto no emite factura electrónica en este paso. Convertí sin facturar y facturá desde la venta si corresponde.');
+    }
+
+    let operationalShift = activeShift;
+    if (!operationalShift && currentUser?.Rol === 'Admin') {
+      operationalShift = await api.getAnyActiveShiftSupabase();
+    }
+
+    if (!operationalShift) {
+      throw new Error('Caja no abierta: abrí un turno activo para convertir el presupuesto.');
+    }
+
+    setBudgetCheckoutState((prev) => ({ ...prev, isSaving: true }));
+
+    try {
+      const payment = checkoutSale.payment || { cash: 0, digital: 0, credit: 0, echeqs: [] };
+      const budgetPayload: Budget = {
+        id: selectedBudget.id,
+        date: selectedBudget.date,
+        customer: selectedBudget.customer,
+        items: selectedBudget.items,
+        subtotal: Number(selectedBudget.subtotal ?? 0),
+        adjustmentAmount: Number(selectedBudget.adjustmentAmount ?? 0),
+        total: Number(selectedBudget.total ?? 0),
+        status: 'pending',
+        converted_to_sale_id: selectedBudget.converted_to_sale_id || null,
+        shiftId: selectedBudget.shiftId || '',
+      };
+
+      const result = await api.convertBudgetToSaleSupabase(
+        budgetPayload,
+        payment,
+        operationalShift.ID_Turno,
+        checkoutSale.facturacion || 'N',
+        checkoutSale.customer,
+        Number(checkoutSale.total ?? selectedBudget.total ?? 0),
+        Number(checkoutSale.adjustmentAmount ?? selectedBudget.adjustmentAmount ?? 0),
+        checkoutSale.adjustmentDescription || '',
+        currentUser.ID_Usuario
+      );
+
+      addToast(
+        `Presupuesto convertido correctamente. Venta #${result?.sale_number || '-'} creada.`,
+        'success'
+      );
+
+      setBudgetCheckoutState({
+        isOpen: false,
+        sale: null,
+        preSelectedCustomer: null,
+        isSaving: false,
+      });
+
+      await refreshData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo convertir el presupuesto.';
+      addToast(message, 'error');
+      setBudgetCheckoutState((prev) => ({ ...prev, isSaving: false }));
+      throw error;
+    }
+  }, [activeShift, addToast, budgetCheckoutState.sale, currentUser, refreshData]);
 
   const handleOpenSendModal = useCallback(
     (sale: Sale) => {
@@ -2158,6 +2314,20 @@ export const SalesDashboard: React.FC<
         isBudgetMode={false}
       />
 
+      <CheckoutModal
+        isOpen={budgetCheckoutState.isOpen}
+        onClose={handleCloseBudgetCheckoutModal}
+        cart={budgetCheckoutState.sale ? buildCheckoutCartFromBudget(budgetCheckoutState.sale) : []}
+        customers={customers}
+        onFinalizeSale={handleFinalizeBudgetCheckout}
+        onAddNewCustomer={() => {
+          addToast('El alta de clientes no está habilitada desde esta conversión.', 'info');
+        }}
+        saleBeingEdited={null}
+        isBudgetMode={false}
+        preSelectedCustomer={budgetCheckoutState.preSelectedCustomer}
+      />
+
       {saleToBill && (
         <BillingModal
           isOpen={!!saleToBill}
@@ -2321,16 +2491,18 @@ export const SalesDashboard: React.FC<
                   {!isSellerRole && (
                     <button
                       onClick={() => {
-                        if (typeof window !== 'undefined') {
-                          const event = new CustomEvent('edit-sale', { detail: selectedItemForActions.item });
-                          window.dispatchEvent(event);
-                        }
+                        handleOpenBudgetCheckout(selectedItemForActions.item as SaleWithDocumentType);
                         setSelectedItemForActions(null);
                       }}
+                      disabled={Boolean((selectedItemForActions.item as SaleWithDocumentType).converted_to_sale_id)}
                       className="flex items-center space-x-3 w-full p-3 text-left hover:bg-blue-50 text-blue-700 rounded-xl transition-colors"
                     >
                       <Icon path="M12 4v16m8-8H4" className="w-6 h-6" />
-                      <span className="font-medium">Convertir a Venta</span>
+                      <span className="font-medium">
+                        {Boolean((selectedItemForActions.item as SaleWithDocumentType).converted_to_sale_id)
+                          ? 'Ya convertido'
+                          : 'Convertir a Venta'}
+                      </span>
                     </button>
                   )}
 
